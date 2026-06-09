@@ -1,3 +1,6 @@
+> [!NOTE]
+> **Archived.** The Stellar implementation of Opaque Cash is archived and not actively maintained. The team plans to bring it back when there is support for it.
+
 <div align="center">
 
 # Opaque Stellar
@@ -8,7 +11,7 @@
 
 <br/>
 
-[![MIT License](https://img.shields.io/badge/license-MIT-ffd020?style=for-the-badge&labelColor=060914)](LICENSE)
+[![GPLv3 License](https://img.shields.io/badge/license-GPLv3-ffd020?style=for-the-badge&labelColor=060914)](LICENSE)
 [![Stellar Soroban](https://img.shields.io/badge/Soroban-smart%20contracts-00b2ff?style=for-the-badge&labelColor=060914)](https://soroban.stellar.org)
 [![Freighter](https://img.shields.io/badge/wallet-Freighter-ffd020?style=for-the-badge&labelColor=060914)](https://freighter.app)
 
