@@ -1,6 +1,3 @@
-> [!NOTE]
-> **Archived.** The Stellar implementation of Opaque Cash is archived and not actively maintained. The team plans to bring it back when there is support for it.
-
 <div align="center">
 
 # Opaque Stellar
