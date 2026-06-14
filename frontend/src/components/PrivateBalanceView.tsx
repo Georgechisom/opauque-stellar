@@ -787,7 +787,10 @@ export function PrivateBalanceView() {
     keysContext.isSetup,
     keysContext.getMasterKeys,
     ghostEntries,
-    scanner,
+    // Depend on the stable balances slice, not the whole `scanner` object.
+    // useScanner returns a fresh object every render, so depending on it here
+    // (while the effect also calls setGhostTxs) caused an infinite render loop.
+    scanner.ghostBalances,
   ]);
 
   useEffect(() => {

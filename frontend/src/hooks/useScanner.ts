@@ -116,6 +116,23 @@ async function fetchLogsAdaptive(
   let currentFrom = fromBlock;
   const BATCH_SIZE = 10000n; // Ledger range per call
 
+  // Soroban RPC only retains a sliding window of ledgers. Asking for events
+  // from a startLedger older than the oldest retained ledger fails with
+  // -32600, so clamp the start to the oldest retained ledger and proceed.
+  try {
+    const health = await publicClient.getHealth();
+    const oldest = BigInt(health.oldestLedger);
+    if (currentFrom < oldest) {
+      console.warn(
+        "[useScanner] startLedger below RPC retention window, clamping",
+        { requested: String(currentFrom), oldestLedger: String(oldest) },
+      );
+      currentFrom = oldest;
+    }
+  } catch {
+    // Health unavailable, proceed with the requested start ledger.
+  }
+
   while (currentFrom <= toBlock) {
     const currentTo =
       currentFrom + BATCH_SIZE > toBlock ? toBlock : currentFrom + BATCH_SIZE;
