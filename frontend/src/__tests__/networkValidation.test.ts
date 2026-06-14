@@ -3,8 +3,8 @@ import { NetworkValidationService } from "../services/networkValidation";
 import { useSecurityStore } from "../store/securityStore";
 
 vi.mock("@stellar/freighter-api", () => ({
-  isAllowed: vi.fn().mockResolvedValue(true),
-  setAllowed: vi.fn().mockResolvedValue(true),
+  isAllowed: vi.fn().mockResolvedValue({ isAllowed: true }),
+  setAllowed: vi.fn().mockResolvedValue({ isAllowed: true }),
   getNetworkDetails: vi.fn()
 }));
 

@@ -22,24 +22,30 @@ export function NetworkMismatchModal() {
   const check = useCallback(async () => {
     setChecking(true);
     try {
-      if (!(await isAllowed())) {
+      const allowed = await isAllowed();
+      if (!allowed.isAllowed) {
         // Not connected yet — nothing to reconcile, and we must not prompt here.
         setMismatch(false);
         setWalletNetwork(null);
         return;
       }
       const details = await getNetworkDetails();
-      setWalletNetwork((details?.network ?? "unknown").toLowerCase());
+      if (details.error || !details.networkPassphrase) {
+        setMismatch(false);
+        setWalletNetwork(null);
+        return;
+      }
+      setWalletNetwork((details.network ?? "unknown").toLowerCase());
       // Compare by canonical network passphrase — exact across all networks (Freighter
       // reports mainnet as "PUBLIC", so name matching would be wrong).
-      setMismatch(details?.networkPassphrase !== getNetworkPassphrase());
+      setMismatch(details.networkPassphrase !== getNetworkPassphrase());
     } catch {
       // Can't read the wallet network — don't block; the connect flow surfaces wallet errors.
       setMismatch(false);
     } finally {
       setChecking(false);
     }
-  }, [expected]);
+  }, []);
 
   useEffect(() => {
     void check();

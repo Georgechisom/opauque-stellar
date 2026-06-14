@@ -13,8 +13,10 @@ export class NetworkValidationService {
    */
   static async getWalletNetwork(): Promise<string> {
     try {
-      if (!(await isAllowed())) return "unknown";
+      const allowed = await isAllowed();
+      if (!allowed.isAllowed) return "unknown";
       const details = await getNetworkDetails();
+      if (details.error || !details.network) return "unknown";
       return details.network.toLowerCase();
     } catch (e) {
       console.error("Error getting network details from Freighter:", e);
