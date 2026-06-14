@@ -105,6 +105,24 @@ async function fetchFromSubgraph(
   return null;
 }
 
+/**
+ * Parse the oldest retained ledger from a getEvents -32600 range error, e.g.
+ * "startLedger must be within the ledger range: 1884103 - 3093702". The RPC's
+ * reported oldestLedger (getHealth) can lag this by one or more as the window
+ * slides, so the error itself is the authoritative lower bound.
+ */
+function parseOldestLedgerFromRangeError(err: unknown): number | null {
+  let msg = "";
+  if (err instanceof Error) msg = err.message;
+  else if (typeof err === "string") msg = err;
+  else if (err && typeof err === "object") {
+    const o = err as { message?: unknown };
+    msg = typeof o.message === "string" ? o.message : JSON.stringify(err);
+  }
+  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
+}
+
 async function fetchLogsAdaptive(
   announcerAddress: string,
   fromBlock: bigint,
@@ -137,16 +155,33 @@ async function fetchLogsAdaptive(
     const currentTo =
       currentFrom + BATCH_SIZE > toBlock ? toBlock : currentFrom + BATCH_SIZE;
 
-    const response = await publicClient.getEvents({
+    const getEventsArgs = {
       startLedger: Number(currentFrom),
       filters: [
         {
-          type: "contract",
+          type: "contract" as const,
           contractIds: [announcerAddress],
           topics: [[xdr.ScVal.scvSymbol("Announcement").toXDR("base64")]],
         },
       ],
-    });
+    };
+
+    let response;
+    try {
+      response = await publicClient.getEvents(getEventsArgs);
+    } catch (err) {
+      // The retention window can slide forward between the getHealth clamp
+      // above and this call, so getEvents may still report a startLedger below
+      // its range. Retry once from the authoritative lower bound it reports.
+      const oldest = parseOldestLedgerFromRangeError(err);
+      if (oldest != null && Number(currentFrom) < oldest) {
+        currentFrom = BigInt(oldest);
+        getEventsArgs.startLedger = oldest;
+        response = await publicClient.getEvents(getEventsArgs);
+      } else {
+        throw err;
+      }
+    }
 
     const mapped: CachedAnnouncement[] = response.events.map((ev) => {
       // Event value is (scheme_id, stealth_address, caller, ephemeral_pub_key, metadata)
