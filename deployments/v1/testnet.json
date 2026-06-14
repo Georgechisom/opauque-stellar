@@ -5,48 +5,60 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": null,
-  "deployedAt": null,
-  "deployer": null,
-  "admin": null,
+  "deploymentLedger": 3084125,
+  "deployedAt": "2026-06-14T10:34:46.401Z",
+  "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+  "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "multisig": null,
-  "deploymentStatus": "template",
+  "wiring": {
+    "reputationVerifier": {
+      "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+      "groth16Verifier": "CAQYEHC46KBVGYQUZBXTIWLKOTXOVHTAHHIMH2VOBK4YVFBV65WQ65BX"
+    },
+    "attestationEngineV2": {
+      "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+      "governance": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+      "schemaRegistry": "CBSILYILTRLUL6GPSG3QMQ6VGPL6T6TGDOHNRBN3KXORSKNBAQX7QYFK",
+      "version": 1
+    }
+  },
+  "deploymentStatus": "deployed",
   "contracts": {
     "stealthRegistry": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CATZSQHADFNGTZC2Y5SZNLGHOVZP7RONPWWZZWMQQESCPVMNFF43B6UE",
+      "wasmHash": "6612415551b2ab107afb6732681e1937da1efab18b4db0a7be94bc5bde452a90",
       "package": "stealth-registry"
     },
     "stealthAnnouncer": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CDIB5YJSR2W6JL4XMJV5EQGWCGLQGJQIWNKVCAW7S4XSZRLVW35ANHML",
+      "wasmHash": "c7d936a42d8aeba0642b5fba002ad3af828d662647531df3436d3a8c4ab71a9b",
       "package": "stealth-announcer"
     },
     "groth16Verifier": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CAQYEHC46KBVGYQUZBXTIWLKOTXOVHTAHHIMH2VOBK4YVFBV65WQ65BX",
+      "wasmHash": "faf916cd29a1680ee1986c8054d56bf1746f88e32f61fe6ab9cbe60060a701ca",
       "package": "groth16-verifier"
     },
     "reputationVerifier": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CD3T6Z6VS7ZKC37POUA3MUNKTYW6WTDI4T2VFPDUDHRCRRM7KKL6WLHP",
+      "wasmHash": "3f4237bbf992201270c4405011c3eef4fb20e6ef0d3fcd434c0c99f74665185a",
       "package": "reputation-verifier"
     },
     "schemaRegistry": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CBSILYILTRLUL6GPSG3QMQ6VGPL6T6TGDOHNRBN3KXORSKNBAQX7QYFK",
+      "wasmHash": "154dcfe43e72e8a8147a66f3e589883fca6e29e9dd086d22e122a9c1228b45e3",
       "package": "schema-registry"
     },
     "attestationEngineV2": {
-      "id": "",
-      "wasmHash": "",
+      "id": "CCSPYJK5OM2LUVFBSDWMWTVRMLALHPMCLRI7PPI4YGY2UNNPXOZCTO2B",
+      "wasmHash": "2472a57c4ec498c2bdfad598c2c6d077d8e98b1834e131b0d06f2473702deb04",
       "package": "attestation-engine-v2"
     }
   },
   "artifacts": {
     "frontend": {
       "buildCommit": null,
-      "repository": "https://github.com/collinsadi/opaque"
+      "repository": "https://github.com/opaquecash/stellar"
     },
     "circuits": {
       "v2": {

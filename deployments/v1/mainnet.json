@@ -10,6 +10,7 @@
   "deployer": null,
   "admin": null,
   "multisig": null,
+  "wiring": null,
   "deploymentStatus": "not_deployed",
   "contracts": {
     "stealthRegistry": {
@@ -46,7 +47,7 @@
   "artifacts": {
     "frontend": {
       "buildCommit": null,
-      "repository": "https://github.com/collinsadi/opaque"
+      "repository": "https://github.com/opaquecash/stellar"
     },
     "circuits": {
       "v2": {
