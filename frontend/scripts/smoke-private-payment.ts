@@ -105,38 +105,21 @@ async function nativeBalance(pub: string): Promise<number> {
   return b ? Number(b.balance) : 0;
 }
 
-/**
- * Raw JSON-RPC call. Used for send/getTransaction so we read `status` straight
- * from JSON without the SDK eagerly decoding result-meta XDR — testnet now emits
- * TransactionMeta v4 (Protocol 23+), which this frontend's pinned stellar-sdk
- * (13.1.0) cannot parse ("Bad union switch: 4").
- */
-async function rpcCall(method: string, params: any): Promise<any> {
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(`${method} rpc error: ${JSON.stringify(json.error)}`);
-  return json.result;
-}
-
 async function submit(tx: any, label: string): Promise<any> {
-  const sent = await rpcCall("sendTransaction", { transaction: tx.toXDR() });
+  const sent = await server.sendTransaction(tx);
   if (sent.status === "ERROR") {
-    throw new Error(`${label}: send rejected: ${JSON.stringify(sent.errorResultXdr ?? sent)}`);
+    throw new Error(`${label}: send rejected: ${JSON.stringify(sent.errorResult ?? sent)}`);
   }
   const hash = sent.hash;
   for (let i = 0; i < 30; i++) {
     await sleep(2000);
-    const r = await rpcCall("getTransaction", { hash });
+    const r = await server.getTransaction(hash);
     if (r.status === "SUCCESS") {
       detail(`${label} ✓ ${hash} (ledger ${r.ledger})`);
       return r;
     }
     if (r.status === "FAILED") {
-      throw new Error(`${label}: tx FAILED ${hash}: ${JSON.stringify(r.resultXdr ?? "")}`);
+      throw new Error(`${label}: tx FAILED ${hash}`);
     }
     // NOT_FOUND -> still being applied; keep polling
   }
@@ -248,13 +231,11 @@ async function main() {
   let cursor: string | undefined;
   let scanned = 0;
   for (let page = 0; page < 20 && !recovered; page++) {
-    const params: any = {
-      filters: [{ type: "contract", contractIds: [ANNOUNCER_ID] }],
-      pagination: { limit: 100 },
-    };
-    if (cursor) params.pagination.cursor = cursor;
-    else params.startLedger = announceLedger;
-    const res = await rpcCall("getEvents", params);
+    const res = await server.getEvents(
+      cursor
+        ? { filters: [{ type: "contract", contractIds: [ANNOUNCER_ID] }], limit: 100, cursor }
+        : { filters: [{ type: "contract", contractIds: [ANNOUNCER_ID] }], limit: 100, startLedger: announceLedger },
+    );
     for (const ev of res.events ?? []) {
       scanned++;
       const data = decodeEventValue(ev.value);
