@@ -2,7 +2,7 @@
  * Soroban contract error decoding and user-readable error messages.
  */
 
-import type { rpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 export type SimulationResult = {
   success: boolean;
@@ -112,7 +112,10 @@ export function extractEstimatedFee(
 export function isSimulationSuccess(
   sim: rpc.Api.SimulateTransactionResponse,
 ): sim is rpc.Api.SimulateTransactionSuccessResponse {
-  return !("error" in sim) && "results" in sim && sim.results !== undefined;
+  // Use the SDK's own guard. The previous check required `results` (plural) — the
+  // RAW RPC shape — but the parsed v15 success response exposes `result` (singular),
+  // so the old check misclassified every successful simulation as a failure.
+  return !rpc.Api.isSimulationError(sim);
 }
 
 /**
