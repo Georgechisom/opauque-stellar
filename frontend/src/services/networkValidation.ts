@@ -1,15 +1,19 @@
-import { isAllowed, getNetworkDetails, setAllowed } from "@stellar/freighter-api";
+import { isAllowed, getNetworkDetails } from "@stellar/freighter-api";
 import { useSecurityStore } from "../store/securityStore";
 
 export class NetworkValidationService {
   /**
-   * Returns the current Freighter network details.
+   * Returns the current Freighter network (lowercased), or "unknown" if the wallet
+   * isn't connected/authorized yet.
+   *
+   * Passive read only — it must NOT call setAllowed()/requestAccess(). This runs on
+   * background checks (e.g. the network-mismatch watcher), and prompting for access on
+   * a timer made Freighter pop up repeatedly on the onboarding screen. Access is
+   * requested explicitly via the connect button (see StellarWalletProviders).
    */
   static async getWalletNetwork(): Promise<string> {
-    if (!(await isAllowed())) {
-      await setAllowed();
-    }
     try {
+      if (!(await isAllowed())) return "unknown";
       const details = await getNetworkDetails();
       return details.network.toLowerCase();
     } catch (e) {
