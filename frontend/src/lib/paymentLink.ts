@@ -35,11 +35,12 @@ export interface PaymentLinkError {
  * Validates a meta-address format
  */
 export function isValidMetaAddress(metaAddress: string): boolean {
-  // Must be exactly 66 characters: 0x + 64 hex chars
-  if (metaAddress.length !== 66) return false;
+  // DKSAP stealth meta-address: 0x + 132 hex chars = 66 bytes
+  // (33-byte compressed viewing key V followed by 33-byte compressed spending key S).
+  if (metaAddress.length !== 134) return false;
   if (!metaAddress.startsWith("0x")) return false;
   const hexPart = metaAddress.slice(2);
-  return /^[0-9a-fA-F]{64}$/.test(hexPart);
+  return /^[0-9a-fA-F]{132}$/.test(hexPart);
 }
 
 /**
