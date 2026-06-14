@@ -5,52 +5,52 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": 3086576,
-  "deployedAt": "2026-06-14T13:59:15.120Z",
+  "deploymentLedger": 3086996,
+  "deployedAt": "2026-06-14T14:34:22.094Z",
   "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "multisig": null,
   "wiring": {
     "reputationVerifier": {
       "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
-      "groth16Verifier": "CDFVLLUH6YSU3ASWUQABN73ELW3QWWXDBKKRPB5N5V3SQK243GTPUEBF"
+      "groth16Verifier": "CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T"
     },
     "attestationEngineV2": {
       "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
       "governance": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
-      "schemaRegistry": "CCFUHDMOCDXNX7KLCS3554N5IAWB43AINYNIBRVZR4HL4HPPL5RLFQ5U",
+      "schemaRegistry": "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP",
       "version": 1
     }
   },
   "deploymentStatus": "deployed",
   "contracts": {
     "stealthRegistry": {
-      "id": "CCZOJLKL3JJGUBVQCYNWFPU43ORJMGHRBOAZGXZVAE7IR6X7YHQ3RT75",
+      "id": "CAIXWMGYZR3YAQ3CPCXOU42WG62E3ARUSG4GDHHDMNRXUD44YSGE5VXW",
       "wasmHash": "6612415551b2ab107afb6732681e1937da1efab18b4db0a7be94bc5bde452a90",
       "package": "stealth-registry"
     },
     "stealthAnnouncer": {
-      "id": "CDLXMKFF2D33VBPRVJMR2AJYDRCQ44JTY6PNETZF5KSBTVMREAX7AURV",
+      "id": "CB2Y3GJMPY5BUSZLXG3DSIMERCNCTUM63IIEQ2GUNYEJ3DBKPFIZQGCS",
       "wasmHash": "c7d936a42d8aeba0642b5fba002ad3af828d662647531df3436d3a8c4ab71a9b",
       "package": "stealth-announcer"
     },
     "groth16Verifier": {
-      "id": "CDFVLLUH6YSU3ASWUQABN73ELW3QWWXDBKKRPB5N5V3SQK243GTPUEBF",
-      "wasmHash": "fd3647da6705b02baf54dda3a912eff9a8aaf60ff314aff61ddafd0fac7abede",
+      "id": "CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T",
+      "wasmHash": "ec350ff42b208e4b00f8f0ec5ed7ce7704a78987021b1538bfab3f3a8a59cbb1",
       "package": "groth16-verifier"
     },
     "reputationVerifier": {
-      "id": "CBKQNH3LUMVTGCXKTMEC4MRFDTXWP64J6BDFIUXKDB6CEIF4F76N5RBP",
+      "id": "CBHDKX5YVBLFVZUMCM2355Q3R7EM6SIQYMO7PN7TB46QAIT5SDTQZENA",
       "wasmHash": "78e74e5b7ec8a7e7c8b4da9bb26dfbdba9d1b8e511a10930f3a7c4500807ced9",
       "package": "reputation-verifier"
     },
     "schemaRegistry": {
-      "id": "CCFUHDMOCDXNX7KLCS3554N5IAWB43AINYNIBRVZR4HL4HPPL5RLFQ5U",
+      "id": "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP",
       "wasmHash": "154dcfe43e72e8a8147a66f3e589883fca6e29e9dd086d22e122a9c1228b45e3",
       "package": "schema-registry"
     },
     "attestationEngineV2": {
-      "id": "CACOALD2ZKBBHIMN462I7MJ2XLIZO7SIO5V5K7ZKNRNI4O23NV7TVH4H",
+      "id": "CCM3UIAADYHPTEZTIU6G6HYPXOKSSYGOZJAOWLPODBTDB3GQM2WAAHJU",
       "wasmHash": "2472a57c4ec498c2bdfad598c2c6d077d8e98b1834e131b0d06f2473702deb04",
       "package": "attestation-engine-v2"
     }
