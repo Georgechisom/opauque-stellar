@@ -26,7 +26,8 @@ const MANIFEST_PATH = join(REPO_ROOT, "artifacts", "manifest.json");
 
 function parseArgs(argv) {
   const opts = {
-    versions: ["v1", "v2"],
+    // V2 is canonical; V1 is retired from the default run (still runnable via --version v1).
+    versions: ["v2"],
     compile: false,
     witnessOnly: false,
     full: true,
