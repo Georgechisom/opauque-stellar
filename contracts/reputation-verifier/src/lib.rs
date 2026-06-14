@@ -56,6 +56,17 @@ pub fn compute_external_nullifier(app_id: u64, action_id: u64) -> u64 {
     h ^ (h >> 30)
 }
 
+/// Mirror of groth16-verifier's `VerifyPublicInputsV2`. Field names and types must
+/// match exactly so the cross-contract call serializes to the expected ScMap.
+#[contracttype]
+#[derive(Clone)]
+pub struct VerifyPublicInputsV2 {
+    pub merkle_root: BytesN<32>,
+    pub attestation_id: BytesN<32>,
+    pub external_nullifier: BytesN<32>,
+    pub nullifier_hash: BytesN<32>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct MerkleRootEntry {
@@ -284,24 +295,22 @@ impl ReputationVerifier {
             return Err(ReputationError::NullifierUsed);
         }
 
-        // V1 public signal order (canonical — see docs/PUBLIC_SIGNALS.md):
-        //   [0] nullifier  [1] is_valid (bound to 1)  [2] merkle_root
-        //   [3] attestation_id  [4] external_nullifier
-        // This MUST match circuits/stealth_attestation.circom and the frontend
-        // prover in frontend/src/lib/reputationProver.ts.
-        let mut pub_signals = Vec::new(&env);
-        pub_signals.push_back(nullifier.clone());
-        let mut one = [0u8; 32];
-        one[31] = 1;
-        pub_signals.push_back(BytesN::from_array(&env, &one));
-        pub_signals.push_back(root.clone());
-        pub_signals.push_back(BytesN::from_array(&env, &u64_to_be32(attestation_id)));
-        pub_signals.push_back(BytesN::from_array(&env, &u64_to_be32(external_nullifier)));
+        // V2 public signal order (canonical — see docs/PUBLIC_SIGNALS.md):
+        //   merkle_root, attestation_id, external_nullifier, nullifier_hash.
+        // This MUST match circuits/v2/stealth_reputation.circom and the frontend
+        // prover in frontend/src/lib/reputationProver.ts. The `nullifier` argument
+        // is the circuit's nullifier_hash = Poseidon(stealth_pk, external_nullifier).
+        let public_inputs = VerifyPublicInputsV2 {
+            merkle_root: root.clone(),
+            attestation_id: BytesN::from_array(&env, &u64_to_be32(attestation_id)),
+            external_nullifier: BytesN::from_array(&env, &u64_to_be32(external_nullifier)),
+            nullifier_hash: nullifier.clone(),
+        };
 
         let valid: bool = env.invoke_contract(
             &groth16_verifier,
-            &Symbol::new(&env, "verify_proof"),
-            (proof_a, proof_b, proof_c, pub_signals).into_val(&env),
+            &Symbol::new(&env, "verify_proof_v2"),
+            (proof_a, proof_b, proof_c, public_inputs).into_val(&env),
         );
         if !valid {
             return Err(ReputationError::InvalidProof);
@@ -352,6 +361,16 @@ mod test {
             _proof_b: BytesN<128>,
             _proof_c: BytesN<64>,
             _pub_signals: Vec<BytesN<32>>,
+        ) -> Result<bool, MockVerifierError> {
+            Ok(true)
+        }
+
+        pub fn verify_proof_v2(
+            _env: Env,
+            _proof_a: BytesN<64>,
+            _proof_b: BytesN<128>,
+            _proof_c: BytesN<64>,
+            _public_inputs: VerifyPublicInputsV2,
         ) -> Result<bool, MockVerifierError> {
             Ok(true)
         }
