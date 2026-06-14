@@ -65,13 +65,22 @@ async function buildV2Witness(
   // leaf = Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
   const leaf = F.toObject(poseidon([stealthPk, schemaId, issuerPkX, traitDataHash, nonce]));
 
+  // Zero-subtree hashes (empty-subtree roots): z[0] = 0, z[i] = Poseidon(z[i-1], z[i-1]).
+  // For the holder's leaf at index 0 of an otherwise-empty tree these are the sibling
+  // values, matching the scanner / Phase 3 indexer tree (scanner/src/merkle.rs). Phase 3
+  // serves the real inclusion path for multi-leaf sets; this single-leaf path is the
+  // degenerate case and produces the same root the indexer publishes.
+  const zeroHashes: bigint[] = [0n];
+  for (let i = 0; i < TREE_DEPTH; i++) {
+    zeroHashes.push(F.toObject(poseidon([zeroHashes[i], zeroHashes[i]])));
+  }
   const merklePath: string[] = [];
   const merklePathIndices: number[] = [];
   let current = leaf;
   for (let i = 0; i < TREE_DEPTH; i++) {
-    merklePath.push("0");
+    merklePath.push(zeroHashes[i].toString());
     merklePathIndices.push(0);
-    current = F.toObject(poseidon([current, 0n]));
+    current = F.toObject(poseidon([current, zeroHashes[i]]));
   }
   const merkleRoot = current;
   const nullifierHash = F.toObject(poseidon([stealthPk, extNullifier]));
