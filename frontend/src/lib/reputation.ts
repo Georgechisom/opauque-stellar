@@ -1,5 +1,5 @@
 /**
- * Stealth Attestation — Reputation types and trait definitions.
+ * Stealth Attestation: Reputation types and trait definitions.
  *
  * Traits are discovered by the Rust WASM scanner from announcement metadata.
  * Each trait maps to an on-chain attestation_id. The UI displays them as
@@ -9,7 +9,7 @@
 import { z } from "zod";
 
 // =============================================================================
-// Trait catalogue — known attestation IDs and their display metadata
+// Trait catalogue: known attestation IDs and their display metadata
 // =============================================================================
 
 export interface TraitDefinition {

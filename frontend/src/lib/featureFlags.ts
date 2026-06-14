@@ -1,5 +1,5 @@
 /**
- * Production feature flags — gates incomplete or risky UI (issue #128).
+ * Production feature flags: gates incomplete or risky UI (issue #128).
  *
  * Build-time: VITE_FEATURE_* env vars (see docs/FEATURE_FLAGS.md).
  * Runtime: optional window.__OPAQUE_FEATURE_FLAGS__ partial override (tests / staging).
@@ -27,7 +27,7 @@ export const FEATURE_FLAG_ENV: Record<FeatureFlagKey, string> = {
 
 declare global {
   interface Window {
-    /** Runtime partial override — applied after build-time resolution. */
+    /** Runtime partial override, applied after build-time resolution. */
     __OPAQUE_FEATURE_FLAGS__?: Partial<FeatureFlags>;
   }
 }
@@ -142,7 +142,7 @@ export function isFeatureEnabled(flag: FeatureFlagKey): boolean {
   return getFeatureFlags()[flag];
 }
 
-/** Demo verifier app URL — only returned when demoVerifierLinks is enabled. */
+/** Demo verifier app URL, only returned when demoVerifierLinks is enabled. */
 export function getDemoVerifierUrl(): string | null {
   if (!getFeatureFlags().demoVerifierLinks) return null;
   const configured = readEnv("VITE_DEMO_VERIFIER_URL");

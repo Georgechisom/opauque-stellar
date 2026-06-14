@@ -1,5 +1,5 @@
 /**
- * Attestation Manager — V2 Issue Attestation UI
+ * Attestation Manager - V2 Issue Attestation UI
  *
  * Allows schema authorities and delegates to issue attestations under
  * a registered schema. The issuer selects a schema, enters the recipient's
@@ -197,7 +197,7 @@ export function AttestationManager({
             signTransaction,
           });
         } catch (announceErr) {
-          // Announcement failure is non-fatal — attestation is still on-chain.
+          // Announcement failure is non-fatal: attestation is still on-chain.
           // The recipient can still discover it if they have the stealth address stored.
           console.warn(
             "[AttestationManager] Announcement failed (non-fatal):",

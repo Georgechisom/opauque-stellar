@@ -1,5 +1,5 @@
 /**
- * ManageView — Schema & Attestation Management
+ * ManageView - Schema & Attestation Management
  *
  * Displays schemas the connected wallet has authority over and
  * attestations they have issued, with full management actions:
@@ -239,7 +239,7 @@ function SchemaCard({ schema, onAction, readOnly = false }: SchemaCardProps) {
               {busy === "Deprecate" ? "Deprecating…" : "Deprecate Schema"}
             </button>
             <p className="text-[11px] text-ink-500 mt-1.5 text-center">
-              Deprecation is irreversible — no new attestations can be issued under this schema.
+              Deprecation is irreversible: no new attestations can be issued under this schema.
             </p>
           </div>
         )}
@@ -424,7 +424,7 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
   const [attestationPage, setAttestationPage] = useState(1);
   const [schemaPage, setSchemaPage] = useState(1);
 
-  // Schemas this wallet has authority over — sorted newest first
+  // Schemas this wallet has authority over, sorted newest first
   const mySchemas = useMemo(() => {
     if (!walletAddress) return [];
     return Object.values(schemaMap)

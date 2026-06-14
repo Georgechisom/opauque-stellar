@@ -112,8 +112,8 @@ export function extractEstimatedFee(
 export function isSimulationSuccess(
   sim: rpc.Api.SimulateTransactionResponse,
 ): sim is rpc.Api.SimulateTransactionSuccessResponse {
-  // Use the SDK's own guard. The previous check required `results` (plural) — the
-  // RAW RPC shape — but the parsed v15 success response exposes `result` (singular),
+  // Use the SDK's own guard. The previous check required `results` (plural), the
+  // RAW RPC shape, but the parsed v15 success response exposes `result` (singular),
   // so the old check misclassified every successful simulation as a failure.
   return !rpc.Api.isSimulationError(sim);
 }

@@ -1,5 +1,5 @@
 /**
- * Abuse and sanctions policy — public contacts and routes.
+ * Abuse and sanctions policy: public contacts and routes.
  * Keep aligned with docs/ABUSE_AND_SANCTIONS_POLICY.md
  */
 
@@ -34,7 +34,7 @@ export const PUBLIC_CONTACTS = {
   },
 } as const satisfies Record<string, ContactChannel>;
 
-/** Documented for operators — matches docs/internal/ABUSE_SANCTIONS_RUNBOOK.md */
+/** Documented for operators, matches docs/internal/ABUSE_SANCTIONS_RUNBOOK.md */
 export const INCIDENT_CONTACTS = {
   incidentEmail: "incident@opaqueprotocol.org",
   opsChannel: "#ops-channel (Discord)",

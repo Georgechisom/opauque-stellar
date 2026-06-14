@@ -1,5 +1,5 @@
 /**
- * "Pending Manual Receives" — manual ghost receive addresses per chain.
+ * "Pending Manual Receives": manual ghost receive addresses per chain.
  * Used for one-time receive without on-chain announcement; scanner checks balance via multicall.
  * Persisted (localStorage) so the app can monitor and claim incoming funds.
  *
@@ -208,7 +208,7 @@ export function useGhostAddressPersistence(): void {
           });
           return;
         }
-        // No password set yet — can't decrypt, wait for password
+        // No password set yet, can't decrypt, wait for password
         hasLoadedFromStorage.current = true;
         return;
       }

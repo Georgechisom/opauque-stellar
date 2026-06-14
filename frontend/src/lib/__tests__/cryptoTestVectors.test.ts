@@ -46,7 +46,7 @@ describe("Cross-language DKSAP vectors (Issue #91)", () => {
     const spendPubKey = secp256k1.getPublicKey(SPEND_PRIVKEY, true);
     const ephemeralPubKey = secp256k1.getPublicKey(EPHEMERAL_PRIVKEY, true);
 
-    // Derive twice — must be identical
+    // Derive twice, must be identical
     const addr1 = deriveStealthAddress(viewPubKey, spendPubKey, ephemeralPubKey);
     const addr2 = deriveStealthAddress(viewPubKey, spendPubKey, ephemeralPubKey);
 

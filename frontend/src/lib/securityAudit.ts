@@ -1,5 +1,5 @@
 /**
- * Mainnet security audit status — aligned with deployments/security/mainnet-audit-findings.json
+ * Mainnet security audit status: aligned with deployments/security/mainnet-audit-findings.json
  */
 
 export const SECURITY_AUDIT_DOCS = {

@@ -1,5 +1,5 @@
 /**
- * My Traits — V2 User Self-Service UI
+ * My Traits - V2 User Self-Service UI
  *
  * Displays the user's discovered V2 traits (schema-bound attestations detected
  * by the WASM scanner). Each trait shows the schema name, issuer, status

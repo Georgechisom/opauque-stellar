@@ -1,5 +1,5 @@
 /**
- * Soroban contract IDs — resolved from the canonical deployment manifest
+ * Soroban contract IDs, resolved from the canonical deployment manifest
  * (deployments/v1/<network>.json) with optional VITE_<NETWORK>_* overrides in dev.
  */
 

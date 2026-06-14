@@ -1,5 +1,5 @@
 /**
- * ProveTraitModal — Selective disclosure flow for stealth attestations.
+ * ProveTraitModal: Selective disclosure flow for stealth attestations.
  *
  * Shows the user what will be shared (the trait/badge) and what stays hidden
  * (their wallet address, transaction history, stealth addresses). On confirmation,

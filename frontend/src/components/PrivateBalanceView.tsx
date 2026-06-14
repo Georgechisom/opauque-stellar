@@ -879,7 +879,7 @@ export function PrivateBalanceView() {
                 : scanner.progress.phase === "syncing" ||
                     scanner.progress.phase === "backfilling"
                   ? "…"
-                  : "—"}
+                  : "-"}
             </span>
           </div>
           <div className="h-1 rounded-full bg-ink-800 overflow-hidden">
@@ -954,7 +954,7 @@ export function PrivateBalanceView() {
 
           {/* List of stealth addresses */}
           <h3 className="font-display text-xl font-bold text-white">
-            XLM — Stealth addresses
+            XLM Stealth addresses
           </h3>
           <div className="space-y-3">
             {allEntries

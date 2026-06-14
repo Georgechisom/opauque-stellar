@@ -9,7 +9,7 @@
  */
 
 export type FreezeStatus =
-  /** Normal operation — root is live and recently updated. */
+  /** Normal operation: root is live and recently updated. */
   | "active"
   /** Governance has frozen root updates; proof verification is blocked. */
   | "frozen"
@@ -61,7 +61,7 @@ export const FREEZE_STATUS_COPY: Record<FreezeStatus, { title: string; detail: s
     detail: "Reputation root is live and recently updated. Proofs can be generated normally.",
   },
   frozen: {
-    title: "Root Frozen — Proof Generation Blocked",
+    title: "Root Frozen: Proof Generation Blocked",
     detail:
       "Governance has frozen the reputation root due to a suspected incident. " +
       "Proof generation and verification are disabled until the freeze is lifted.",

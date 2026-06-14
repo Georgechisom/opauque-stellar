@@ -1,5 +1,5 @@
 /**
- * Schema Registry — V2 Stealth Reputation Protocol (Stellar Soroban).
+ * Schema Registry: V2 Stealth Reputation Protocol (Stellar Soroban).
  */
 
 import { deployedAddresses } from "../contracts/deployedAddresses";

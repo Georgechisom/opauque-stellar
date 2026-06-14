@@ -1,5 +1,5 @@
 /**
- * useFreezeStatus — polls is_frozen() and last_root_update() from the
+ * useFreezeStatus: polls is_frozen() and last_root_update() from the
  * reputation verifier and Groth16 contracts.
  *
  * Falls back to "unknown" gracefully when the contract has not yet

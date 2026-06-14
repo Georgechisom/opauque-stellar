@@ -29,7 +29,7 @@ export function PrivacyPage() {
         <p>
           While Opaque provides privacy through stealth addresses and ECDH-derived
           one-time addresses, the underlying blockchain is public. You are responsible
-          for managing your own &quot;linkability&quot;—for example, how you fund gas,
+          for managing your own &quot;linkability&quot;, for example, how you fund gas,
           which networks you use, and any off-chain metadata. The protocol does not
           control or obscure blockchain-level visibility.
         </p>

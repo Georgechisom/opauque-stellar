@@ -1,5 +1,5 @@
 /**
- * IssueTraitModal — Issue a stealth attestation trait to any recipient.
+ * IssueTraitModal - Issue a stealth attestation trait to any recipient.
  *
  * The user enters a recipient's stealth meta-address (or resolves from registry),
  * picks a trait, and the modal calls StealthAddressAnnouncer.announce() with

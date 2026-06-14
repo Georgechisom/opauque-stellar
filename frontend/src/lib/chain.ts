@@ -99,7 +99,7 @@ export function getRpcUrls(): string[] {
     console.warn(
       "[Opaque] Using public Stellar RPC for",
       network,
-      "— set VITE_STELLAR_RPC_URL for production.",
+      ", set VITE_STELLAR_RPC_URL for production.",
     );
   }
   return [url, ...fallbacks];
@@ -128,7 +128,7 @@ export function getHorizonUrls(): string[] {
     console.warn(
       "[Opaque] Using public Stellar Horizon for",
       network,
-      "— set VITE_STELLAR_HORIZON_URL for production.",
+      ", set VITE_STELLAR_HORIZON_URL for production.",
     );
   }
   return [HORIZON_ENDPOINTS[network], ...fallbacks];

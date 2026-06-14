@@ -1,6 +1,6 @@
 /**
  * Canonical privacy threat-model copy for UI surfaces.
- * Threat model summary — see README.md § Privacy and in-app /privacy route.
+ * Threat model summary: see README.md § Privacy and in-app /privacy route.
  */
 
 export const THREAT_MODEL_ROUTE = "/threat-model";
@@ -30,7 +30,7 @@ export const PRIVACY_NOT_HIDDEN = [
 
 /** Short bullets for mainnet / production modals */
 export const MAINNET_PRIVACY_WARNINGS = [
-  "Stealth addresses reduce linkability — they do not hide amounts, timing, or your fee-payer wallet.",
+  "Stealth addresses reduce linkability, but they do not hide amounts, timing, or your fee-payer wallet.",
   "RPC and Horizon providers can observe your scan and submit patterns.",
   "Device-bound ghost records are required to discover and sweep receives.",
 ] as const;

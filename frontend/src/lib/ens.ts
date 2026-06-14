@@ -1,5 +1,5 @@
 /**
- * Domain name resolution — placeholder for federation / .sol-style identifiers.
+ * Domain name resolution: placeholder for federation / .sol-style identifiers.
  */
 
 /**

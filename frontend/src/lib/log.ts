@@ -11,7 +11,7 @@
  *   - Anything tagged `__secret` on an object is dropped entirely.
  *
  * Anywhere in the codebase that currently calls `console.log`
- * directly should migrate to this module — the lint guard at the
+ * directly should migrate to this module. The lint guard at the
  * bottom of `eslint.config.js` (added separately) makes the rule
  * stick.
  */
@@ -42,7 +42,7 @@ export function redactAddress(value: unknown): string {
     return `${value.slice(0, 5)}…${value.slice(-4)}`;
   }
   // Soroban contract addresses (`C...`) share the same length but
-  // start with C — handle them the same way.
+  // start with C, handle them the same way.
   if (value.length === 56 && /^[CGM][A-Z2-7]{55}$/.test(value)) {
     return `${value.slice(0, 5)}…${value.slice(-4)}`;
   }
@@ -132,7 +132,7 @@ export const log = {
       if (enabled) localStorage.setItem("opaque-debug", "1");
       else localStorage.removeItem("opaque-debug");
     } catch {
-      // Ignore — quota / private-mode hiccups.
+      // Ignore: quota / private-mode hiccups.
     }
   },
 };

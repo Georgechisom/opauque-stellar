@@ -355,7 +355,7 @@ export function SendView() {
         {error && <p className="text-sm text-neutral-400">{error}</p>}
         {txHash && (
           <p className="text-sm text-neutral-300">
-            Sent —{" "}
+            Sent.{" "}
             <a
               href={getExplorerTxUrl(txHash)}
               target="_blank"

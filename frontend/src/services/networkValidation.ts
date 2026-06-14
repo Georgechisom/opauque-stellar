@@ -6,7 +6,7 @@ export class NetworkValidationService {
    * Returns the current Freighter network (lowercased), or "unknown" if the wallet
    * isn't connected/authorized yet.
    *
-   * Passive read only — it must NOT call setAllowed()/requestAccess(). This runs on
+   * Passive read only, it must NOT call setAllowed()/requestAccess(). This runs on
    * background checks (e.g. the network-mismatch watcher), and prompting for access on
    * a timer made Freighter pop up repeatedly on the onboarding screen. Access is
    * requested explicitly via the connect button (see StellarWalletProviders).

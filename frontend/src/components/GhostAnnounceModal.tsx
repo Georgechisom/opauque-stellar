@@ -203,7 +203,7 @@ export function GhostAnnounceModal({
           Publishing an announcement lets indexers and Opaque on other devices
           discover this address using your keys, so you can{" "}
           <strong className="text-neutral-300">view and spend</strong> the funds
-          anywhere—not only locally.
+          anywhere, not only locally.
         </li>
         <li>
           The transaction will be sent from a dedicated stealth signer named{" "}
@@ -257,7 +257,7 @@ export function GhostAnnounceModal({
                     id: "4",
                     status: "wait",
                     label:
-                      "Done — address discoverable with your keys on other devices",
+                      "Done, address discoverable with your keys on other devices",
                   },
                 ]
           }

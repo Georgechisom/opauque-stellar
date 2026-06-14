@@ -7,7 +7,7 @@
  *
  * This module:
  *   1. Maintains a small allowlist of well-known custodial deposit
- *      addresses (Binance, Coinbase, Kraken, KuCoin, …) — extend as
+ *      addresses (Binance, Coinbase, Kraken, KuCoin, ...), extend as
  *      we learn about new ones.
  *   2. Exposes `memoRiskFor(address)` to drive the inline warning.
  *   3. Exposes `validateMemo(memo)` so the form can reject invalid
@@ -57,7 +57,7 @@ export interface MemoRisk {
 }
 
 /**
- * Look up the memo risk for `destination`. Always safe — returns
+ * Look up the memo risk for `destination`. Always safe, returns
  * `{ isKnownCustodian: false }` when the address isn't on the list.
  */
 export function memoRiskFor(destination: string | undefined | null): MemoRisk {

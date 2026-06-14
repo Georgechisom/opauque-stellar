@@ -2,7 +2,7 @@
  * Zustand store for stealth reputation / verified traits.
  *
  * Persists discovered traits to localStorage so they survive page reloads.
- * Proof state is ephemeral (lost on reload — proofs should be submitted on-chain).
+ * Proof state is ephemeral (lost on reload, proofs should be submitted on-chain).
  */
 
 import { create } from "zustand";

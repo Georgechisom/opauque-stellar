@@ -1,5 +1,5 @@
 /**
- * Attestation Engine V2 — client-side interaction layer
+ * Attestation Engine V2: client-side interaction layer
  */
 
 import { z } from "zod";

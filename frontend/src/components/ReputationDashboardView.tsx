@@ -1,5 +1,5 @@
 /**
- * ReputationDashboardView — Displays discovered "Verified Traits" and lets
+ * ReputationDashboardView: Displays discovered "Verified Traits" and lets
  * the user generate ZK proofs for selective disclosure.
  *
  * Traits are discovered by the Rust WASM scanner from announcement metadata.
@@ -161,7 +161,7 @@ export function ReputationDashboardView({ onBack }: ReputationDashboardViewProps
           <div>
             <h2 className="font-display text-2xl font-bold text-white">Reputation</h2>
             <p className="mt-1 text-sm text-mist">
-              Prove verified traits with zero-knowledge—share eligibility, keep identity private.
+              Prove verified traits with zero-knowledge, share eligibility, keep identity private.
             </p>
           </div>
         </div>

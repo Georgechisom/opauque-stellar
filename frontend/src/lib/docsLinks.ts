@@ -1,5 +1,5 @@
 /**
- * In-app help links — recovery and protocol notes live in README.md on GitHub.
+ * In-app help links: recovery and protocol notes live in README.md on GitHub.
  */
 
 const DEFAULT_REPO = "https://github.com/opaquecash/stellar/blob/main";
@@ -42,7 +42,7 @@ export function getUserRecoverySectionUrl(
     "device-migration": "recovery",
   };
   // The recovery notes live in a single README section, so build the URL from
-  // the doc's file path (not getDocUrl, which already carries an anchor — that
+  // the doc's file path (not getDocUrl, which already carries an anchor; that
   // produced a doubled "#recovery#recovery" fragment).
   const recoveryFile = DOC_PATHS["user-recovery"].split("#")[0];
   return `${docsBaseUrl()}/${recoveryFile}#${anchors[section]}`;

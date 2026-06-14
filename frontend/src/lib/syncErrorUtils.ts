@@ -31,7 +31,7 @@ function safeShortDescription(err: unknown): string {
   const parts: string[] = [];
   if (status != null) parts.push(`status ${status}`);
   if (method) parts.push(method);
-  if (parts.length) return parts.join(" — ");
+  if (parts.length) return parts.join(" - ");
   const raw = err instanceof Error ? err.message : String(err);
   return stripUrls(raw) || "RPC error";
 }

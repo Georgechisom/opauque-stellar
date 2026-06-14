@@ -60,7 +60,7 @@ describe("pollPendingTransactions (#114)", () => {
     } as ChainStatusResult);
 
     const cancel = pollPendingTransactions({ fetchStatus, intervalMs: 100_000 });
-    // The poller kicks off immediately — give it a tick to settle.
+    // The poller kicks off immediately, give it a tick to settle.
     await new Promise((r) => setTimeout(r, 5));
     cancel();
     expect(usePendingTxStore.getState().byHash.h1.status).toBe("confirmed");

@@ -22,7 +22,7 @@ export function ThreatModelPage() {
             rel="noopener noreferrer"
             className="text-white underline hover:text-white"
           >
-            Ghost Address Key Storage — Threat Model
+            Ghost Address Key Storage: Threat Model
           </a>{" "}
           in the repository.
         </p>
@@ -138,7 +138,7 @@ export function ThreatModelPage() {
                   <td className="py-2 pr-3 font-mono text-neutral-400">{m.id}</td>
                   <td className="py-2 pr-3 text-neutral-200">{m.threat}</td>
                   <td className="py-2 pr-3">{m.mitigation}</td>
-                  <td className="py-2 pr-3 font-mono text-mist">{m.issue ?? "—"}</td>
+                  <td className="py-2 pr-3 font-mono text-mist">{m.issue ?? "-"}</td>
                   <td className="py-2 font-mono text-mist/80 break-all">{m.implementation}</td>
                 </tr>
               ))}

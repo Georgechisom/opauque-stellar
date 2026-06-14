@@ -9,10 +9,10 @@ function formatDate(ts: number): string {
   try {
     const d = new Date(ts);
     return Number.isNaN(d.getTime())
-      ? "—"
+      ? "-"
       : d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -32,7 +32,7 @@ function typeLabel(kind: TxHistoryEntry["kind"]): string {
 }
 
 function statusFor(entry: TxHistoryEntry): string {
-  return entry.txHash ? "Confirmed" : "—";
+  return entry.txHash ? "Confirmed" : "-";
 }
 
 /** Token symbol badge for list display (icon-style: symbol only). */
@@ -60,7 +60,7 @@ function normalizeEntry(raw: unknown, index: number): TxHistoryEntry | null {
       ? o.kind
       : "sent";
   const counterparty =
-    typeof o.counterparty === "string" ? o.counterparty : "—";
+    typeof o.counterparty === "string" ? o.counterparty : "-";
   const amountStroops =
     typeof o.amountStroops === "string"
       ? o.amountStroops
@@ -177,7 +177,7 @@ export function TransactionHistoryView() {
                     className="text-mist text-xs truncate min-w-0 ml-auto"
                     title={tx.counterparty ?? ""}
                   >
-                    {tx.counterparty ?? "—"}
+                    {tx.counterparty ?? "-"}
                   </span>
                 </div>
 

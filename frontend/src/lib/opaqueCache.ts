@@ -1,5 +1,5 @@
 /**
- * OpaqueCache — IndexedDB persistence for announcement logs and per-cluster sync state.
+ * OpaqueCache: IndexedDB persistence for announcement logs and per-cluster sync state.
  * Database: OpaqueCache
  * Stores: announcements (indexed by cluster, slot), syncState (keyed by cluster)
  */

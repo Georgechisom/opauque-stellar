@@ -1,5 +1,5 @@
 /**
- * Proof Generator Modal — V2
+ * Proof Generator Modal - V2
  *
  * Generates a Groth16 ZK proof for a discovered V2 trait, entirely in the browser.
  * No private data leaves the user's device. The proof can then be submitted on-chain
@@ -437,7 +437,7 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
               </button>
 
               <p className="text-center text-xs text-ink-500">
-                No private data leaves your browser. Proof generation takes 10–60 seconds.
+                No private data leaves your browser. Proof generation takes 10-60 seconds.
               </p>
             </>
           )}

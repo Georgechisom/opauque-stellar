@@ -1,5 +1,5 @@
 /**
- * useContractVersions — reads version() from every deployed Soroban contract.
+ * useContractVersions: reads version() from every deployed Soroban contract.
  *
  * Simulates a read-only call (no signature required) to the version() method.
  * Falls back to "unknown" if the contract does not expose that method yet.

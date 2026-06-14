@@ -1,5 +1,5 @@
 /**
- * Canonical schema / attestation encoding — mirrors `opaque-schema-core` and Soroban contracts.
+ * Canonical schema / attestation encoding: mirrors `opaque-schema-core` and Soroban contracts.
  */
 
 import { StrKey } from "@stellar/stellar-sdk";

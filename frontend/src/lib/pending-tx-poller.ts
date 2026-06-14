@@ -4,7 +4,7 @@
  * Reads the persisted `pendingTxStore` and polls a `TxStatusFetcher`
  * (production: Horizon `/transactions/<hash>`) until each entry
  * resolves to `confirmed` / `failed` / `timed_out`. The poller is
- * pure-logic — the network call is injected so unit tests can drive
+ * pure-logic; the network call is injected so unit tests can drive
  * it with canned responses.
  *
  * Caller wires this from `App.tsx` on boot:
@@ -19,7 +19,7 @@ import { usePendingTxStore, type PendingTxEntry, type PendingTxStatus } from "..
 
 /**
  * Result of one status check against the chain. `notFound` is a
- * non-terminal state — Horizon may not have indexed the tx yet —
+ * non-terminal state (Horizon may not have indexed the tx yet)
  * and the poller treats it as "keep polling".
  */
 export type ChainStatusResult =
@@ -35,7 +35,7 @@ export interface PollPendingOptions {
   intervalMs?: number;
   /** Hard timeout per entry. Defaults to 5 minutes. */
   timeoutMs?: number;
-  /** Override of Date.now() — tests pass a clock so timeouts are deterministic. */
+  /** Override of Date.now(), tests pass a clock so timeouts are deterministic. */
   now?: () => number;
 }
 
@@ -89,7 +89,7 @@ async function pollOne(
     }
     // notFound → leave it pending and re-poll next tick.
   } catch {
-    // Network blip — keep the entry pending.
+    // Network blip, keep the entry pending.
   }
 }
 

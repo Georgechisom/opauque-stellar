@@ -1,5 +1,5 @@
 /**
- * AdminPanel — admin transfer, pending admin acceptance, and multisig guidance.
+ * AdminPanel - admin transfer, pending admin acceptance, and multisig guidance.
  *
  * Implements the two-step admin hand-off pattern:
  *   1. Current admin calls transfer_admin(new_admin) → stores a pending admin.
@@ -187,7 +187,7 @@ function AdminCard({ status, publicKey, signTransaction, onRefresh }: AdminCardP
               {status.currentAdmin}
             </p>
           ) : (
-            <p className="text-xs text-mist italic">Not available — contract may not expose get_admin()</p>
+            <p className="text-xs text-mist italic">Not available: contract may not expose get_admin()</p>
           )}
         </div>
 
@@ -223,7 +223,7 @@ function AdminCard({ status, publicKey, signTransaction, onRefresh }: AdminCardP
           </div>
         )}
 
-        {/* Transfer admin form — only shown to current admin */}
+        {/* Transfer admin form: only shown to current admin */}
         {status.isAdmin && !status.pendingAdmin && (
           <div className="space-y-2 pt-1 border-t border-ink-800">
             <p className="text-xs text-ink-500 uppercase tracking-widest font-semibold pt-1">
@@ -369,7 +369,7 @@ function MultisigGuide() {
         <p className="font-semibold text-white mt-2">Deployment runbook</p>
         <ol className="list-decimal list-inside space-y-1">
           <li>Complete mainnet security audit signoff (docs/security/MAINNET_AUDIT_SIGNOFF.md).</li>
-          <li>Deploy contracts — initial admin is the deployer key.</li>
+          <li>Deploy contracts: initial admin is the deployer key.</li>
           <li>Create the multisig admin account as above.</li>
           <li>Call transfer_admin(multisig_account) from the deployer key.</li>
           <li>Have the multisig account call accept_admin() (requires threshold signatures).</li>

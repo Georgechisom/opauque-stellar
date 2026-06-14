@@ -1,10 +1,10 @@
 /**
- * ContractVersionPanel — shows the on-chain version for every deployed contract
+ * ContractVersionPanel: shows the on-chain version for every deployed contract
  * and validates it against the expected major version.
  *
- * - Green badge   "v1.x.x"      — valid, matches EXPECTED_MAJOR_VERSION
- * - Amber badge   "v2.x.x ⚠"   — major-version mismatch; clients should upgrade
- * - Gray  badge   "unknown"     — contract does not expose version() yet
+ * - Green badge   "v1.x.x"      : valid, matches EXPECTED_MAJOR_VERSION
+ * - Amber badge   "v2.x.x ⚠"   : major-version mismatch; clients should upgrade
+ * - Gray  badge   "unknown"     : contract does not expose version() yet
  *
  * Related: Issue #84 (contract version read methods), #83 (version inspection).
  */
@@ -49,7 +49,7 @@ function VersionBadge({ info }: { info: ContractVersionInfo }) {
 function VersionRow({ info }: { info: ContractVersionInfo }) {
   const short = info.contractId
     ? `${info.contractId.slice(0, 8)}…${info.contractId.slice(-6)}`
-    : "—";
+    : "-";
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-800 bg-ink-900/60 px-4 py-3">

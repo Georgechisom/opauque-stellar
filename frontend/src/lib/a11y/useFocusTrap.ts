@@ -7,7 +7,7 @@
  * opened (so keyboard users land back on the trigger button rather
  * than at the top of the document).
  *
- * Pure DOM — no portal / framework assumptions. Compatible with
+ * Pure DOM: no portal / framework assumptions. Compatible with
  * native dialog markup and the project's `ModalShell` div-based
  * dialog.
  */

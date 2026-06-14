@@ -10,7 +10,7 @@
  * tests can drive the merge logic without touching Horizon /
  * Soroban; production wiring fills it from
  * `services/stellarClient.ts` (Horizon `operations` + Soroban event
- * stream) — same pattern the scanner already uses.
+ * stream), same pattern the scanner already uses.
  *
  * Acceptance criteria:
  *   - History can be rebuilt after clearing local storage.
@@ -46,7 +46,7 @@ export type ChainHistoryFetcher = (input: {
 }) => Promise<ChainHistoryItem[]>;
 
 export interface ReconciledHistory {
-  /** Final, deduped + sorted entries — UI consumes this directly. */
+  /** Final, deduped + sorted entries, UI consumes this directly. */
   entries: ReconciledEntry[];
   /** How many on-chain items were merged onto the existing store. */
   addedCount: number;
@@ -74,7 +74,7 @@ export function reconcileHistory(
   let dedupedCount = 0;
 
   // Seed with local entries. We assume locally-stored entries are
-  // either user-authored (no chain status — treat as confirmed
+  // either user-authored (no chain status, treat as confirmed
   // implicitly) or already-merged from a prior reconciliation
   // (chain status not stored).
   for (const entry of local) {

@@ -120,7 +120,7 @@ export function ReceiveView({ onBack }: { onBack: () => void }) {
               Generate a fast one-time receive address locally without requiring announcer interaction.
             </p>
             <p className="mt-2 text-xs text-neutral-300/90">
-              Browser-bound — back up ephemeral keys.{" "}
+              Browser-bound, back up ephemeral keys.{" "}
               <RecoveryDocLink section="manual-ghost" className="text-neutral-300 hover:underline font-medium">
                 Read before using
               </RecoveryDocLink>

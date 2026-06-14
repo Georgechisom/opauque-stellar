@@ -1,5 +1,5 @@
 /**
- * Opaque Protocol — Client-side stealth address crypto (DKSAP)
+ * Opaque Protocol: Client-side stealth address crypto (DKSAP)
  *
  * Implements the Dual-Key Stealth Address Protocol: senders derive a one-time
  * stealth address from the recipient's meta-address (viewing + spending public keys);

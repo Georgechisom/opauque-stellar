@@ -18,7 +18,7 @@ export function FeatureDisabledNotice({ feature, readOnly = false }: FeatureDisa
   return (
     <div className="rounded-2xl border border-neutral-500/30 bg-neutral-500/10 px-5 py-4 text-sm">
       <p className="font-semibold text-neutral-300">
-        {readOnly ? `${label} — read-only` : `${label} — disabled`}
+        {readOnly ? `${label}, read-only` : `${label}, disabled`}
       </p>
       <p className="mt-2 text-neutral-300/80 text-xs leading-relaxed">
         {readOnly

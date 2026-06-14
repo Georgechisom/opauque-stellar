@@ -1,5 +1,5 @@
 /**
- * Stealth lifecycle — public re-exports (Stellar).
+ * Stealth lifecycle: public re-exports (Stellar).
  */
 
 export {

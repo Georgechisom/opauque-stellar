@@ -1,5 +1,5 @@
 /**
- * Stealth Meta-Address Registry — resolve meta-address by Stellar account via Soroban.
+ * Stealth Meta-Address Registry: resolve meta-address by Stellar account via Soroban.
  */
 
 import { BASE_FEE, Contract, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";

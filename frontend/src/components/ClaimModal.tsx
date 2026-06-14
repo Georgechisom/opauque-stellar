@@ -145,7 +145,7 @@ export function ClaimModal({
           </div>
         ) : (
           <div className="p-3 rounded-xl bg-ink-950/40 border border-success/20 text-success text-sm">
-            Destination differs from connected wallet — good for privacy.
+            Destination differs from connected wallet, good for privacy.
           </div>
         )}
       </div>

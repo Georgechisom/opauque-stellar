@@ -45,7 +45,7 @@ export function formatXlmFromStroops(
   const fraction = abs % divisor;
 
   // We build the value as a fixed-point string `whole.fraction` and
-  // re-parse with Intl to apply locale grouping/decimal — the
+  // re-parse with Intl to apply locale grouping/decimal; the
   // alternative (`Number(stroops) / 1e7`) loses precision at large
   // balances.
   const fractionStr = fraction.toString().padStart(XLM_DECIMALS, "0");
@@ -78,7 +78,7 @@ export function parseXlmInput(input: string): bigint {
   if (dotCount > 1) {
     throw new Error("Amount must contain at most one decimal point");
   }
-  // Reject `1.234,56` style outright — it's the German shape we DO NOT
+  // Reject `1.234,56` style outright; it's the German shape we DO NOT
   // honour. If a string contains both `,` and `.`, the LAST one must
   // be the dot (canonical decimal).
   if (commaCount > 0 && dotCount > 0) {
@@ -122,7 +122,7 @@ export function formatDateTime(
   }).format(d);
 }
 
-/** Date-only variant — useful for transaction history rows. */
+/** Date-only variant, useful for transaction history rows. */
 export function formatDate(input: Date | string | number, locale?: string): string {
   return formatDateTime(input, { locale, dateStyle: "medium", timeStyle: undefined as never });
 }

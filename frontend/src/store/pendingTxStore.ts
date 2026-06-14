@@ -11,7 +11,7 @@
  *   - `pending` entries survive reloads (persisted under
  *     `opaque-pending-tx`).
  *   - `confirmed` / `failed` / `timed_out` are cleared after 60s so
- *     the store doesn't grow unbounded — the UI rendering is owned
+ *     the store doesn't grow unbounded; the UI rendering is owned
  *     by `txHistoryStore` once an entry resolves.
  *   - Submitting the same tx hash twice is a no-op (duplicate-submit
  *     guard from the issue's acceptance criteria).

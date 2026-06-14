@@ -169,7 +169,7 @@ export function RegistrationWizard({ onComplete }: RegistrationWizardProps) {
       const nestedLines = extractNestedErrorLines(e);
       const base = toErrorMessage(e);
       const details = nestedLines.length > 0 ? nestedLines.slice(0, 4).join(" | ") : null;
-      const message = details ? `${base} — ${details}` : base;
+      const message = details ? `${base}: ${details}` : base;
       console.error("[RegistrationWizard] register_keys failed", {
         network: cluster,
         wallet: publicKey,

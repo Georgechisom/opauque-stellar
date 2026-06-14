@@ -6,11 +6,11 @@ import { ModalShell } from "../ModalShell";
 /**
  * Blocks the app when the connected Freighter wallet is on a different network than
  * the one the app is configured for. Freighter (v2 API) has no programmatic network
- * switch, so we guide the user to switch in the extension and re-check — automatically
+ * switch, so we guide the user to switch in the extension and re-check, automatically
  * when they return to the tab, or via the button.
  *
  * Important: this only reads the wallet network when access is already granted and
- * never prompts for access (no setAllowed/requestAccess on a timer) — otherwise the
+ * never prompts for access (no setAllowed/requestAccess on a timer), otherwise the
  * Freighter popup re-appears repeatedly, including on the onboarding screen.
  */
 export function NetworkMismatchModal() {
@@ -24,7 +24,7 @@ export function NetworkMismatchModal() {
     try {
       const allowed = await isAllowed();
       if (!allowed.isAllowed) {
-        // Not connected yet — nothing to reconcile, and we must not prompt here.
+        // Not connected yet: nothing to reconcile, and we must not prompt here.
         setMismatch(false);
         setWalletNetwork(null);
         return;
@@ -36,11 +36,11 @@ export function NetworkMismatchModal() {
         return;
       }
       setWalletNetwork((details.network ?? "unknown").toLowerCase());
-      // Compare by canonical network passphrase — exact across all networks (Freighter
+      // Compare by canonical network passphrase: exact across all networks (Freighter
       // reports mainnet as "PUBLIC", so name matching would be wrong).
       setMismatch(details.networkPassphrase !== getNetworkPassphrase());
     } catch {
-      // Can't read the wallet network — don't block; the connect flow surfaces wallet errors.
+      // Can't read the wallet network, don't block; the connect flow surfaces wallet errors.
       setMismatch(false);
     } finally {
       setChecking(false);
@@ -50,7 +50,7 @@ export function NetworkMismatchModal() {
   useEffect(() => {
     void check();
     // Re-check when the user returns to the tab (likely right after switching in
-    // Freighter). No polling/prompting — this is what fixes the repeated popups.
+    // Freighter). No polling/prompting: this is what fixes the repeated popups.
     const onFocus = () => void check();
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -91,7 +91,7 @@ export function NetworkMismatchModal() {
             Switch the network to{" "}
             <span className="font-semibold uppercase text-white">{expected}</span>.
           </li>
-          <li>Return here — it re-checks automatically, or use the button below.</li>
+          <li>Return here, it re-checks automatically, or use the button below.</li>
         </ol>
 
         <button

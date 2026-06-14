@@ -1,5 +1,5 @@
 /**
- * Schema Studio — V2 Schema Registration UI
+ * Schema Studio - V2 Schema Registration UI
  *
  * Allows issuers to define and register attestation schemas on-chain.
  * A schema specifies the field layout, revocability, optional expiry,
@@ -368,7 +368,7 @@ export function SchemaStudio() {
             <div>
               <span className="text-sm text-white">Schema Expiry</span>
               <p className="text-xs text-mist mt-0.5">
-                Pick date & time — no new attestations after that moment
+                Pick date & time: no new attestations after that moment
               </p>
             </div>
             <input

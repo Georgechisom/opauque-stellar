@@ -1,5 +1,5 @@
 /**
- * Watchlist — addresses to poll for balances (state-polling fallback).
+ * Watchlist: addresses to poll for balances (state-polling fallback).
  * Manual imports and generated ghost addresses are added here so we can detect
  * direct transfers that don't appear in Announcement events.
  * Archived entries stay in the list but are excluded from RPC polling.

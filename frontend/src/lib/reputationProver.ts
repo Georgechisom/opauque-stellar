@@ -1,5 +1,5 @@
 /**
- * Reputation prover — orchestrates witness generation (WASM) and
+ * Reputation prover: orchestrates witness generation (WASM) and
  * ZK proof generation (snarkjs) for stealth attestations.
  *
  * Also provides the on-chain submit helper that calls the
@@ -132,7 +132,7 @@ export async function generateReputationProof(
 
   onProgress("generating-proof", 95);
 
-  // V2 public signal order (canonical — see docs/PUBLIC_SIGNALS.md):
+  // V2 public signal order (canonical, see docs/PUBLIC_SIGNALS.md):
   //   [0] merkle_root  [1] attestation_id  [2] external_nullifier  [3] nullifier_hash
   // Must match circuits/v2/stealth_reputation.circom and contracts/reputation-verifier
   // (verify_proof_v2). The on-chain `nullifier` argument is this nullifier_hash.
@@ -184,7 +184,7 @@ export async function fetchLatestValidMerkleRoot(sourcePublicKey: string): Promi
   tx = await server.prepareTransaction(tx);
   const sim = await server.simulateTransaction(tx);
   if (!("result" in sim) || !sim.result) {
-    throw new Error("No valid Merkle root available — contract may not be initialized or root has expired.");
+    throw new Error("No valid Merkle root available. Contract may not be initialized or root has expired.");
   }
   const retval = sim.result.retval;
   const v = retval as { bytes?: () => Buffer };

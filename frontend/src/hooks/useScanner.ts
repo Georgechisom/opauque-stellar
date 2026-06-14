@@ -1,5 +1,5 @@
 /**
- * useScanner — IndexedDB-backed announcement scanner.
+ * useScanner: IndexedDB-backed announcement scanner.
  * - Primary: single GraphQL fetch to Subgraph (latest 1000 announcements). No getLogs in this path.
  * - Fallback: if Subgraph fetch fails, uses chunked RPC getLogs (adaptive range, halve on limit).
  * - Loads cached events first; incremental sync from lastScannedSlot when using RPC.
@@ -43,7 +43,7 @@ type PublicClient = ScannerConnection | null;
 
 export type ScanProgress = {
   phase: "idle" | "loading-cache" | "indexer-fetch" | "indexer-fetched" | "syncing" | "backfilling" | "matching" | "done" | "error";
-  /** 0–100 for backfilling/syncing */
+  /** 0-100 for backfilling/syncing */
   percent: number;
   message: string;
   fromBlock: bigint;
@@ -295,7 +295,7 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
           setProgress((p) => ({
             ...p,
             phase: "error",
-            error: "Ledger gap detected – cache cleared. Click \"Full Rescan\" to re-sync.",
+            error: "Ledger gap detected, cache cleared. Click \"Full Rescan\" to re-sync.",
             message: "Ledger gap detected",
           }));
         }

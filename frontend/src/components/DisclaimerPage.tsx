@@ -27,7 +27,7 @@ export function DisclaimerPage() {
       <section>
         <h2 className="text-white font-medium text-base mb-2">Regulatory Compliance</h2>
         <p>
-          You are responsible for complying with your local tax and anti–money
+          You are responsible for complying with your local tax and anti-money
           laundering (AML) laws. Use of privacy-preserving tools does not exempt you
           from applicable regulations. Ensure your use of Opaque is lawful in your
           jurisdiction.
