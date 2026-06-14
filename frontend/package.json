@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:payments": "tsx scripts/smoke-private-payment.ts",
+    "smoke:reputation": "tsx scripts/smoke-reputation-v2.ts",
     "verify:deployment": "tsx ../scripts/verify-deployment-manifest.ts"
   },
   "dependencies": {
