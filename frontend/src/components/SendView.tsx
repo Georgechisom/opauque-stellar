@@ -206,25 +206,68 @@ export function SendView() {
         stealthStellarAddress,
       );
 
-      addStep("wait", "Building payment + announcement…");
+      addStep("wait", "Building transfer + announcement…");
       const passphrase = getNetworkPassphrase();
       const horizon = getHorizonServer();
       const soroban = getSorobanServer();
-      const source = await horizon.loadAccount(publicKey);
       const announcer = new Contract(deployedAddresses.stealthAnnouncer);
 
-      // Fresh stealth accounts don't exist yet, so create them on first send
-      // instead of issuing a plain payment that would fail.
+      // A Soroban host-function op (the announcement) cannot share a
+      // transaction with a classic op (the payment / account creation), so the
+      // two are submitted as separate, sequential transactions. The same
+      // in-memory source account is reused so its sequence number advances
+      // correctly across both builds.
+      const source = await horizon.loadAccount(publicKey);
+
+      // 1) Fund / pay the one-time stealth account. Fresh stealth accounts do
+      //    not exist on-ledger, so this is a createAccount; an existing
+      //    destination falls back to a plain payment. Submitted via Horizon.
       const transferOp = await buildNativeTransferOperation({
         destination: stealthStellarAddress,
         amountStroops: value,
       });
-
-      let tx = new TransactionBuilder(source, {
+      const transferTx = new TransactionBuilder(source, {
         fee: BASE_FEE,
         networkPassphrase: passphrase,
       })
         .addOperation(transferOp)
+        .setTimeout(180)
+        .build();
+      addStep("wait", "Awaiting Freighter signature for the transfer…");
+      const signedTransferXdr = await signTransaction(transferTx.toXDR());
+      const signedTransfer = TransactionBuilder.fromXDR(
+        signedTransferXdr,
+        passphrase,
+      );
+      const transferResult = await horizon.submitTransaction(signedTransfer);
+      const transferHash = transferResult.hash;
+      setTxHash(transferHash);
+      addStep("ok", "Transfer confirmed.", transferHash);
+      logPush("blockchain", `Transfer: ${transferHash.slice(0, 18)}…`);
+
+      // Record the payment now: funds have moved even if the announcement
+      // below fails (it can be retried without re-sending funds).
+      pushTx({
+        cluster: network,
+        kind: "sent",
+        counterparty:
+          stealthStellarAddress.slice(0, 6) +
+          "…" +
+          stealthStellarAddress.slice(-4),
+        amountStroops: value.toString(),
+        tokenSymbol: "XLM",
+        tokenAddress: null,
+        amount: formatXlm(value),
+        txHash: transferHash,
+      });
+
+      // 2) Publish the stealth announcement so the recipient can discover the
+      //    payment by scanning. Submitted as its own Soroban transaction.
+      addStep("wait", "Publishing announcement…");
+      let announceTx = new TransactionBuilder(source, {
+        fee: BASE_FEE,
+        networkPassphrase: passphrase,
+      })
         .addOperation(
           announcer.call(
             "announce",
@@ -237,39 +280,26 @@ export function SendView() {
         )
         .setTimeout(180)
         .build();
-
-      tx = await soroban.prepareTransaction(tx);
-      addStep("wait", "Awaiting Freighter signature…");
-      const signedXdr = await signTransaction(tx.toXDR());
-      const signed = TransactionBuilder.fromXDR(signedXdr, passphrase);
-      const send = await soroban.sendTransaction(signed);
-      if (send.status === "ERROR") throw new Error(JSON.stringify(send));
-      let txResponse = await soroban.getTransaction(send.hash);
-      while (txResponse.status === "NOT_FOUND") {
+      announceTx = await soroban.prepareTransaction(announceTx);
+      addStep("wait", "Awaiting Freighter signature for the announcement…");
+      const signedAnnounceXdr = await signTransaction(announceTx.toXDR());
+      const signedAnnounce = TransactionBuilder.fromXDR(
+        signedAnnounceXdr,
+        passphrase,
+      );
+      const announceSend = await soroban.sendTransaction(signedAnnounce);
+      if (announceSend.status === "ERROR")
+        throw new Error(JSON.stringify(announceSend));
+      let announceResp = await soroban.getTransaction(announceSend.hash);
+      while (announceResp.status === "NOT_FOUND") {
         await new Promise((r) => setTimeout(r, 1000));
-        txResponse = await soroban.getTransaction(send.hash);
+        announceResp = await soroban.getTransaction(announceSend.hash);
       }
-      if (txResponse.status !== "SUCCESS") {
-        throw new Error(`Transaction failed: ${txResponse.status}`);
+      if (announceResp.status !== "SUCCESS") {
+        throw new Error(`Announcement failed: ${announceResp.status}`);
       }
-
-      setTxHash(send.hash);
-      addStep("done", "Transfer confirmed.", send.hash);
-      logPush("blockchain", `Tx: ${send.hash.slice(0, 18)}…`);
-
-      pushTx({
-        cluster: network,
-        kind: "sent",
-        counterparty:
-          stealthStellarAddress.slice(0, 6) +
-          "…" +
-          stealthStellarAddress.slice(-4),
-        amountStroops: value.toString(),
-        tokenSymbol: "XLM",
-        tokenAddress: null,
-        amount: formatXlm(value),
-        txHash: send.hash,
-      });
+      addStep("done", "Announcement published.", announceSend.hash);
+      logPush("blockchain", `Announce: ${announceSend.hash.slice(0, 18)}…`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Send failed";
       setError(msg);
