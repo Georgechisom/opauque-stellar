@@ -5,50 +5,65 @@
   --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Brand theme tokens — black & white only */
-  --color-ink-950: #000000;
-  --color-ink-900: #000000;
-  --color-ink-800: #000000;
-  --color-ink-700: #000000;
-  --color-ink-600: #000000;
-  --color-ink-500: #ffffff;
-  --color-mist: #ffffff;
-  --color-glow: #ffffff;
-  --color-glow-dim: #ffffff;
-  --color-glow-muted: #000000;
-  --color-flare: #ffffff;
-  --color-sol-purple: #ffffff;
-  --color-sol-purple-dim: #ffffff;
-  --color-sol-purple-muted: #000000;
-  --color-sol-gradient-start: #ffffff;
-  --color-sol-gradient-end: #ffffff;
+  /*
+   * Brand palette — three colours only:
+   *   ink   #0C0C0F  near-black canvas
+   *   bone  #F5EFE4  warm cream, primary text and light surfaces
+   *   gold  #FCDB25  the single accent
+   * Everything else is a tint or shade of those, plus one restrained
+   * error red so failures stay legible. No gradients anywhere.
+   */
 
-  --color-black: #000000;
-  --color-white: #ffffff;
-  --color-neutral-50: #ffffff;
-  --color-neutral-100: #ffffff;
-  --color-neutral-200: #ffffff;
-  --color-neutral-300: #ffffff;
-  --color-neutral-400: #ffffff;
-  --color-neutral-500: #ffffff;
-  --color-neutral-600: #ffffff;
-  --color-neutral-700: #ffffff;
-  --color-neutral-800: #ffffff;
-  --color-neutral-900: #000000;
-  --color-neutral-950: #000000;
+  /* Dark surface ramp (950 = canvas, climbing to raised panels) */
+  --color-ink-950: #0c0c0f;
+  --color-ink-900: #121216;
+  --color-ink-800: #17171c;
+  --color-ink-700: #232228;
+  --color-ink-600: #302f37;
+  --color-ink-500: #6e6b63;
 
-  --color-surface: #000000;
-  --color-surface-raised: #000000;
-  --color-surface-overlay: #000000;
-  --color-border: rgba(255, 255, 255, 0.25);
-  --color-border-subtle: rgba(255, 255, 255, 0.15);
-  --color-border-focus: #ffffff;
+  /* Text */
+  --color-mist: #a7a299;
 
-  --color-accent: #ffffff;
-  --color-accent-muted: #ffffff;
-  --color-success: #ffffff;
-  --color-warning: #ffffff;
-  --color-error: #ffffff;
+  /* Accent (gold) and its legacy aliases used across the app */
+  --color-glow: #fcdb25;
+  --color-glow-dim: #d9bc1f;
+  --color-glow-muted: #fcdb25;
+  --color-flare: #fcdb25;
+  --color-sol-purple: #fcdb25;
+  --color-sol-purple-dim: #d9bc1f;
+  --color-sol-purple-muted: #fcdb25;
+  --color-sol-gradient-start: #fcdb25;
+  --color-sol-gradient-end: #fcdb25;
+
+  --color-black: #0c0c0f;
+  --color-white: #f5efe4;
+
+  /* Warm neutral ramp (light -> dark), aligned to the ink scale */
+  --color-neutral-50: #f5efe4;
+  --color-neutral-100: #efe9dd;
+  --color-neutral-200: #e2dccf;
+  --color-neutral-300: #c9c3b6;
+  --color-neutral-400: #a7a299;
+  --color-neutral-500: #6e6b63;
+  --color-neutral-600: #3a3940;
+  --color-neutral-700: #2a2930;
+  --color-neutral-800: #1c1b20;
+  --color-neutral-900: #121216;
+  --color-neutral-950: #0c0c0f;
+
+  --color-surface: #121216;
+  --color-surface-raised: #17171c;
+  --color-surface-overlay: #1c1b20;
+  --color-border: rgba(245, 239, 228, 0.14);
+  --color-border-subtle: rgba(245, 239, 228, 0.08);
+  --color-border-focus: #fcdb25;
+
+  --color-accent: #fcdb25;
+  --color-accent-muted: #d9bc1f;
+  --color-success: #fcdb25;
+  --color-warning: #fcdb25;
+  --color-error: #e2654a;
 }
 
 @layer base {
@@ -57,12 +72,12 @@
   }
 
   ::selection {
-    background: #ffffff;
-    color: #000000;
+    background: #fcdb25;
+    color: #0c0c0f;
   }
 
   ::placeholder {
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(245, 239, 228, 0.38);
   }
 
   button:not(:disabled),
@@ -74,58 +89,67 @@
 }
 
 @layer utilities {
+  /*
+   * The old grid/fade utilities painted CSS gradients. Per the brand, no
+   * gradients: these now resolve to flat ink so existing markup stays clean.
+   */
   .bg-size-grid {
-    background-size: 100% 100%, 48px 48px, 48px 48px;
+    background-size: auto;
   }
 
   .bg-grid-fade {
-    background-image:
-      linear-gradient(to bottom, transparent 0%, #000000 100%),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-image: none;
   }
 
+  /* Former "gradient" helpers are now solid gold / ink. */
   .bg-sol-gradient {
-    background: #ffffff;
-    color: #000000;
+    background: #fcdb25;
+    color: #0c0c0f;
   }
 
   .text-sol-gradient {
-    color: #ffffff;
-    -webkit-text-fill-color: #ffffff;
+    color: #fcdb25;
+    -webkit-text-fill-color: #fcdb25;
     background: none;
   }
 
   .border-sol-gradient {
-    border-color: #ffffff;
+    border-color: #fcdb25;
   }
 
+  /* Guard: cream-on-cream is illegible, force dark text on cream fills. */
   .bg-white.text-white {
-    color: #000000;
+    color: #0c0c0f;
   }
 
-  .hover\:bg-sol-purple\/90:hover {
-    background: #000000;
-    color: #ffffff;
+  /*
+   * Primary actions across the app are expressed as `bg-white` + dark text.
+   * Render that pattern in brand gold so the accent carries through every
+   * view without per-component edits. Higher specificity than Tailwind's
+   * own hover utilities, so the gold and its hover win deterministically.
+   * (A bare `bg-white`, e.g. a QR backdrop, is untouched: this needs both
+   * the cream fill and a dark-text class, which only buttons pair.)
+   */
+  .bg-white.text-black,
+  .bg-white.text-ink-950,
+  .bg-white.text-ink-900 {
+    background-color: #fcdb25;
+    border-color: #fcdb25;
+    color: #0c0c0f;
+  }
+  .bg-white.text-black:hover:not(:disabled),
+  .bg-white.text-ink-950:hover:not(:disabled),
+  .bg-white.text-ink-900:hover:not(:disabled) {
+    background-color: #ffe24f;
+    border-color: #ffe24f;
+    color: #0c0c0f;
   }
 
-  /* Neutral fill buttons used across recovery/security flows */
-  .bg-neutral-600.text-white,
-  .bg-neutral-700.text-white {
-    color: #000000;
-  }
-
-  .hover\:bg-neutral-700:hover,
-  .hover\:bg-neutral-800:hover {
-    background: #000000;
-    color: #ffffff;
-  }
-
-  /* Ink hover washes — white tint, not gray hex */
+  /* Subtle cream wash for hover states layered over dark surfaces. */
   .hover\:bg-ink-600:hover,
   .hover\:bg-ink-700:hover,
   .hover\:bg-ink-800:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(245, 239, 228, 0.05);
   }
 }
 
@@ -136,10 +160,11 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: #000000;
-  color: #ffffff;
+  background: #0c0c0f;
+  color: #f5efe4;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
@@ -149,39 +174,39 @@ body {
 }
 
 .card {
-  background: #000000;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 12px;
+  background: var(--color-ink-900);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
   padding: 24px;
 }
 
 .card-glass {
-  background: #000000;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 16px;
+  background: rgba(18, 18, 22, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 18px;
   padding: 24px;
   box-shadow: none;
 }
 
 .banner-glass {
-  background: #000000;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(12, 12, 15, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .btn-primary {
-  background: #ffffff;
-  color: #000000;
+  background: #fcdb25;
+  color: #0c0c0f;
   font-weight: 600;
-  border: 1px solid #ffffff;
-  transition: background 0.15s ease, color 0.15s ease;
+  border: 1px solid #fcdb25;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #000000;
-  color: #ffffff;
+  background: #ffe24f;
+  border-color: #ffe24f;
 }
 .btn-primary:disabled {
   opacity: 0.4;
@@ -193,13 +218,13 @@ body {
 
 .btn-secondary {
   background: transparent;
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #f5efe4;
+  border: 1px solid var(--color-border);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .btn-secondary:hover:not(:disabled) {
-  border-color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(245, 239, 228, 0.4);
+  background: rgba(245, 239, 228, 0.04);
 }
 .btn-secondary:disabled {
   opacity: 0.4;
@@ -211,15 +236,15 @@ body {
   padding: 10px 14px;
   font-size: 14px;
   font-family: var(--font-mono);
-  background: #000000;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  color: #ffffff;
+  background: var(--color-ink-900);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: #f5efe4;
   outline: none;
   transition: border-color 0.15s ease;
 }
 .input-field:focus {
-  border-color: #ffffff;
+  border-color: #fcdb25;
 }
 
 .text-address {
@@ -261,28 +286,28 @@ body {
   0%, 100% {
     opacity: 0.85;
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    box-shadow: 0 0 0 0 rgba(252, 219, 37, 0);
   }
   50% {
     opacity: 1;
     transform: scale(1.05);
-    box-shadow: 0 0 0 2px #ffffff;
+    box-shadow: 0 0 0 2px #fcdb25;
   }
 }
 .privacy-shield {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  border: 2px solid #ffffff;
-  background: #000000;
+  border: 2px solid #fcdb25;
+  background: #0c0c0f;
   animation: privacy-shield 2.5s ease-in-out infinite;
 }
 
 @keyframes sol-glow-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+    box-shadow: 0 0 0 1px rgba(252, 219, 37, 0.3);
   }
   50% {
-    box-shadow: 0 0 0 2px #ffffff;
+    box-shadow: 0 0 0 2px #fcdb25;
   }
 }
