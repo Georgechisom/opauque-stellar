@@ -17,7 +17,7 @@ export function ThreatModelPage() {
           explains what the protocol hides, what remains visible, and how mitigations map to
           the implementation. For ghost-key encryption details, see{" "}
           <a
-            href="https://github.com/robertocarlous/opauque-stellar/blob/main/docs/GHOST_THREAT_MODEL.md"
+            href="https://github.com/opaquecash/stellar/blob/main/docs/GHOST_THREAT_MODEL.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-white underline hover:text-white"
@@ -160,7 +160,7 @@ export function ThreatModelPage() {
           </Link>
           , and the full{" "}
           <a
-            href="https://github.com/robertocarlous/opauque-stellar/blob/main/docs/PROTOCOL_THREAT_MODEL.md"
+            href="https://github.com/opaquecash/stellar/blob/main/docs/PROTOCOL_THREAT_MODEL.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-white underline hover:text-white"

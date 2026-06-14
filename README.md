@@ -220,7 +220,7 @@ Report vulnerabilities via [SECURITY.md](SECURITY.md).
 
 <div align="center">
 
-**[MIT License](LICENSE)** · Built by [Collins Adi](https://github.com/collinsadi)
+**[GPLv3 License](LICENSE)** · Built by [Collins Adi](https://github.com/collinsadi)
 
 *Every transaction deserves the right to be private.*
 
