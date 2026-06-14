@@ -62,7 +62,13 @@ function loadDotEnv() {
 
 loadDotEnv();
 
-/** Deploy order: dependency-free contracts first (order is cosmetic — none have constructors). */
+/**
+ * Deploy order. All six are deployed before any initialize() runs, so the order
+ * within this list is not load-bearing for wiring; it is kept dependency-first
+ * (groth16-verifier before reputation-verifier, schema-registry before
+ * attestation-engine-v2) so it reads naturally. None have constructors; two have
+ * one-time initialize() calls run in the wiring phase below.
+ */
 const PACKAGES = [
   { key: "stealthRegistry", pkg: "stealth-registry", wasm: "stealth_registry" },
   { key: "stealthAnnouncer", pkg: "stealth-announcer", wasm: "stealth_announcer" },
@@ -94,6 +100,41 @@ function sha256File(path) {
 
 function sh(cmd, args, opts = {}) {
   return execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts });
+}
+
+/** Invoke a deployed contract method via the stellar CLI; returns raw stdout. */
+function invoke(contractId, source, network, methodArgs) {
+  return sh("stellar", [
+    "contract",
+    "invoke",
+    "--id",
+    contractId,
+    "--source-account",
+    source,
+    "--network",
+    network,
+    "--",
+    ...methodArgs,
+  ]);
+}
+
+/** Parse the JSON return value the stellar CLI prints to stdout for a contract call. */
+function parseInvokeResult(out) {
+  const trimmed = out.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Fall back to the first JSON-looking span if the CLI emitted extra output.
+    const start = trimmed.search(/[[{"]/);
+    if (start >= 0) {
+      try {
+        return JSON.parse(trimmed.slice(start));
+      } catch {
+        /* fall through */
+      }
+    }
+    return null;
+  }
 }
 
 async function latestLedger(rpcUrl) {
@@ -202,6 +243,78 @@ async function main() {
     return;
   }
 
+  // -------------------------------------------------------------------------
+  // Post-deploy initialization + cross-contract wiring.
+  // reputation-verifier and attestation-engine-v2 each require a one-time
+  // initialize() before use; the other four have no constructor. Both wiring
+  // calls depend on contracts already deployed above (groth16-verifier and
+  // schema-registry), so they run only after the full deploy loop.
+  // -------------------------------------------------------------------------
+  if (!deployerAddress) {
+    fail(
+      "Deployer G-address could not be resolved; it is required as the admin for " +
+        "initialize(). Set STELLAR_DEPLOYER_ADDRESS in .env or use a named identity.",
+    );
+  }
+
+  const admin = deployerAddress;
+  const groth16Id = manifest.contracts.groth16Verifier.id;
+  const schemaRegistryId = manifest.contracts.schemaRegistry.id;
+  const reputationId = manifest.contracts.reputationVerifier.id;
+  const attestationId = manifest.contracts.attestationEngineV2.id;
+  const ATTESTATION_CONFIG_VERSION = 1;
+
+  console.log("\n• Initializing reputation-verifier…");
+  invoke(reputationId, source, network, [
+    "initialize",
+    "--admin",
+    admin,
+    "--groth16_verifier",
+    groth16Id,
+  ]);
+
+  console.log("• Initializing attestation-engine-v2…");
+  invoke(attestationId, source, network, [
+    "initialize",
+    "--admin",
+    admin,
+    "--governance",
+    admin,
+    "--schema_registry",
+    schemaRegistryId,
+    "--version",
+    String(ATTESTATION_CONFIG_VERSION),
+  ]);
+
+  // Read-back: confirm the wiring actually landed on-chain before we record it.
+  console.log("• Verifying wiring (read-back)…");
+  const repConfig = parseInvokeResult(invoke(reputationId, source, network, ["get_config"]));
+  if (!repConfig || repConfig.groth16_verifier !== groth16Id) {
+    fail(
+      `reputation-verifier wiring mismatch: expected groth16_verifier=${groth16Id}, ` +
+        `got ${repConfig?.groth16_verifier ?? "<none>"}`,
+    );
+  }
+  const attConfig = parseInvokeResult(invoke(attestationId, source, network, ["get_config"]));
+  if (!attConfig || attConfig.schema_registry !== schemaRegistryId) {
+    fail(
+      `attestation-engine-v2 wiring mismatch: expected schema_registry=${schemaRegistryId}, ` +
+        `got ${attConfig?.schema_registry ?? "<none>"}`,
+    );
+  }
+  console.log(`  ↳ reputation-verifier → groth16 ${repConfig.groth16_verifier}`);
+  console.log(`  ↳ attestation-engine-v2 → schema-registry ${attConfig.schema_registry}`);
+
+  manifest.wiring = {
+    reputationVerifier: { admin, groth16Verifier: groth16Id },
+    attestationEngineV2: {
+      admin,
+      governance: admin,
+      schemaRegistry: schemaRegistryId,
+      version: ATTESTATION_CONFIG_VERSION,
+    },
+  };
+
   manifest.deployedAt = new Date().toISOString();
   manifest.deploymentLedger = await latestLedger(manifest.rpcUrl);
   if (deployerAddress) {
@@ -215,8 +328,9 @@ async function main() {
 
   console.log(
     [
-      "\nNext steps:",
-      `  1. Verify:  node scripts/verify-deployment-manifest.mjs --network ${network} --strict --check-wasm`,
+      "\nDeployed + initialized all 6 contracts; wiring recorded in the manifest.",
+      "Next steps:",
+      `  1. Verify:  npm run verify:deployment:strict -- --network ${network} --check-wasm`,
       `  2. Point the frontend at the new IDs (they are read from the manifest automatically),`,
       `     or set VITE_${network.toUpperCase()}_*_CONTRACT overrides for local dev.`,
       "  3. Commit the updated manifest.",

@@ -41,6 +41,7 @@ const PASSPHRASES = {
 };
 
 const STELLAR_CONTRACT_ID = /^C[A-Z2-7]{55}$/;
+const STELLAR_ACCOUNT_ID = /^G[A-Z2-7]{55}$/;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 const SOLANA_LIKE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -136,6 +137,7 @@ function validateManifest(manifest, { strict, checkWasm }) {
     if (!manifest.deployedAt) {
       errors.push("deployedAt required when deploymentStatus=deployed");
     }
+    errors.push(...validateWiring(manifest));
   }
 
   if (checkWasm) {
@@ -157,6 +159,55 @@ function validateManifest(manifest, { strict, checkWasm }) {
           `contracts.${key}.wasmHash mismatch: manifest=${expected} built=${actual}`,
         );
       }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Validate the post-deploy wiring block written by deploy-contracts.ts. The deploy
+ * step reads these values back from the live contracts before recording them; this
+ * static check surfaces the wiring in `verify:deployment` and guards against the
+ * recorded wiring drifting from the deployed contract IDs.
+ */
+function validateWiring(manifest) {
+  const errors = [];
+  const wiring = manifest.wiring;
+  if (!wiring) {
+    errors.push("wiring required when deploymentStatus=deployed (run deploy-contracts.ts)");
+    return errors;
+  }
+
+  const rep = wiring.reputationVerifier;
+  if (!rep) {
+    errors.push("wiring.reputationVerifier missing");
+  } else {
+    const groth16Id = manifest.contracts?.groth16Verifier?.id;
+    if (rep.groth16Verifier !== groth16Id) {
+      errors.push(
+        `wiring.reputationVerifier.groth16Verifier (${rep.groth16Verifier}) does not match ` +
+          `contracts.groth16Verifier.id (${groth16Id})`,
+      );
+    }
+    if (rep.admin && !STELLAR_ACCOUNT_ID.test(rep.admin)) {
+      errors.push("wiring.reputationVerifier.admin is not a valid Stellar account (G...) address");
+    }
+  }
+
+  const att = wiring.attestationEngineV2;
+  if (!att) {
+    errors.push("wiring.attestationEngineV2 missing");
+  } else {
+    const schemaRegistryId = manifest.contracts?.schemaRegistry?.id;
+    if (att.schemaRegistry !== schemaRegistryId) {
+      errors.push(
+        `wiring.attestationEngineV2.schemaRegistry (${att.schemaRegistry}) does not match ` +
+          `contracts.schemaRegistry.id (${schemaRegistryId})`,
+      );
+    }
+    if (att.admin && !STELLAR_ACCOUNT_ID.test(att.admin)) {
+      errors.push("wiring.attestationEngineV2.admin is not a valid Stellar account (G...) address");
     }
   }
 

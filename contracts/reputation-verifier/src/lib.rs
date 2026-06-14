@@ -120,6 +120,17 @@ impl ReputationVerifier {
         Ok(())
     }
 
+    /// Read-only accessor for the verifier configuration (admin + wired groth16
+    /// verifier + root expiry window). Deploy tooling calls this after `initialize`
+    /// to confirm the cross-contract wiring took effect. Traps if uninitialised,
+    /// matching the `.expect("config")` convention used elsewhere in this contract.
+    pub fn get_config(env: Env) -> VerifierConfig {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "config"))
+            .expect("config")
+    }
+
     /// Update the root validity window. Only the admin may call this.
     pub fn set_root_expiry(
         env: Env,
