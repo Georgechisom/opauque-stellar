@@ -175,11 +175,16 @@ export function LandingView() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-5 sm:px-8 py-16">
       <div className="w-full max-w-md text-center">
-        <h1 className="font-display text-5xl font-extrabold tracking-tight text-white sm:text-6xl">
-          Opaque<span className="text-white">.</span>
+        <span className="inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-mist">
+          <span className="h-1.5 w-1.5 rounded-full bg-glow" aria-hidden />
+          Stealth wallet
+        </span>
+
+        <h1 className="mt-6 font-display text-5xl font-extrabold tracking-tight text-white sm:text-6xl">
+          Opaque<span className="text-glow">.</span>
         </h1>
 
-        <p className="mt-4 text-mist">
+        <p className="mt-4 text-mist leading-relaxed">
           Connect Freighter and derive stealth keys to begin. Keys are generated on-device and never leave
           your browser.
         </p>
@@ -190,22 +195,22 @@ export function LandingView() {
               type="button"
               onClick={() => void handleEnterVault()}
               disabled={connecting || flowInFlightRef.current}
-              className="mt-8 w-full rounded-xl bg-white border border-white px-6 py-3.5 text-sm font-semibold text-black transition-all hover:bg-black hover:text-white hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+              className="mt-8 w-full rounded-full bg-glow px-6 py-3.5 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {!connected ? "Connect wallet & initialize" : "Initialize protocol"}
             </button>
-            <label className="mt-3 inline-flex items-center gap-2 text-xs text-mist cursor-pointer select-none">
+            <label className="mt-4 inline-flex items-center gap-2 text-xs text-mist cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={rememberSession}
                 onChange={(e) => setRememberSession(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-ink-600 bg-ink-900 accent-white"
+                className="h-3.5 w-3.5 rounded border-ink-600 bg-ink-900 accent-glow"
               />
               Remember signature for this tab (about 30 minutes)
             </label>
             <p className="mt-2 text-xs text-mist/70">
               Session cache is not a backup.{" "}
-              <RecoveryDocLink section="browser-session" className="text-mist/90 hover:text-white hover:underline font-medium">
+              <RecoveryDocLink section="browser-session" className="text-mist hover:text-white hover:underline font-medium">
                 How key recovery works
               </RecoveryDocLink>
             </p>
@@ -214,7 +219,7 @@ export function LandingView() {
 
         {showSpinner && (
           <div className="mt-8 flex flex-col items-center gap-3">
-            <span className="h-6 w-6 animate-spin rounded-full border-2 border-ink-600 border-t-white" />
+            <span className="h-6 w-6 animate-spin rounded-full border-2 border-ink-700 border-t-glow" />
             <p className="text-sm text-mist">
               {phase === "connecting" && "Check your wallet to connect…"}
               {phase === "signing" && "Sign the message in your wallet…"}
@@ -225,11 +230,11 @@ export function LandingView() {
         )}
 
         {phase === "register" && (
-          <div className="mt-8 rounded-2xl border border-ink-700 bg-ink-900/40 p-6 text-left">
+          <div className="mt-8 rounded-2xl border border-border-subtle bg-ink-900 p-6 text-left">
             <h2 className="font-display text-lg font-bold text-white">
               Register on Stellar
             </h2>
-            <p className="mt-2 text-sm text-mist">
+            <p className="mt-2 text-sm text-mist leading-relaxed">
               One-time transaction on the registry program so payers can resolve your stealth meta-address from your wallet.
             </p>
             {error && <p className="mt-3 text-sm text-error">{error}</p>}
@@ -237,7 +242,7 @@ export function LandingView() {
               type="button"
               onClick={() => void handleRegister()}
               disabled={!currentConfig}
-              className="mt-4 w-full rounded-xl bg-white border border-white px-6 py-3 text-sm font-semibold text-black hover:bg-black hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="mt-5 w-full rounded-full bg-glow px-6 py-3 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Register
             </button>
@@ -245,12 +250,12 @@ export function LandingView() {
         )}
 
         {phase === "done" && (
-          <p className="mt-8 text-sm text-white">Setup complete — entering dashboard…</p>
+          <p className="mt-8 text-sm text-white">Setup complete, entering dashboard…</p>
         )}
 
         {phase === "error" && error && (
           <div className="mt-6 space-y-4">
-            <div className="rounded-xl border border-neutral-500/30 bg-neutral-950/20 px-4 py-3 text-left text-sm text-neutral-300">
+            <div className="rounded-xl border border-error/40 bg-error/10 px-4 py-3 text-left text-sm text-neutral-200">
               {error}
             </div>
             <button
@@ -259,7 +264,7 @@ export function LandingView() {
                 setPhase("idle");
                 setError(null);
               }}
-              className="w-full rounded-xl border border-ink-600 px-6 py-3 text-sm font-medium text-mist hover:text-white"
+              className="w-full rounded-full border border-border px-6 py-3 text-sm font-medium text-mist transition-colors hover:border-white/40 hover:text-white"
             >
               Try again
             </button>

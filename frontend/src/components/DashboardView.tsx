@@ -63,7 +63,7 @@ export function DashboardView({ onNavigate, address, cluster }: DashboardViewPro
     try {
       return new Date(ts).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
     } catch {
-      return "—";
+      return "-";
     }
   };
 
@@ -86,7 +86,7 @@ export function DashboardView({ onNavigate, address, cluster }: DashboardViewPro
         {canChangeNetwork && (
           <div className="mt-2 flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-ink-600 bg-ink-900/40 px-3 py-1 text-xs text-mist">
-              <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
+              <span className="h-1.5 w-1.5 rounded-full bg-glow" aria-hidden />
               {getCluster()}
             </span>
             <button
@@ -108,7 +108,7 @@ export function DashboardView({ onNavigate, address, cluster }: DashboardViewPro
             type="button"
             onClick={() => onNavigate(card.id)}
             data-tour={card.id === "receive" ? "receive" : undefined}
-            className="group relative overflow-hidden rounded-2xl border border-ink-600 bg-ink-900/25 p-6 text-left transition-all hover:border-white/30 hover:border-white"
+            className="group relative overflow-hidden rounded-2xl border border-ink-600 bg-ink-900/25 p-6 text-left transition-colors hover:border-glow/40"
           >
             <span
               className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl text-lg ${

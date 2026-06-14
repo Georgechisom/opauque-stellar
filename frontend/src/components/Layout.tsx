@@ -69,7 +69,7 @@ function DesktopNav({
               onClick={() => onTabChange("dashboard")}
               className="font-display text-base font-bold tracking-tight text-white transition-colors hover:text-white"
             >
-              Opaque<span className="text-white">.</span>
+              Opaque<span className="text-glow">.</span>
             </Link>
           ) : (
             <button
@@ -77,7 +77,7 @@ function DesktopNav({
               onClick={() => navigate("/app", { state: { tab: "dashboard" } })}
               className="font-display text-base font-bold tracking-tight text-white transition-colors hover:text-white"
             >
-              Opaque<span className="text-white">.</span>
+              Opaque<span className="text-glow">.</span>
             </button>
           )}
           {navItems.length > 0 && (
@@ -106,7 +106,7 @@ function DesktopNav({
               type="button"
               onClick={onConnect}
               disabled={isConnecting}
-              className="rounded-lg bg-white border border-white px-4 py-1.5 text-sm font-semibold text-black transition-all hover:bg-black hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-full bg-glow px-4 py-1.5 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isConnecting ? "Connecting…" : "Connect"}
             </button>
@@ -186,7 +186,7 @@ function MobileNav({ tab, onTabChange }: Pick<LayoutProps, "tab" | "onTabChange"
               type="button"
               onClick={() => onTabChange(id)}
               className={`flex flex-col items-center gap-0.5 rounded-lg px-4 py-2 min-w-[72px] transition-colors ${
-                active ? "text-white" : "text-mist/60 hover:text-white"
+                active ? "text-glow" : "text-mist/60 hover:text-white"
               }`}
             >
               <span className="text-lg" aria-hidden>{icon}</span>
@@ -217,7 +217,7 @@ export function Layout({
   protocolLog,
 }: LayoutProps) {
   return (
-    <div className="min-h-dvh flex flex-col bg-ink-950 bg-grid-fade bg-size-grid">
+    <div className="min-h-dvh flex flex-col bg-ink-950">
       {/* ── Fixed header ── */}
       <div className="hidden md:flex flex-col fixed top-0 left-0 right-0 z-20">
         <TestnetBanner isConnected={isConnected} />

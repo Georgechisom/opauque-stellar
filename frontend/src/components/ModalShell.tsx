@@ -28,7 +28,7 @@ export function ModalShell({
   const titleId = useId();
   const descId = useId();
 
-  // #109: Esc closes the modal — standard dialog behaviour.
+  // #109: Esc closes the modal, standard dialog behaviour.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
