@@ -51,11 +51,11 @@
       "frontend": {
         "witnessWasm": {
           "path": "frontend/public/circuits/v2/stealth_reputation.wasm",
-          "sha256": "0fdc435cc602b4ab0c2e5fa41533901f876a158657f41183022d93eb76297a05"
+          "sha256": "238c5a0f34f164d8ac08420a5484c5c7917aaba2ba86bb26ad63206be8364880"
         },
         "zkey": {
           "path": "frontend/public/circuits/v2/stealth_reputation_final.zkey",
-          "sha256": "5a4545c179818742dbbd8efd73f9dbfd8b8f0427145c07c1bf37fff44a350897"
+          "sha256": "6bbee378c05c2d4f1dfc118fb15e2c7b4bacf78e2518881c576d81da5894442d"
         }
       },
       "build": {
@@ -65,17 +65,17 @@
         },
         "verificationKey": {
           "path": "circuits/v2/build/verification_key.json",
-          "sha256": null
+          "sha256": "e79286559a6a9c5c7ceb613909d51fa4344c391fa407ed1d700b74c41867986f"
         }
       },
       "contractVk": {
         "groth16Verifier": "contracts/groth16-verifier/src/lib.rs",
         "constantsPrefix": "VK_*_V2",
-        "embeddedVkHash": "8cd3043dcd8b97b11828cda7fbdf8e919c7d727fe05e7f62a20110bcb2dcfce6",
-        "zkeyHash": "5a4545c179818742dbbd8efd73f9dbfd8b8f0427145c07c1bf37fff44a350897",
+        "embeddedVkHash": "90576843d1c969d1244782087b6f8005cb94ca25f46d0e4b20e1b1abd63d4c95",
+        "zkeyHash": "6bbee378c05c2d4f1dfc118fb15e2c7b4bacf78e2518881c576d81da5894442d",
         "referenceVerificationKey": {
-          "path": "demo/public/circuits/v2/verification_key.json",
-          "sha256": "24d0fe6a5ef1174ab616a5d39df846442af7a7818962b0ed346586bb1eb74b47"
+          "path": "circuits/v2/build/verification_key.json",
+          "sha256": "e79286559a6a9c5c7ceb613909d51fa4344c391fa407ed1d700b74c41867986f"
         }
       }
     }

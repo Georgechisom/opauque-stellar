@@ -63,11 +63,11 @@
     "circuits": {
       "v2": {
         "r1csHash": "c67a500de9f45d87e59eac1b239d76768866c5dc0a1e6bee5adaf258d09c0504",
-        "verificationKeyHash": "24d0fe6a5ef1174ab616a5d39df846442af7a7818962b0ed346586bb1eb74b47",
-        "witnessWasmHash": "0fdc435cc602b4ab0c2e5fa41533901f876a158657f41183022d93eb76297a05",
-        "zkeyHash": "5a4545c179818742dbbd8efd73f9dbfd8b8f0427145c07c1bf37fff44a350897",
-        "contractVkHash": "8cd3043dcd8b97b11828cda7fbdf8e919c7d727fe05e7f62a20110bcb2dcfce6",
-        "zkeyHashBinding": "5a4545c179818742dbbd8efd73f9dbfd8b8f0427145c07c1bf37fff44a350897"
+        "verificationKeyHash": "e79286559a6a9c5c7ceb613909d51fa4344c391fa407ed1d700b74c41867986f",
+        "witnessWasmHash": "238c5a0f34f164d8ac08420a5484c5c7917aaba2ba86bb26ad63206be8364880",
+        "zkeyHash": "6bbee378c05c2d4f1dfc118fb15e2c7b4bacf78e2518881c576d81da5894442d",
+        "contractVkHash": "90576843d1c969d1244782087b6f8005cb94ca25f46d0e4b20e1b1abd63d4c95",
+        "zkeyHashBinding": "6bbee378c05c2d4f1dfc118fb15e2c7b4bacf78e2518881c576d81da5894442d"
       },
       "v1": {
         "witnessWasmHash": "48308a1097217d50bebe859d1cdab52da51dcc8ba2aa959eb7198f9a734d8913",
