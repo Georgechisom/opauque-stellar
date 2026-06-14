@@ -10,7 +10,7 @@ use opaque_schema_core::{
 use sha2::{Digest, Sha256};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal,
-    String as SorobanString, Symbol,
+    String, Symbol,
 };
 
 #[contract]
@@ -124,7 +124,7 @@ fn compute_attestation_uid(
 }
 
 fn soroban_string_to_str<'a>(
-    s: &SorobanString,
+    s: &String,
     buf: &'a mut [u8; MAX_FIELD_DEFS_STR_LEN],
 ) -> Option<&'a str> {
     let len = s.len() as usize;
@@ -476,7 +476,7 @@ mod property_tests {
     extern crate schema_registry;
     use soroban_sdk::{
         testutils::{Address as _, Ledger},
-        Address, Bytes, BytesN, Env, String as SorobanString,
+        Address, Bytes, BytesN, Env, String,
     };
 
     fn setup() -> (
@@ -499,7 +499,7 @@ mod property_tests {
         schema_registry::derive_schema_id(
             env,
             &authority_key(env),
-            &SorobanString::from_str(env, "PropSchema"),
+            &String::from_str(env, "PropSchema"),
             1,
             &canonical,
         )
@@ -528,8 +528,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -577,8 +577,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -605,8 +605,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -661,8 +661,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -710,8 +710,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -755,8 +755,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "PropSchema"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "PropSchema"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,
@@ -789,7 +789,7 @@ mod test {
     extern crate schema_registry;
     use soroban_sdk::{
         testutils::{Address as _, Ledger as _},
-        Address, Bytes, Env, String as SorobanString,
+        Address, Bytes, Env, String,
     };
 
     // Mock registry that always denies — used by the unauthorized-registry security test (#47).
@@ -850,7 +850,7 @@ mod test {
         schema_registry::derive_schema_id(
             env,
             &authority_key(env),
-            &SorobanString::from_str(env, name),
+            &String::from_str(env, name),
             1,
             &canonical,
         )
@@ -869,8 +869,8 @@ mod test {
             authority,
             &authority_key(env),
             schema_id,
-            &SorobanString::from_str(env, name),
-            &SorobanString::from_str(env, field_defs),
+            &String::from_str(env, name),
+            &String::from_str(env, field_defs),
             &revocable,
             &1u32,
             &None,
@@ -1304,8 +1304,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "Expired"),
-            &SorobanString::from_str(&env, DEFAULT_DEFS),
+            &String::from_str(&env, "Expired"),
+            &String::from_str(&env, DEFAULT_DEFS),
             &true,
             &1u32,
             &None,

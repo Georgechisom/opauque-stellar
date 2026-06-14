@@ -9,8 +9,7 @@ use opaque_schema_core::{
     MAX_FIELD_DEFS_STR_LEN,
 };
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env,
-    String as SorobanString, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
 };
 
 #[contract]
@@ -27,8 +26,8 @@ pub struct Schema {
     pub authority: Address,
     pub resolver: Address,
     pub revocable: bool,
-    pub name: SorobanString,
-    pub field_definitions: SorobanString,
+    pub name: String,
+    pub field_definitions: String,
     pub version: u32,
     pub created_at: u32,
     pub schema_expiry_ledger: u32,
@@ -81,7 +80,7 @@ fn schema_ids_key(env: &Env) -> Symbol {
 
 /// Copies a Soroban `String` into a UTF-8 `&str` backed by `buf`.
 fn soroban_string_to_str<'a>(
-    s: &SorobanString,
+    s: &String,
     buf: &'a mut [u8; MAX_FIELD_DEFS_STR_LEN],
 ) -> Result<&'a str, SchemaError> {
     let len = s.len() as usize;
@@ -113,7 +112,7 @@ fn parse_error(e: SchemaParseError) -> SchemaError {
 pub fn derive_schema_id(
     env: &Env,
     authority_key: &BytesN<32>,
-    name: &SorobanString,
+    name: &String,
     version: u32,
     canonical_field_defs: &[u8],
 ) -> BytesN<32> {
@@ -159,8 +158,8 @@ impl SchemaRegistry {
     pub fn compute_schema_id(
         env: Env,
         authority_key: BytesN<32>,
-        name: SorobanString,
-        field_definitions: SorobanString,
+        name: String,
+        field_definitions: String,
         version: u32,
     ) -> Result<BytesN<32>, SchemaError> {
         let mut buf = [0u8; MAX_FIELD_DEFS_STR_LEN];
@@ -181,8 +180,8 @@ impl SchemaRegistry {
         authority: Address,
         authority_key: BytesN<32>,
         schema_id: BytesN<32>,
-        name: SorobanString,
-        field_definitions: SorobanString,
+        name: String,
+        field_definitions: String,
         revocable: bool,
         version: u32,
         resolver: Option<Address>,
@@ -208,7 +207,7 @@ impl SchemaRegistry {
         if schema_expiry_ledger != 0 && schema_expiry_ledger <= env.ledger().sequence() {
             return Err(SchemaError::InvalidExpiryLedger);
         }
-        let canonical_field_defs = SorobanString::from_str(&env, canonical_str.as_str());
+        let canonical_field_defs = String::from_str(&env, canonical_str.as_str());
         let schema = Schema {
             schema_id: schema_id.clone(),
             authority: authority.clone(),
@@ -383,7 +382,7 @@ mod property_tests {
     use opaque_schema_core::parse_field_definitions;
     use soroban_sdk::{
         testutils::{Address as _, Ledger},
-        Address, BytesN, Env, String as SorobanString,
+        Address, BytesN, Env, String,
     };
 
     fn authority_key(env: &Env) -> BytesN<32> {
@@ -396,7 +395,7 @@ mod property_tests {
         derive_schema_id(
             env,
             &authority_key(env),
-            &SorobanString::from_str(env, name),
+            &String::from_str(env, name),
             version,
             &canonical,
         )
@@ -417,8 +416,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "ImmutableTest"),
-            &SorobanString::from_str(&env, "string field1, u32 score"),
+            &String::from_str(&env, "ImmutableTest"),
+            &String::from_str(&env, "string field1, u32 score"),
             &true,
             &1u32,
             &None,
@@ -433,7 +432,7 @@ mod property_tests {
         assert!(schema.revocable);
         assert_eq!(
             schema.field_definitions,
-            SorobanString::from_str(&env, "string field1,u32 score")
+            String::from_str(&env, "string field1,u32 score")
         );
 
         // Invariant 2: no public method can change field_definitions or revocable
@@ -453,7 +452,7 @@ mod property_tests {
         let env = Env::default();
 
         let authority = [0x2au8; 32];
-        let name = SorobanString::from_str(&env, "TestSchema");
+        let name = String::from_str(&env, "TestSchema");
         let fields = parse_field_definitions("string f1").unwrap();
         let canonical = encode_canonical_field_defs(&fields);
 
@@ -486,7 +485,7 @@ mod property_tests {
         assert_ne!(id, id_v2);
 
         // Different name → different ID
-        let name2 = SorobanString::from_str(&env, "OtherSchema");
+        let name2 = String::from_str(&env, "OtherSchema");
         let id_name = derive_schema_id(
             &env,
             &BytesN::from_array(&env, &authority),
@@ -540,8 +539,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "AuthTest"),
-            &SorobanString::from_str(&env, "string f1"),
+            &String::from_str(&env, "AuthTest"),
+            &String::from_str(&env, "string f1"),
             &true,
             &1u32,
             &None,
@@ -588,8 +587,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "ExpiryPropTest"),
-            &SorobanString::from_str(&env, "string f1"),
+            &String::from_str(&env, "ExpiryPropTest"),
+            &String::from_str(&env, "string f1"),
             &true,
             &1u32,
             &None,
@@ -613,8 +612,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id_no_expiry,
-            &SorobanString::from_str(&env, "NeverExpires"),
-            &SorobanString::from_str(&env, "string f1"),
+            &String::from_str(&env, "NeverExpires"),
+            &String::from_str(&env, "string f1"),
             &true,
             &1u32,
             &None,
@@ -640,8 +639,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "DupTest"),
-            &SorobanString::from_str(&env, "string f1"),
+            &String::from_str(&env, "DupTest"),
+            &String::from_str(&env, "string f1"),
             &true,
             &1u32,
             &None,
@@ -653,8 +652,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "DupTest"),
-            &SorobanString::from_str(&env, "string f1"),
+            &String::from_str(&env, "DupTest"),
+            &String::from_str(&env, "string f1"),
             &true,
             &1u32,
             &None,
@@ -682,8 +681,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &many_id,
-            &SorobanString::from_str(&env, "ManyFields"),
-            &SorobanString::from_str(&env, many_fields),
+            &String::from_str(&env, "ManyFields"),
+            &String::from_str(&env, many_fields),
             &true,
             &1u32,
             &None,
@@ -697,8 +696,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &bad_name_id,
-            &SorobanString::from_str(&env, "BadName"),
-            &SorobanString::from_str(&env, "u32 1bad"),
+            &String::from_str(&env, "BadName"),
+            &String::from_str(&env, "u32 1bad"),
             &true,
             &1u32,
             &None,
@@ -712,8 +711,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &dup_name_id,
-            &SorobanString::from_str(&env, "DupName"),
-            &SorobanString::from_str(&env, "u32 a, string a"),
+            &String::from_str(&env, "DupName"),
+            &String::from_str(&env, "u32 a, string a"),
             &true,
             &1u32,
             &None,
@@ -727,8 +726,8 @@ mod property_tests {
             &authority,
             &authority_key(&env),
             &empty_id,
-            &SorobanString::from_str(&env, "Empty"),
-            &SorobanString::from_str(&env, ""),
+            &String::from_str(&env, "Empty"),
+            &String::from_str(&env, ""),
             &true,
             &1u32,
             &None,
@@ -756,7 +755,7 @@ mod test {
         derive_schema_id(
             env,
             &authority_key(env),
-            &SorobanString::from_str(env, name),
+            &String::from_str(env, name),
             version,
             &canonical,
         )
@@ -773,8 +772,8 @@ mod test {
             authority,
             &authority_key(env),
             schema_id,
-            &SorobanString::from_str(env, "TestSchema"),
-            &SorobanString::from_str(env, "string field1"),
+            &String::from_str(env, "TestSchema"),
+            &String::from_str(env, "string field1"),
             &revocable,
             &1u32,
             &None,
@@ -827,8 +826,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "Expiring"),
-            &SorobanString::from_str(&env, "string field1"),
+            &String::from_str(&env, "Expiring"),
+            &String::from_str(&env, "string field1"),
             &true,
             &1u32,
             &None,
@@ -852,8 +851,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "NoExpiry"),
-            &SorobanString::from_str(&env, "u32 f"),
+            &String::from_str(&env, "NoExpiry"),
+            &String::from_str(&env, "u32 f"),
             &false,
             &1u32,
             &None,
@@ -876,8 +875,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "Stale"),
-            &SorobanString::from_str(&env, "u32 f"),
+            &String::from_str(&env, "Stale"),
+            &String::from_str(&env, "u32 f"),
             &false,
             &1u32,
             &None,
@@ -890,7 +889,7 @@ mod test {
     fn derive_schema_id_is_deterministic() {
         let env = Env::default();
         let authority_bytes = authority_key(&env);
-        let name = SorobanString::from_str(&env, "MySchema");
+        let name = String::from_str(&env, "MySchema");
         let fields = parse_field_definitions("string name").unwrap();
         let canonical = encode_canonical_field_defs(&fields);
         let first = derive_schema_id(&env, &authority_bytes, &name, 1, &canonical);
@@ -902,7 +901,7 @@ mod test {
     fn derive_schema_id_differs_by_version() {
         let env = Env::default();
         let authority_bytes = authority_key(&env);
-        let name = SorobanString::from_str(&env, "MySchema");
+        let name = String::from_str(&env, "MySchema");
         let fields = parse_field_definitions("string name").unwrap();
         let canonical = encode_canonical_field_defs(&fields);
         let v1 = derive_schema_id(&env, &authority_bytes, &name, 1, &canonical);
@@ -919,14 +918,14 @@ mod test {
         let a = derive_schema_id(
             &env,
             &authority_bytes,
-            &SorobanString::from_str(&env, "Foo"),
+            &String::from_str(&env, "Foo"),
             1,
             &canonical,
         );
         let b = derive_schema_id(
             &env,
             &authority_bytes,
-            &SorobanString::from_str(&env, "Bar"),
+            &String::from_str(&env, "Bar"),
             1,
             &canonical,
         );
@@ -937,7 +936,7 @@ mod test {
     fn derive_schema_id_differs_by_field_defs() {
         let env = Env::default();
         let authority_bytes = authority_key(&env);
-        let name = SorobanString::from_str(&env, "MySchema");
+        let name = String::from_str(&env, "MySchema");
         let a_fields = parse_field_definitions("string name").unwrap();
         let b_fields = parse_field_definitions("u32 name").unwrap();
         let id_a = derive_schema_id(
@@ -969,8 +968,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &bogus_id,
-            &SorobanString::from_str(&env, "Bad"),
-            &SorobanString::from_str(&env, "float x"),
+            &String::from_str(&env, "Bad"),
+            &String::from_str(&env, "float x"),
             &false,
             &1u32,
             &None,
@@ -991,8 +990,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &wrong_id,
-            &SorobanString::from_str(&env, "Test"),
-            &SorobanString::from_str(&env, "string field1"),
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "string field1"),
             &false,
             &1u32,
             &None,
@@ -1013,8 +1012,8 @@ mod test {
             &authority,
             &authority_key(&env),
             &schema_id,
-            &SorobanString::from_str(&env, "Test"),
-            &SorobanString::from_str(&env, "bool active, string label"),
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "bool active, string label"),
             &true,
             &1u32,
             &None,
@@ -1023,7 +1022,7 @@ mod test {
         let schema = client.get_schema(&schema_id);
         assert_eq!(
             schema.field_definitions,
-            SorobanString::from_str(&env, "bool active,string label")
+            String::from_str(&env, "bool active,string label")
         );
     }
 }
