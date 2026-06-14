@@ -23,6 +23,7 @@ import {
   hexToBytes,
   hexPubkeyToBase58,
 } from "../lib/programs";
+import { addressToAuthorityBytes } from "../lib/schemaEncoding";
 import { ProofGeneratorModal } from "./ProofGeneratorModal";
 import { FeatureDisabledNotice } from "./FeatureDisabledNotice";
 import { getFeatureFlags } from "../lib/featureFlags";
@@ -272,8 +273,12 @@ export function MyTraitsView({ onNavigate, readOnly = false }: MyTraitsViewProps
 
         const schemasPayload = schemaRows.map((schema) => ({
           schema_id: Array.from(hexToBytes(schema.schemaId)),
-          authority: schema.authority,
-          delegates: schema.delegates,
+          // The Rust scanner expects authority/delegates as raw 32-byte
+          // ed25519 keys ([u8; 32]), not Stellar G-address strings.
+          authority: Array.from(addressToAuthorityBytes(schema.authority)),
+          delegates: schema.delegates.map((d) =>
+            Array.from(addressToAuthorityBytes(d)),
+          ),
           deprecated: schema.deprecated,
           schema_expiry_slot: Number(schema.schemaExpirySlot),
           name: schema.name,
