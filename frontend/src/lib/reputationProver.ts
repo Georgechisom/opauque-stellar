@@ -16,8 +16,8 @@ import { getNetworkPassphrase } from "./chain";
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
 
-const CIRCUIT_WASM_PATH = "/circuits/stealth_attestation_js/stealth_attestation.wasm";
-const ZKEY_PATH = "/circuits/sa_final.zkey";
+const CIRCUIT_WASM_PATH = "/circuits/v2/stealth_reputation.wasm";
+const ZKEY_PATH = "/circuits/v2/stealth_reputation_final.zkey";
 const TREE_DEPTH = 20;
 
 const REPUTATION_CONTRACT_ID = reputationAddresses.reputationVerifier;
@@ -30,7 +30,17 @@ function bytesToBigInt(bytes: Uint8Array): bigint {
   return result;
 }
 
-async function buildCircuitConsistentWitness(
+/**
+ * Build a witness for the canonical V2 reputation circuit
+ * (circuits/v2/stealth_reputation.circom).
+ *
+ * Phase 2 uses a contrived single-leaf tree-of-zeros (the holder's leaf at index 0),
+ * and derives the private trait fields (issuer_pk_x, trait_data_hash, nonce)
+ * deterministically. Phase 3 replaces this with the real indexed attestation set via
+ * the scanner's scan_attestations_v2 / generate_reputation_witness_v2, and a published
+ * Merkle root the proof verifies against.
+ */
+async function buildV2Witness(
   traitAttestationId: number,
   stealthPrivKeyBytes: Uint8Array,
   externalNullifier: string,
@@ -41,52 +51,43 @@ async function buildCircuitConsistentWitness(
   }
   const circomlib = await import("circomlibjs");
   const poseidon = await circomlib.buildPoseidon();
-  const babyjub = await circomlib.buildBabyjub();
   const F = poseidon.F;
 
-  const attestationId = BigInt(traitAttestationId);
+  const stealthPk = F.toObject(F.e(bytesToBigInt(stealthPrivKeyBytes)));
+  const schemaId = BigInt(traitAttestationId); // attestation_id == schema_id
   const extNullifier = BigInt(externalNullifier);
 
-  const stealthPriv = F.toObject(F.e(bytesToBigInt(stealthPrivKeyBytes)));
-  const ephemeralPriv = F.toObject(F.e(stealthPriv + extNullifier + 1n));
-  const stealthPub = babyjub.mulPointEscalar(babyjub.Base8, stealthPriv);
-  const ephemeralPub = babyjub.mulPointEscalar(babyjub.Base8, ephemeralPriv);
-  const sharedSecret = babyjub.mulPointEscalar(ephemeralPub, stealthPriv);
+  // Derived private inputs (Phase 2 placeholder; Phase 3 supplies real values).
+  const issuerPkX = F.toObject(poseidon([stealthPk, 1n]));
+  const traitDataHash = F.toObject(poseidon([schemaId, 2n]));
+  const nonce = F.toObject(poseidon([stealthPk, 3n]));
 
-  const stealthPubX = F.toObject(stealthPub[0]);
-  const stealthPubY = F.toObject(stealthPub[1]);
-  const ephemeralPubX = F.toObject(ephemeralPub[0]);
-  const ephemeralPubY = F.toObject(ephemeralPub[1]);
-  const sharedX = F.toObject(sharedSecret[0]);
-  const sharedY = F.toObject(sharedSecret[1]);
+  // leaf = Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
+  const leaf = F.toObject(poseidon([stealthPk, schemaId, issuerPkX, traitDataHash, nonce]));
 
-  const addressCommitment = F.toObject(poseidon([sharedX, sharedY, stealthPubX, stealthPubY]));
-  const leaf = F.toObject(poseidon([addressCommitment, attestationId]));
-
-  const zeroHashes: bigint[] = [];
-  zeroHashes.push(F.toObject(poseidon([0n, 0n])));
-  for (let i = 1; i < TREE_DEPTH; i++) {
-    zeroHashes.push(F.toObject(poseidon([zeroHashes[i - 1], zeroHashes[i - 1]])));
-  }
-
-  const merklePathElements: string[] = [];
+  const merklePath: string[] = [];
   const merklePathIndices: number[] = [];
   let current = leaf;
   for (let i = 0; i < TREE_DEPTH; i++) {
-    merklePathElements.push(zeroHashes[i].toString());
+    merklePath.push("0");
     merklePathIndices.push(0);
-    current = F.toObject(poseidon([current, zeroHashes[i]]));
+    current = F.toObject(poseidon([current, 0n]));
   }
+  const merkleRoot = current;
+  const nullifierHash = F.toObject(poseidon([stealthPk, extNullifier]));
 
   return {
-    merkle_root: current.toString(),
-    attestation_id: attestationId.toString(),
-    external_nullifier: extNullifier.toString(),
-    stealth_private_key: stealthPriv.toString(),
-    ephemeral_pubkey: [ephemeralPubX.toString(), ephemeralPubY.toString()],
-    announcement_attestation_id: attestationId.toString(),
-    merkle_path_elements: merklePathElements,
+    stealth_pk: stealthPk.toString(),
+    schema_id: schemaId.toString(),
+    issuer_pk_x: issuerPkX.toString(),
+    trait_data_hash: traitDataHash.toString(),
+    nonce: nonce.toString(),
+    merkle_path: merklePath,
     merkle_path_indices: merklePathIndices,
+    merkle_root: merkleRoot.toString(),
+    attestation_id: schemaId.toString(),
+    external_nullifier: extNullifier.toString(),
+    nullifier_hash: nullifierHash.toString(),
   };
 }
 
@@ -105,7 +106,7 @@ export async function generateReputationProof(
 ): Promise<ProofData> {
   onProgress("preparing-witness", 10);
 
-  const witness = await buildCircuitConsistentWitness(
+  const witness = await buildV2Witness(
     trait.attestationId,
     stealthPrivKeyBytes,
     externalNullifier
@@ -122,24 +123,12 @@ export async function generateReputationProof(
 
   onProgress("generating-proof", 95);
 
-  // V1 public signal order (canonical — see docs/PUBLIC_SIGNALS.md):
-  //   [0] nullifier  [1] is_valid  [2] merkle_root  [3] attestation_id
-  //   [4] external_nullifier. Must match circuits/stealth_attestation.circom
-  //   and contracts/reputation-verifier.
-  const nullifier = publicSignals[0];
-  const attestationIdFromProof = Number(publicSignals[3]);
-  const isValidSignal = String(publicSignals[1] ?? "0");
-
-  if (isValidSignal !== "1") {
-    console.error("❌ [Opaque] Generated proof has is_valid=0.", {
-      traitId: trait.attestationId,
-      publicSignals,
-      witness,
-    });
-    throw new Error(
-      "Generated proof is invalid (is_valid=0). Rescan traits and regenerate."
-    );
-  }
+  // V2 public signal order (canonical — see docs/PUBLIC_SIGNALS.md):
+  //   [0] merkle_root  [1] attestation_id  [2] external_nullifier  [3] nullifier_hash
+  // Must match circuits/v2/stealth_reputation.circom and contracts/reputation-verifier
+  // (verify_proof_v2). The on-chain `nullifier` argument is this nullifier_hash.
+  const nullifier = publicSignals[3];
+  const attestationIdFromProof = Number(publicSignals[1]);
 
   return {
     proof: {

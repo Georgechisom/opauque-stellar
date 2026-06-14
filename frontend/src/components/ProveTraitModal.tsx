@@ -82,8 +82,8 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
         (stage, percent) => setProofStage(stage as "preparing-witness" | "generating-proof", percent),
       );
 
-      // Root in snarkjs public signals is often decimal; convert to bytes32 hex for on-chain updates.
-      const rawRootSignal = proofData.publicSignals?.[2];
+      // V2 public-signal order: [0] merkle_root. Convert decimal -> bytes32 hex.
+      const rawRootSignal = proofData.publicSignals?.[0];
       if (rawRootSignal != null) {
         try {
           const merkleRootBytes32 = toHex(BigInt(rawRootSignal), { size: 32 });
@@ -119,8 +119,9 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
       if (!publicKey || !signTransaction) {
         throw new Error("Connect Freighter to submit the proof.");
       }
-      const merkleRoot = merkleRootOverride ?? proofState.proof?.publicSignals?.[2] ?? "0x0";
-      const externalNullifier = proofState.proof?.publicSignals?.[4] ?? "0";
+      // V2 public-signal order: [0] merkle_root, [2] external_nullifier.
+      const merkleRoot = merkleRootOverride ?? proofState.proof?.publicSignals?.[0] ?? "0x0";
+      const externalNullifier = proofState.proof?.publicSignals?.[2] ?? "0";
 
       const hash = await submitProofOnChain(proof, merkleRoot, externalNullifier, signTransaction, publicKey);
       setTxHash(hash);
