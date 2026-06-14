@@ -1,12 +1,12 @@
 /**
- * Mainnet security audit status — aligned with docs/security/mainnet-audit-findings.json
+ * Mainnet security audit status — aligned with deployments/security/mainnet-audit-findings.json
  */
 
 export const SECURITY_AUDIT_DOCS = {
-  scope: "docs/security/MAINNET_AUDIT_SCOPE.md",
-  report: "docs/security/MAINNET_AUDIT_REPORT.md",
-  signoff: "docs/security/MAINNET_AUDIT_SIGNOFF.md",
-  findings: "docs/security/mainnet-audit-findings.json",
+  scope: "deployments/security/MAINNET_AUDIT_SCOPE.md",
+  report: "deployments/security/MAINNET_AUDIT_REPORT.md",
+  signoff: "deployments/security/MAINNET_AUDIT_SIGNOFF.md",
+  findings: "deployments/security/mainnet-audit-findings.json",
 } as const;
 
 export const MAINNET_AUDIT_COMPONENTS = [
