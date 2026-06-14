@@ -222,15 +222,22 @@ export class StealthScanner {
     let cursor: string | undefined;
     let pages = 0;
     while (pages < 20) {
-      const page = await server.getEvents({
-        startLedger,
-        endLedger,
-        filters: [
-          { type: "contract", contractIds: [this.announcerContractId] },
-        ],
-        limit: EVENT_PAGE,
-        cursor,
-      });
+      // getEvents enforces mutually exclusive pagination modes (stellar-sdk >=15):
+      // a ledger range OR a cursor, never both.
+      const page = await server.getEvents(
+        cursor
+          ? {
+              filters: [{ type: "contract", contractIds: [this.announcerContractId] }],
+              limit: EVENT_PAGE,
+              cursor,
+            }
+          : {
+              filters: [{ type: "contract", contractIds: [this.announcerContractId] }],
+              limit: EVENT_PAGE,
+              startLedger,
+              endLedger,
+            },
+      );
       for (const ev of page.events ?? []) {
         this.tryParseEvent(ev, viewPrivKey, spendPubKey);
       }
