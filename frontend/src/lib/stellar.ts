@@ -223,8 +223,25 @@ export async function invokeContractMethod(opts: {
     const txResponse = await pollTransactionStatus(server, send.hash);
 
     if (txResponse.status !== "SUCCESS") {
+      const failed = txResponse as unknown as {
+        resultXdr?: { toXDR?: (format: string) => string };
+        diagnosticEventsXdr?: string[];
+      };
+      let reason = "";
+      try {
+        if (failed.diagnosticEventsXdr?.length) {
+          reason = failed.diagnosticEventsXdr.join(",");
+        } else if (failed.resultXdr?.toXDR) {
+          reason = failed.resultXdr.toXDR("base64");
+        }
+      } catch {
+        /* fall through to the raw response */
+      }
       throw new Error(
-        `Transaction ${send.status}: ${JSON.stringify(txResponse)}`,
+        `Transaction ${txResponse.status} (${send.hash})` +
+          (reason
+            ? `. resultXdr/diagnostics (base64): ${reason}`
+            : `: ${JSON.stringify(txResponse)}`),
       );
     }
     recordContractCall({
