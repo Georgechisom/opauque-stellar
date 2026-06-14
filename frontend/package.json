@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke:payments": "tsx scripts/smoke-private-payment.ts",
     "verify:deployment": "tsx ../scripts/verify-deployment-manifest.ts"
   },
   "dependencies": {
