@@ -69,28 +69,36 @@ async function main() {
     manifest.releaseAssets.baseUrl;
 
   const { files } = manifest.releaseAssets;
-  const jobs = [
-    {
-      url: `${base}/${files.v1_zkey}`,
-      destPath: manifest.circuits.v1.frontend.zkey.path,
-      expectedHash: manifest.circuits.v1.frontend.zkey.sha256,
-    },
-    {
-      url: `${base}/${files.v1_witness_wasm}`,
-      destPath: manifest.circuits.v1.frontend.witnessWasm.path,
-      expectedHash: manifest.circuits.v1.frontend.witnessWasm.sha256,
-    },
-    {
-      url: `${base}/${files.v2_zkey}`,
-      destPath: manifest.circuits.v2.frontend.zkey.path,
-      expectedHash: manifest.circuits.v2.frontend.zkey.sha256,
-    },
-    {
-      url: `${base}/${files.v2_witness_wasm}`,
-      destPath: manifest.circuits.v2.frontend.witnessWasm.path,
-      expectedHash: manifest.circuits.v2.frontend.witnessWasm.sha256,
-    },
-  ];
+  const jobs = [];
+  // V1 is retired; only fetch it if its release assets are still listed.
+  if (files.v1_zkey) {
+    jobs.push(
+      {
+        url: `${base}/${files.v1_zkey}`,
+        destPath: manifest.circuits.v1.frontend.zkey.path,
+        expectedHash: manifest.circuits.v1.frontend.zkey.sha256,
+      },
+      {
+        url: `${base}/${files.v1_witness_wasm}`,
+        destPath: manifest.circuits.v1.frontend.witnessWasm.path,
+        expectedHash: manifest.circuits.v1.frontend.witnessWasm.sha256,
+      },
+    );
+  }
+  if (files.v2_zkey) {
+    jobs.push(
+      {
+        url: `${base}/${files.v2_zkey}`,
+        destPath: manifest.circuits.v2.frontend.zkey.path,
+        expectedHash: manifest.circuits.v2.frontend.zkey.sha256,
+      },
+      {
+        url: `${base}/${files.v2_witness_wasm}`,
+        destPath: manifest.circuits.v2.frontend.witnessWasm.path,
+        expectedHash: manifest.circuits.v2.frontend.witnessWasm.sha256,
+      },
+    );
+  }
 
   const missingHashes = jobs.filter((j) => !isSetHash(j.expectedHash));
   if (missingHashes.length > 0) {
