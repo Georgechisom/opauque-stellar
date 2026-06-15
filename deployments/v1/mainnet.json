@@ -52,6 +52,11 @@
       "id": null,
       "wasmHash": null,
       "package": "privacy-pool"
+    },
+    "relayerRegistry": {
+      "id": null,
+      "wasmHash": null,
+      "package": "relayer-registry"
     }
   },
   "artifacts": {

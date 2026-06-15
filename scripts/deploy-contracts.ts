@@ -2,7 +2,7 @@
 /**
  * One-command Soroban deployment for Opaque Stellar.
  *
- * Builds all six contracts, deploys them to the target network, records the
+ * Builds the core contracts, deploys them to the target network, records the
  * resulting contract IDs / WASM hashes / ledger into the canonical manifest at
  * `deployments/v1/<network>.json`, and leaves it in a strict-verifiable state.
  *
@@ -23,6 +23,8 @@
  *   --dry-run                     build + plan only; do not deploy or write IDs
  *   --skip-build                  reuse existing target/ WASM (skip `stellar contract build`)
  *   --force                       bypass the mainnet audit-signoff gate (NOT recommended)
+ *   --pool                        deploy only the privacy-pool add-on contracts
+ *   --relayer                     deploy only the relayer-registry add-on contract
  */
 
 import { execFileSync } from "node:child_process";
@@ -82,6 +84,9 @@ const STELLAR_CONTRACT_ID = /C[A-Z2-7]{55}/g;
 
 // Domain separator for the privacy pool's deposit labels (Poseidon(scope, index)).
 const POOL_SCOPE = 1;
+const RELAYER_MINIMUM_STAKE = 1_000_000; // 0.1 XLM.
+const RELAYER_UNSTAKE_COOLDOWN = 720; // ~1 hour at 5s ledgers.
+const RELAYER_MAX_DEADLINE = 17_280; // ~1 day at 5s ledgers.
 
 function flag(name) {
   return process.argv.includes(`--${name}`);
@@ -247,6 +252,86 @@ async function deployPrivacyPool({ network, source, deployerAddress, manifest, m
   );
 }
 
+/**
+ * Incremental Phase 6 deploy: stand up the relayer registry against the existing
+ * native SAC + privacy-pool deployment without touching any prior contracts.
+ */
+async function deployRelayerRegistry({ network, source, deployerAddress, manifest, manifestPath, dryRun }) {
+  if (!deployerAddress) {
+    fail("Deployer G-address required as relayer registry admin; set STELLAR_DEPLOYER_ADDRESS or use a named identity.");
+  }
+  const admin = deployerAddress;
+  const nativeSac = manifest.wiring?.privacyPool?.nativeSac ||
+    sh("stellar", ["contract", "id", "asset", "--asset", "native", "--network", network]).trim();
+  const privacyPool = manifest.contracts?.privacyPool?.id;
+  if (!privacyPool) {
+    fail("privacyPool must be deployed before relayerRegistry. Run deploy --pool first.");
+  }
+
+  const wasmPath = join(ROOT, "target", "wasm32v1-none", "release", "relayer_registry.wasm");
+  if (!existsSync(wasmPath)) fail(`WASM not found: ${wasmPath} (run without --skip-build first).`);
+  const wasmHash = sha256File(wasmPath);
+  if (dryRun) {
+    console.log(`• [dry-run] relayer-registry wasmHash=${wasmHash}`);
+    return;
+  }
+
+  console.log("• Deploying relayer-registry…");
+  const out = sh("stellar", [
+    "contract", "deploy", "--wasm", wasmPath, "--source-account", source, "--network", network,
+  ]);
+  const matches = out.match(STELLAR_CONTRACT_ID);
+  const id = matches ? matches[matches.length - 1] : null;
+  if (!id) fail(`Could not parse contract ID from deploy output:\n${out}`);
+  console.log(`  ↳ ${id}`);
+
+  console.log("• Initializing relayer-registry…");
+  invoke(id, source, network, [
+    "initialize",
+    "--admin", admin,
+    "--native_sac", nativeSac,
+    "--privacy_pool", privacyPool,
+    "--minimum_stake", String(RELAYER_MINIMUM_STAKE),
+    "--unstake_cooldown_ledgers", String(RELAYER_UNSTAKE_COOLDOWN),
+    "--max_deadline_ledgers", String(RELAYER_MAX_DEADLINE),
+  ]);
+
+  console.log("• Verifying wiring (read-back)…");
+  const cfg = parseInvokeResult(invoke(id, source, network, ["get_config"]));
+  if (!cfg || cfg.native_sac !== nativeSac || cfg.privacy_pool !== privacyPool) {
+    fail(
+      `relayer-registry wiring mismatch: native_sac=${cfg?.native_sac ?? "<none>"} ` +
+        `privacy_pool=${cfg?.privacy_pool ?? "<none>"}`,
+    );
+  }
+  console.log(
+    `  ↳ relayer-registry → pool ${cfg.privacy_pool}, native SAC ${cfg.native_sac}`,
+  );
+
+  manifest.contracts.relayerRegistry = {
+    id,
+    wasmHash,
+    package: "relayer-registry",
+  };
+  manifest.wiring ??= {};
+  manifest.wiring.relayerRegistry = {
+    admin,
+    nativeSac,
+    privacyPool,
+    minimumStake: RELAYER_MINIMUM_STAKE,
+    unstakeCooldownLedgers: RELAYER_UNSTAKE_COOLDOWN,
+    maxDeadlineLedgers: RELAYER_MAX_DEADLINE,
+  };
+  manifest.deployedAt = new Date().toISOString();
+  manifest.deploymentLedger = await latestLedger(manifest.rpcUrl);
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`\n✓ Updated ${manifestPath} (relayerRegistry)`);
+  console.log(
+    `\nNext: npm run verify:deployment:strict -- --network ${network} --check-wasm\n`,
+  );
+}
+
 async function main() {
   const network = arg("network", process.env.STELLAR_NETWORK || "testnet");
   const dryRun = flag("dry-run");
@@ -304,6 +389,10 @@ async function main() {
   // Incremental privacy-pool deploy (does not touch the existing six contracts).
   if (flag("pool")) {
     await deployPrivacyPool({ network, source, deployerAddress, manifest, manifestPath, dryRun });
+    return;
+  }
+  if (flag("relayer")) {
+    await deployRelayerRegistry({ network, source, deployerAddress, manifest, manifestPath, dryRun });
     return;
   }
 

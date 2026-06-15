@@ -69,6 +69,11 @@
       "id": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
       "wasmHash": "be56375a242860d67143d19536c5404f7ddf29537ec16e7bfef4b624a21322db",
       "package": "privacy-pool"
+    },
+    "relayerRegistry": {
+      "id": null,
+      "wasmHash": null,
+      "package": "relayer-registry"
     }
   },
   "artifacts": {

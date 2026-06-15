@@ -29,6 +29,11 @@ const CONTRACT_KEYS = [
   "privacyPool",
 ];
 
+const OPTIONAL_CONTRACT_KEYS = [
+  // Phase 6 relayer market: present after `deploy --relayer`.
+  "relayerRegistry",
+];
+
 const ENV_SUFFIX = {
   stealthRegistry: "STEALTH_REGISTRY_CONTRACT",
   stealthAnnouncer: "STEALTH_ANNOUNCER_CONTRACT",
@@ -38,6 +43,7 @@ const ENV_SUFFIX = {
   attestationEngineV2: "ATTESTATION_ENGINE_CONTRACT",
   poolVerifier: "POOL_VERIFIER_CONTRACT",
   privacyPool: "PRIVACY_POOL_CONTRACT",
+  relayerRegistry: "RELAYER_REGISTRY_CONTRACT",
 };
 
 const PASSPHRASES = {
@@ -58,6 +64,7 @@ const WASM_PATHS = {
   "schema-registry": "target/wasm32v1-none/release/schema_registry.wasm",
   "attestation-engine-v2": "target/wasm32v1-none/release/attestation_engine_v2.wasm",
   "privacy-pool": "target/wasm32v1-none/release/privacy_pool.wasm",
+  "relayer-registry": "target/wasm32v1-none/release/relayer_registry.wasm",
 };
 
 function parseArgs(argv) {
@@ -113,9 +120,10 @@ function validateManifest(manifest, { strict, checkWasm }) {
     errors.push("network field must match filename");
   }
 
-  for (const key of CONTRACT_KEYS) {
+  for (const key of [...CONTRACT_KEYS, ...OPTIONAL_CONTRACT_KEYS]) {
     const record = manifest.contracts?.[key];
     if (!record) {
+      if (OPTIONAL_CONTRACT_KEYS.includes(key)) continue;
       errors.push(`missing contracts.${key}`);
       continue;
     }
@@ -130,7 +138,11 @@ function validateManifest(manifest, { strict, checkWasm }) {
     if (wasmHash && !SHA256_HEX.test(wasmHash)) {
       errors.push(`contracts.${key}.wasmHash must be 64-char lowercase hex`);
     }
-    if (strict && manifest.deploymentStatus === "deployed") {
+    if (
+      strict &&
+      manifest.deploymentStatus === "deployed" &&
+      !OPTIONAL_CONTRACT_KEYS.includes(key)
+    ) {
       if (!id) errors.push(`contracts.${key}.id required when deploymentStatus=deployed`);
       if (!wasmHash) errors.push(`contracts.${key}.wasmHash required when deploymentStatus=deployed`);
     }
@@ -147,8 +159,10 @@ function validateManifest(manifest, { strict, checkWasm }) {
   }
 
   if (checkWasm) {
-    for (const key of CONTRACT_KEYS) {
-      const pkg = manifest.contracts[key].package;
+    for (const key of [...CONTRACT_KEYS, ...OPTIONAL_CONTRACT_KEYS]) {
+      const record = manifest.contracts?.[key];
+      if (!record) continue;
+      const pkg = record.package;
       const wasmRel = WASM_PATHS[pkg];
       if (!wasmRel) continue;
       const wasmPath = join(ROOT, wasmRel);
@@ -159,7 +173,7 @@ function validateManifest(manifest, { strict, checkWasm }) {
         continue;
       }
       const actual = sha256File(wasmPath);
-      const expected = manifest.contracts[key].wasmHash;
+      const expected = record.wasmHash;
       if (expected && expected !== actual) {
         errors.push(
           `contracts.${key}.wasmHash mismatch: manifest=${expected} built=${actual}`,
@@ -236,6 +250,33 @@ function validateWiring(manifest) {
     }
   }
 
+  const relayerWiring = wiring.relayerRegistry;
+  if (relayerWiring) {
+    const relayerId = manifest.contracts?.relayerRegistry?.id;
+    if (!relayerId || !STELLAR_CONTRACT_ID.test(relayerId)) {
+      errors.push("contracts.relayerRegistry.id is required when wiring.relayerRegistry exists");
+    }
+    if (!relayerWiring.nativeSac || !STELLAR_CONTRACT_ID.test(relayerWiring.nativeSac)) {
+      errors.push("wiring.relayerRegistry.nativeSac is not a valid Stellar contract (C...) address");
+    }
+    const privacyPoolId = manifest.contracts?.privacyPool?.id;
+    if (relayerWiring.privacyPool !== privacyPoolId) {
+      errors.push(
+        `wiring.relayerRegistry.privacyPool (${relayerWiring.privacyPool}) does not match ` +
+          `contracts.privacyPool.id (${privacyPoolId})`,
+      );
+    }
+    if (relayerWiring.minimumStake == null) {
+      errors.push("wiring.relayerRegistry.minimumStake must be recorded");
+    }
+    if (relayerWiring.unstakeCooldownLedgers == null) {
+      errors.push("wiring.relayerRegistry.unstakeCooldownLedgers must be recorded");
+    }
+    if (relayerWiring.maxDeadlineLedgers == null) {
+      errors.push("wiring.relayerRegistry.maxDeadlineLedgers must be recorded");
+    }
+  }
+
   return errors;
 }
 
@@ -272,10 +313,10 @@ function checkEnvMatchesManifest(manifest) {
   const errors = [];
   const network = manifest.network.toUpperCase();
 
-  for (const key of CONTRACT_KEYS) {
+  for (const key of [...CONTRACT_KEYS, ...OPTIONAL_CONTRACT_KEYS]) {
     const envKey = `VITE_${network}_${ENV_SUFFIX[key]}`;
     const envVal = process.env[envKey]?.trim();
-    const manifestId = manifest.contracts[key].id?.trim() ?? "";
+    const manifestId = manifest.contracts?.[key]?.id?.trim() ?? "";
     if (!envVal) continue;
     if (manifestId && envVal !== manifestId) {
       errors.push(
