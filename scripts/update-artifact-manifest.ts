@@ -44,7 +44,7 @@ function main() {
     updatePathEntry(entry);
   }
 
-  for (const version of ["v1", "v2"]) {
+  for (const version of Object.keys(manifest.circuits)) {
     const circuit = manifest.circuits[version];
     for (const entry of Object.values(circuit.frontend)) updatePathEntry(entry);
     for (const entry of Object.values(circuit.build)) updatePathEntry(entry);
@@ -54,9 +54,8 @@ function main() {
 
     if (opts.embeddedVk) {
       try {
-        const hash = hashEmbeddedContractVk(circuit.contractVk.groth16Verifier, {
-          v2: version === "v2",
-        });
+        const suffix = version === "v1" ? "" : `_${version.toUpperCase()}`;
+        const hash = hashEmbeddedContractVk(circuit.contractVk.groth16Verifier, { suffix });
         circuit.contractVk.embeddedVkHash = hash;
         console.log(`circuits.${version} embedded VK: ${hash}`);
       } catch (err) {

@@ -65,7 +65,7 @@ function shouldCheckEntry(group, opts) {
 
 function verifyVkBinding(manifest) {
   const errors = [];
-  for (const version of ["v1", "v2"]) {
+  for (const version of Object.keys(manifest.circuits ?? {})) {
     const circuit = manifest.circuits?.[version];
     if (!circuit?.contractVk) continue;
 
@@ -76,9 +76,10 @@ function verifyVkBinding(manifest) {
       continue;
     }
 
+    const suffix = version === "v1" ? "" : `_${version.toUpperCase()}`;
     let actualEmbedded;
     try {
-      actualEmbedded = hashEmbeddedContractVk(groth16Verifier, { v2: version === "v2" });
+      actualEmbedded = hashEmbeddedContractVk(groth16Verifier, { suffix });
     } catch (err) {
       errors.push(`circuits.${version}: failed to hash embedded VK: ${err.message}`);
       continue;

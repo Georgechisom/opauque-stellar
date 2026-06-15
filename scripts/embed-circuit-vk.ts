@@ -23,10 +23,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 function parseArgs(argv) {
   const positional = [];
-  const opts = { v2: false, write: false, lib: "contracts/groth16-verifier/src/lib.rs" };
+  const opts = { v2: false, v3: false, write: false, lib: "contracts/groth16-verifier/src/lib.rs" };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--v2") opts.v2 = true;
+    else if (a === "--v3") opts.v3 = true;
     else if (a === "--write") opts.write = true;
     else if (a === "--lib") opts.lib = argv[++i];
     else positional.push(a);
@@ -103,7 +104,7 @@ function replaceConst(source, name, typeRegex, block) {
 function main() {
   const opts = parseArgs(process.argv);
   const vk = JSON.parse(readFileSync(opts.vk, "utf8"));
-  const suffix = opts.v2 ? "_V2" : "";
+  const suffix = opts.v3 ? "_V3" : opts.v2 ? "_V2" : "";
 
   const alpha = g1(vk.vk_alpha_1);
   const beta = g2(vk.vk_beta_2);

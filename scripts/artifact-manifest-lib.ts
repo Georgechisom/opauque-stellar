@@ -46,7 +46,7 @@ export function* iterArtifactEntries(manifest, { includeNull = false } = {}) {
     yield { group: "scanner", name, ...entry };
   }
 
-  for (const version of ["v1", "v2"]) {
+  for (const version of Object.keys(manifest.circuits ?? {})) {
     const circuit = manifest.circuits?.[version];
     if (!circuit) continue;
 
@@ -98,14 +98,15 @@ export function verifyEntry(entry, { strict = true, label = entry.path } = {}) {
 /**
  * Extract VK_* byte arrays from groth16-verifier lib.rs and hash concatenated bytes.
  */
-export function hashEmbeddedContractVk(libRsPath, { v2 = false } = {}) {
+export function hashEmbeddedContractVk(libRsPath, { v2 = false, suffix } = {}) {
   const source = readFileSync(resolveArtifactPath(libRsPath), "utf8");
 
-  const pointNames = v2
-    ? ["VK_ALPHA_V2", "VK_BETA_V2", "VK_GAMMA_V2", "VK_DELTA_V2"]
-    : ["VK_ALPHA", "VK_BETA", "VK_GAMMA", "VK_DELTA"];
+  // `suffix` ("", "_V2", "_V3") selects the embedded VK constant family. The legacy
+  // `v2` boolean is still honored for back-compat (v2 ⇒ "_V2").
+  const sfx = suffix ?? (v2 ? "_V2" : "");
+  const pointNames = [`VK_ALPHA${sfx}`, `VK_BETA${sfx}`, `VK_GAMMA${sfx}`, `VK_DELTA${sfx}`];
 
-  const icName = v2 ? "VK_IC_V2" : "VK_IC";
+  const icName = `VK_IC${sfx}`;
   const chunks = [];
 
   for (const name of pointNames) {
@@ -151,7 +152,7 @@ export function syncDeploymentManifestCircuitHashes(manifest) {
       manifest.scanner?.files?.["cryptography_bg.wasm"]?.sha256 ??
       null;
 
-    for (const version of ["v1", "v2"]) {
+    for (const version of Object.keys(manifest.circuits ?? {})) {
       const circuit = manifest.circuits?.[version];
       if (!circuit) continue;
       dep.artifacts.circuits[version] ??= {};

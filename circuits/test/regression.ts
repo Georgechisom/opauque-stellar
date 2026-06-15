@@ -79,6 +79,21 @@ const CIRCUIT_CONFIG = {
       "nullifier_hash",
     ],
   },
+  v3: {
+    compileCwd: join(CIRCUITS_ROOT, "v3"),
+    compileCmd: ["npm", "run", "build"],
+    buildWasm: join(CIRCUITS_ROOT, "v3/build/privacy_pool_withdraw_js/privacy_pool_withdraw.wasm"),
+    buildR1cs: join(CIRCUITS_ROOT, "v3/build/privacy_pool_withdraw.r1cs"),
+    buildVk: join(CIRCUITS_ROOT, "v3/build/verification_key.json"),
+    publicSignalOrder: [
+      "withdrawnValue",
+      "stateRoot",
+      "aspRoot",
+      "nullifierHash",
+      "newCommitment",
+      "context",
+    ],
+  },
 };
 
 function resolvePaths(version, manifest) {

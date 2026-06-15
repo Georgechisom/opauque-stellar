@@ -1,0 +1,18 @@
+{
+  "name": "opaque-circuits-v3",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "circom privacy_pool_withdraw.circom --r1cs --wasm --sym -o build/",
+    "setup": "snarkjs groth16 setup build/privacy_pool_withdraw.r1cs ../pot16_final.ptau build/privacy_pool_withdraw_0000.zkey",
+    "contribute": "snarkjs zkey contribute build/privacy_pool_withdraw_0000.zkey build/privacy_pool_withdraw_final.zkey --name='Opaque V3 Phase 1' -e='opaque-stellar-v3-dev-entropy'",
+    "export-vkey": "snarkjs zkey export verificationkey build/privacy_pool_withdraw_final.zkey build/verification_key.json",
+    "test:regression": "node ../test/regression.ts --version v3"
+  },
+  "devDependencies": {
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.5"
+  }
+}

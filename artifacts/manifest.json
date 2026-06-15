@@ -78,6 +78,40 @@
           "sha256": "e79286559a6a9c5c7ceb613909d51fa4344c391fa407ed1d700b74c41867986f"
         }
       }
+    },
+    "v3": {
+      "source": "circuits/v3/privacy_pool_withdraw.circom",
+      "description": "Privacy-pool partial-withdraw proof (state + ASP inclusion, nullifier binding, range-checked remainder, context binding). 6 public signals.",
+      "frontend": {
+        "witnessWasm": {
+          "path": "frontend/public/circuits/v3/privacy_pool_withdraw.wasm",
+          "sha256": "e3ad169255ecabcceb61f5b0b1399cb5f0276614a24f4a03529041390b779f4c"
+        },
+        "zkey": {
+          "path": "frontend/public/circuits/v3/privacy_pool_withdraw_final.zkey",
+          "sha256": "60097d74d4df5707f62316d55322e59d5e15f60d789ae2cb82cfb86f92b1a8c3"
+        }
+      },
+      "build": {
+        "r1cs": {
+          "path": "circuits/v3/build/privacy_pool_withdraw.r1cs",
+          "sha256": "2c9b19b2309e4d45d164faa43830dfaa7f8d2dd19182b38c9d554be5da5079d8"
+        },
+        "verificationKey": {
+          "path": "circuits/v3/build/verification_key.json",
+          "sha256": "40ab4d0546ca2c12e51453806fec1d49e1e3f58f0b61b2bfa40570f2d2676556"
+        }
+      },
+      "contractVk": {
+        "groth16Verifier": "contracts/groth16-verifier/src/lib.rs",
+        "constantsPrefix": "VK_*_V3",
+        "embeddedVkHash": "652fda2bf28a3b945401a27df8a72d01acb330ee153afbfd8b53d126e388228d",
+        "zkeyHash": "60097d74d4df5707f62316d55322e59d5e15f60d789ae2cb82cfb86f92b1a8c3",
+        "referenceVerificationKey": {
+          "path": "circuits/v3/build/verification_key.json",
+          "sha256": "40ab4d0546ca2c12e51453806fec1d49e1e3f58f0b61b2bfa40570f2d2676556"
+        }
+      }
     }
   },
   "releaseAssets": {
