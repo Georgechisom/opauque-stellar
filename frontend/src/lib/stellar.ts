@@ -12,6 +12,7 @@ import {
   TransactionBuilder,
   nativeToScVal,
   rpc,
+  scValToNative,
   xdr,
   Address,
 } from "@stellar/stellar-sdk";
@@ -182,6 +183,57 @@ async function pollTransactionStatus(
   );
 }
 
+/** Render a Soroban ScError into a short, human-readable token. */
+function describeScError(e: xdr.ScError): string {
+  const type = e.switch().name; // sceContract, sceStorage, sceAuth, sceBudget, ...
+  if (type === "sceContract") {
+    try {
+      return `ContractError#${e.contractCode()}`;
+    } catch {
+      return "ContractError";
+    }
+  }
+  try {
+    return `${type}/${e.code().name}`;
+  } catch {
+    return type;
+  }
+}
+
+function scValToReadable(v: xdr.ScVal): unknown {
+  try {
+    if (v.switch().name === "scvError") return describeScError(v.error());
+    return scValToNative(v);
+  } catch {
+    try {
+      return v.switch().name;
+    } catch {
+      return "?";
+    }
+  }
+}
+
+/**
+ * Decode the diagnostic events from a failed Soroban transaction into a short,
+ * readable string so the actual contract error / host trap is visible instead
+ * of "[object Object]".
+ */
+function decodeDiagnostics(events: unknown[]): string {
+  const parts: string[] = [];
+  for (const raw of events) {
+    try {
+      const de = raw as xdr.DiagnosticEvent;
+      const v0 = de.event().body().v0();
+      const topics = v0.topics().map(scValToReadable);
+      const data = scValToReadable(v0.data());
+      parts.push(JSON.stringify({ topics, data }));
+    } catch {
+      /* skip events that cannot be decoded */
+    }
+  }
+  return Array.from(new Set(parts)).join(" | ").slice(0, 1500);
+}
+
 export async function invokeContractMethod(opts: {
   sourcePublicKey: string;
   contractId: string;
@@ -225,23 +277,31 @@ export async function invokeContractMethod(opts: {
     if (txResponse.status !== "SUCCESS") {
       const failed = txResponse as unknown as {
         resultXdr?: { toXDR?: (format: string) => string };
-        diagnosticEventsXdr?: string[];
+        diagnosticEventsXdr?: unknown[];
       };
       let reason = "";
       try {
-        if (failed.diagnosticEventsXdr?.length) {
-          reason = failed.diagnosticEventsXdr.join(",");
-        } else if (failed.resultXdr?.toXDR) {
-          reason = failed.resultXdr.toXDR("base64");
+        if (
+          Array.isArray(failed.diagnosticEventsXdr) &&
+          failed.diagnosticEventsXdr.length
+        ) {
+          reason = decodeDiagnostics(failed.diagnosticEventsXdr);
         }
       } catch {
-        /* fall through to the raw response */
+        /* fall through */
+      }
+      if (!reason) {
+        try {
+          reason = failed.resultXdr?.toXDR
+            ? `resultXdr ${failed.resultXdr.toXDR("base64")}`
+            : "";
+        } catch {
+          /* fall through to the raw response */
+        }
       }
       throw new Error(
         `Transaction ${txResponse.status} (${send.hash})` +
-          (reason
-            ? `. resultXdr/diagnostics (base64): ${reason}`
-            : `: ${JSON.stringify(txResponse)}`),
+          (reason ? `: ${reason}` : `: ${JSON.stringify(txResponse)}`),
       );
     }
     recordContractCall({
