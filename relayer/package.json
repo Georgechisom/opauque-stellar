@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "hub": "tsx scripts/hub.ts",
+    "register": "tsx scripts/register.ts",
     "relayer": "tsx scripts/relayer.ts",
     "smoke:market": "tsx scripts/smoke-market.ts"
   },
