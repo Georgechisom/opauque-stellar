@@ -635,7 +635,9 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
 
       {/* Section tabs */}
       <div className="flex flex-wrap gap-2">
-        {(["schemas", "attestations", ...(readOnly ? [] : ["admin" as const])] as const).map((s) => (
+        {/* "admin" tab temporarily hidden; restore with
+            ...(readOnly ? [] : ["admin" as const]) to bring it back. */}
+        {(["schemas", "attestations"] as const).map((s) => (
           <button
             key={s}
             type="button"
@@ -646,12 +648,10 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
                 : "bg-ink-900 border border-ink-700 text-mist hover:text-white"
             }`}
           >
-            {s === "schemas" ? "My Schemas" : s === "attestations" ? "Attestations Issued" : "Admin"}
-            {s !== "admin" && (
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${section === s ? "bg-white/20" : "bg-ink-700"}`}>
-                {s === "schemas" ? mySchemas.length : attestations.length}
-              </span>
-            )}
+            {s === "schemas" ? "My Schemas" : "Attestations Issued"}
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${section === s ? "bg-white/20" : "bg-ink-700"}`}>
+              {s === "schemas" ? mySchemas.length : attestations.length}
+            </span>
           </button>
         ))}
       </div>
