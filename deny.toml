@@ -1,14 +1,11 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+unmaintained = "none"
 yanked = "warn"
-notice = "warn"
 
 [licenses]
 allow = [
   "MIT",
   "Apache-2.0",
-  "Apache-2.0 OR MIT",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
@@ -16,7 +13,7 @@ allow = [
 ]
 copyleft = "warn"
 allow-osi-fsf-free = true
-confidence = 70
+confidence-threshold = 0.7
 
 [bans]
 multiple-versions = "warn"

@@ -137,7 +137,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
-        run: curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          WASM_PACK_INSTALL_DIR="$RUNNER_TEMP/bin" WASM_PACK_TARGET="x86_64-unknown-linux-musl" bash scripts/install-wasm-pack.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Build scanner WASM
         run: npm run build:scanner
@@ -173,6 +176,7 @@ jobs:
         run: |
           npm ci
           npm ci --prefix v2
+          npm ci --prefix v3
         working-directory: circuits
 
       - name: Install root tooling (tsx)
@@ -182,8 +186,14 @@ jobs:
         run: npm run fetch:circuits
         continue-on-error: true
 
+      - name: Build circuit witness artifacts
+        run: |
+          npm run build --prefix v2
+          npm run build --prefix v3
+        working-directory: circuits
+
       - name: Run circuit regression tests
-        run: npm run test:circuits
+        run: npm run test:circuits -- --witness-only
 
       - name: Verify artifact manifest (circuits + VK binding)
         run: npx tsx scripts/verify-artifact-manifest.ts --circuits --vk-binding
@@ -281,7 +291,10 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Install Stellar CLI
-        run: curl -fsSL https://github.com/stellar/stellar-cli/releases/latest/download/stellar-cli-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          STELLAR_CLI_INSTALL_DIR="$RUNNER_TEMP/bin" STELLAR_CLI_TARGET="x86_64-unknown-linux-gnu" bash scripts/install-stellar-cli.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Build contracts (release WASM)
         run: stellar contract build

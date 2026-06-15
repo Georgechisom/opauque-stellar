@@ -154,11 +154,10 @@ async function testValidCase(version, paths, fixtureDir) {
   }
 
   if (paths.witnessOnly ?? false) {
-    const wtns = await snarkjs.wtns.calculate(input, paths.wasmPath);
     const tmpDir = join(CIRCUITS_ROOT, "build", "test-tmp");
     mkdirSync(tmpDir, { recursive: true });
     const wtnsPath = join(tmpDir, `${version}-valid.wtns`);
-    await snarkjs.wtns.write(wtns, wtnsPath);
+    await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath);
 
     if (existsSync(paths.r1csPath)) {
       const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath);
@@ -166,7 +165,7 @@ async function testValidCase(version, paths, fixtureDir) {
     }
 
     const witness = await snarkjs.wtns.exportJson(wtnsPath);
-    const publicSignals = witness.slice(-paths.cfg.publicSignalOrder.length);
+    const publicSignals = witness.slice(1, 1 + paths.cfg.publicSignalOrder.length);
     const errors = assertPublicOutputs(version, publicSignals, expected);
     if (errors.length) throw new Error(errors.join("; "));
     console.log(`OK: ${version} valid witness`);
@@ -199,11 +198,10 @@ async function testInvalidCase(version, paths, fixtureDir) {
 
   if (paths.witnessOnly ?? false) {
     try {
-      const wtns = await snarkjs.wtns.calculate(input, paths.wasmPath);
       const tmpDir = join(CIRCUITS_ROOT, "build", "test-tmp");
       mkdirSync(tmpDir, { recursive: true });
       const wtnsPath = join(tmpDir, `${version}-invalid.wtns`);
-      await snarkjs.wtns.write(wtns, wtnsPath);
+      await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath);
       if (existsSync(paths.r1csPath)) {
         const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath);
         if (ok) {

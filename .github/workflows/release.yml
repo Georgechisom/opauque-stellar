@@ -90,7 +90,10 @@ jobs:
           targets: wasm32-unknown-unknown, wasm32v1-none
 
       - name: Install Stellar CLI
-        run: curl -fsSL https://github.com/stellar/stellar-cli/releases/latest/download/stellar-cli-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          STELLAR_CLI_INSTALL_DIR="$RUNNER_TEMP/bin" STELLAR_CLI_TARGET="x86_64-unknown-linux-gnu" bash scripts/install-stellar-cli.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Build contracts
         run: stellar contract build
@@ -156,7 +159,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
-        run: curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          WASM_PACK_INSTALL_DIR="$RUNNER_TEMP/bin" WASM_PACK_TARGET="x86_64-unknown-linux-musl" bash scripts/install-wasm-pack.sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Build scanner WASM
         run: npm run build:scanner
