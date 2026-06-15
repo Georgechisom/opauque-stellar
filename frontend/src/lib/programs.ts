@@ -93,6 +93,67 @@ export async function invokeRevokeAttestation(opts: {
   });
 }
 
+export async function invokeDeprecateSchema(opts: {
+  authority: string;
+  schemaId: Uint8Array;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.authority,
+    contractId: SCHEMA_REGISTRY_CONTRACT_ID,
+    method: "deprecate_schema",
+    args: [
+      nativeToScVal(opts.authority, { type: "address" }),
+      nativeToScVal(Buffer.from(opts.schemaId), { type: "bytes" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+export async function invokeAddDelegate(opts: {
+  authority: string;
+  schemaId: Uint8Array;
+  delegate: string;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  if (!StrKey.isValidEd25519PublicKey(opts.delegate)) {
+    throw new Error("Delegate must be a valid Stellar account address (G…).");
+  }
+  return invokeContractMethod({
+    sourcePublicKey: opts.authority,
+    contractId: SCHEMA_REGISTRY_CONTRACT_ID,
+    method: "add_delegate",
+    args: [
+      nativeToScVal(opts.authority, { type: "address" }),
+      nativeToScVal(Buffer.from(opts.schemaId), { type: "bytes" }),
+      nativeToScVal(opts.delegate, { type: "address" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+export async function invokeRemoveDelegate(opts: {
+  authority: string;
+  schemaId: Uint8Array;
+  delegate: string;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  if (!StrKey.isValidEd25519PublicKey(opts.delegate)) {
+    throw new Error("Delegate must be a valid Stellar account address (G…).");
+  }
+  return invokeContractMethod({
+    sourcePublicKey: opts.authority,
+    contractId: SCHEMA_REGISTRY_CONTRACT_ID,
+    method: "remove_delegate",
+    args: [
+      nativeToScVal(opts.authority, { type: "address" }),
+      nativeToScVal(Buffer.from(opts.schemaId), { type: "bytes" }),
+      nativeToScVal(opts.delegate, { type: "address" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
 export async function invokeVerifyProofV2(opts: {
   caller: string;
   proofA: Uint8Array;
@@ -124,44 +185,6 @@ export async function invokeVerifyProofV2(opts: {
     ],
     signTransaction: opts.signTransaction,
   });
-}
-
-/** @deprecated */
-export function buildRegisterSchemaInstruction(): never {
-  throw new Error("Use invokeRegisterSchema() on Stellar");
-}
-
-/** @deprecated */
-export function buildAttestInstruction(): never {
-  throw new Error("Use invokeAttest() on Stellar");
-}
-
-/** @deprecated */
-export function buildVerifyProofV2Instruction(): never {
-  throw new Error("Use invokeVerifyProofV2() on Stellar");
-}
-
-/** @deprecated use announceStealthTransfer from contracts */
-export { buildAnnounceInstruction } from "./contracts";
-
-/** @deprecated Soroban schema management not yet wired in the UI */
-export function buildDeprecateSchemaInstruction(): never {
-  throw new Error("Schema deprecation on Stellar is not yet implemented in the UI");
-}
-
-/** @deprecated */
-export function buildAddDelegateInstruction(): never {
-  throw new Error("Delegate management on Stellar is not yet implemented in the UI");
-}
-
-/** @deprecated */
-export function buildRemoveDelegateInstruction(): never {
-  throw new Error("Delegate management on Stellar is not yet implemented in the UI");
-}
-
-/** @deprecated */
-export function buildRevokeInstruction(): never {
-  throw new Error("Attestation revocation on Stellar is not yet implemented in the UI");
 }
 
 export { hexToBytes } from "./stealth";
