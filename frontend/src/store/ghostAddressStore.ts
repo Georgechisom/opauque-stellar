@@ -20,6 +20,10 @@ type Address = string;
 export type GhostEntry = {
   cluster: string;
   stealthAddress: Address;
+  /** Stellar ed25519 G-address derived from the stealth key. This is where XLM
+   *  is actually held, so balances must be queried at this address (not the 0x
+   *  identifier). Optional for entries created before this field existed. */
+  stealthStellarAddress?: string;
   /** Hex 0x... 32-byte ephemeral private key for key reconstruction. Omitted when importing by address only (balance visible, claim requires key). */
   ephemeralPrivKeyHex?: string;
   createdAt: number;
@@ -54,6 +58,10 @@ function normalizeEntry(entry: Omit<GhostEntry, "createdAt">): GhostEntry {
   return {
     cluster: String(entry.cluster),
     stealthAddress: String(entry.stealthAddress) as Address,
+    stealthStellarAddress:
+      entry.stealthStellarAddress != null && entry.stealthStellarAddress !== ""
+        ? String(entry.stealthStellarAddress)
+        : undefined,
     ephemeralPrivKeyHex:
       entry.ephemeralPrivKeyHex != null && entry.ephemeralPrivKeyHex !== ""
         ? String(entry.ephemeralPrivKeyHex)
@@ -146,6 +154,10 @@ export const useGhostAddressStore = create<GhostState>()((set, get) => ({
       entries: entries.map((e) => ({
         cluster: String(e.cluster),
         stealthAddress: String(e.stealthAddress) as Address,
+        stealthStellarAddress:
+          e.stealthStellarAddress != null
+            ? String(e.stealthStellarAddress)
+            : undefined,
         ephemeralPrivKeyHex:
           e.ephemeralPrivKeyHex != null
             ? String(e.ephemeralPrivKeyHex)

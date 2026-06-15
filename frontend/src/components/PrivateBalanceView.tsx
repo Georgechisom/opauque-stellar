@@ -391,6 +391,40 @@ export function PrivateBalanceView() {
     ghostEntries.forEach((g) => add(cluster, g.stealthAddress));
   }, [cluster, ghostEntries]);
 
+  // Resolve each stealth identifier (0x) to the Stellar G-address that holds
+  // its funds, so balance polling queries the right account. New ghost entries
+  // store the G-address; older ones are reconstructed from the ephemeral key.
+  const ghostAddressResolver = useMemo(() => {
+    const map: Record<string, string> = {};
+    const getMasterKeys = keysContext.isSetup ? keysContext.getMasterKeys : null;
+    for (const g of ghostEntries) {
+      const key = g.stealthAddress.toLowerCase();
+      if (g.stealthStellarAddress) {
+        map[key] = g.stealthStellarAddress;
+        continue;
+      }
+      if (g.ephemeralPrivKeyHex && getMasterKeys && wasm) {
+        try {
+          const masterKeys = getMasterKeys();
+          const ephemeralPubKey = secp256k1.getPublicKey(
+            toHexBytes(g.ephemeralPrivKeyHex),
+            true,
+          );
+          const stealthPrivKeyBytes = wasm.reconstruct_signing_key_wasm(
+            masterKeys.spendPrivKey,
+            masterKeys.viewPrivKey,
+            ephemeralPubKey,
+          );
+          map[key] =
+            deriveStealthStellarAddressFromStealthPrivKey(stealthPrivKeyBytes);
+        } catch {
+          /* skip entries we cannot resolve */
+        }
+      }
+    }
+    return map;
+  }, [ghostEntries, wasm, keysContext.isSetup, keysContext.getMasterKeys]);
+
   const scanner = useScanner({
     cluster,
     publicClient: connection,
@@ -399,6 +433,7 @@ export function PrivateBalanceView() {
     ghostAddresses,
     watchlistAddresses:
       watchlistAddresses.length > 0 ? watchlistAddresses : undefined,
+    addressResolver: ghostAddressResolver,
   });
 
   const nativeAsset: TokenInfo = getNativeToken();

@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Buffer } from "buffer";
 import {
   scValToNative,
+  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "../lib/chain";
@@ -59,6 +60,12 @@ export type UseScannerOptions = {
   enabled: boolean;
   ghostAddresses?: string[];
   watchlistAddresses?: string[];
+  /**
+   * Maps a stealth identifier (the 0x-hex key the UI uses) to the Stellar
+   * ed25519 G-address that actually holds funds. Balances are queried at the
+   * G-address but keyed by the original identifier.
+   */
+  addressResolver?: Record<string, string>;
 };
 
 export type WatchlistBalances = {
@@ -208,13 +215,22 @@ async function fetchLogsAdaptive(
 async function checkWatchlistBalances(
   connection: NonNullable<PublicClient>,
   watchlist: string[],
+  addressResolver: Record<string, string> = {},
 ): Promise<WatchlistBalances> {
   const eth: Record<string, bigint> = {};
   const tokensOut: Record<string, Record<string, bigint>> = {};
   for (const addr of watchlist) {
     tokensOut[addr] = {};
+    // Stealth identifiers are stored in 0x-hex form; resolve to the Stellar
+    // G-address that actually holds funds before querying Horizon, and skip
+    // values that are not valid ed25519 accounts so Horizon does not 400.
+    const queryAddr = addressResolver[addr.toLowerCase()] ?? addr;
+    if (!StrKey.isValidEd25519PublicKey(queryAddr)) {
+      eth[addr] = 0n;
+      continue;
+    }
     try {
-      eth[addr] = await connection.getBalance(addr);
+      eth[addr] = await connection.getBalance(queryAddr);
     } catch {
       eth[addr] = 0n;
     }
@@ -262,7 +278,7 @@ export function processInIdleBatches<T, R>(
 }
 
 export function useScanner(opts: UseScannerOptions): UseScannerResult {
-  const { cluster, publicClient, announcerAddress, enabled, ghostAddresses = [], watchlistAddresses = [] } = opts;
+  const { cluster, publicClient, announcerAddress, enabled, ghostAddresses = [], watchlistAddresses = [], addressResolver = {} } = opts;
   const [announcements, setAnnouncements] = useState<CachedAnnouncement[]>([]);
   const [ghostBalances, setGhostBalances] = useState<Record<string, bigint>>({});
   const [ghostTokenBalances, setGhostTokenBalances] = useState<Record<string, Record<string, bigint>>>({});
@@ -535,6 +551,11 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
   // State-polling: check watchlist + ghost addresses + opaque-ghost-addresses (current chain only)
   const ghostAddrKey = ghostAddresses.join(",");
   const watchlistAddrKey = watchlistAddresses.join(",");
+  // Re-poll when the 0x->G resolver changes (e.g. after wasm loads and an
+  // older ghost entry can finally be resolved to its Stellar G-address).
+  const resolverKey = Object.entries(addressResolver)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(",");
   useEffect(() => {
     if (!publicClient || cluster == null) {
       setGhostBalances({});
@@ -563,6 +584,7 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
           const { eth, tokens } = await checkWatchlistBalances(
             publicClient,
             addressesToPoll,
+            addressResolver,
           );
           if (cancelled) return;
           setGhostBalances(eth);
@@ -570,8 +592,10 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
         } else {
           const results = await Promise.all(
             addressesToPoll.map(async (addr) => {
+              const queryAddr = addressResolver[addr.toLowerCase()] ?? addr;
+              if (!StrKey.isValidEd25519PublicKey(queryAddr)) return 0n;
               try {
-                return await publicClient.getBalance(addr);
+                return await publicClient.getBalance(queryAddr);
               } catch {
                 return 0n;
               }
@@ -595,8 +619,8 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ghostAddrKey/watchlistAddrKey are stable string proxies for the array deps
-  }, [publicClient, cluster, ghostAddrKey, watchlistAddrKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ghostAddrKey/watchlistAddrKey/resolverKey are stable string proxies for the array/object deps
+  }, [publicClient, cluster, ghostAddrKey, watchlistAddrKey, resolverKey]);
 
   // Memoize the returned object so its identity is stable across renders. All
   // fields are already stable (useState values + useCallback functions); a bare

@@ -211,13 +211,13 @@ export function ReceiveView({ onBack }: { onBack: () => void }) {
     if (!ghostResult) {
       const generate = () => {
         try {
-          const { stealthAddress, ephemeralPriv } = computeStealthAddressAndViewTag(stealthMetaAddressHex);
+          const { stealthAddress, stealthStellarAddress, ephemeralPriv } = computeStealthAddressAndViewTag(stealthMetaAddressHex);
           const ephemeralPrivKeyHex = bytesToHex(ephemeralPriv);
           if (ephemeralPrivKeyHex == null || ephemeralPrivKeyHex === "") {
             console.error("[Opaque] Ghost address key generation produced no ephemeral key.");
             return;
           }
-          addGhost({ cluster, stealthAddress, ephemeralPrivKeyHex });
+          addGhost({ cluster, stealthAddress, stealthStellarAddress, ephemeralPrivKeyHex });
           watchlistAdd(cluster, stealthAddress);
           setGhostResult({ stealthAddress, ephemeralPrivKeyHex });
         } catch (err) {
