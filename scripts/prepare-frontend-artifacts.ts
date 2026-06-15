@@ -48,9 +48,12 @@ run("Verify scanner runtime artifacts", "tsx", [
   "--allow-scanner-wasm-variant",
 ]);
 
-// Fail build when circuit files are present but hashes drift from manifest.
-run("Verify circuit artifacts when present", "tsx", [
+// Production proof flows need these public runtime artifacts. Fail before
+// vite build if they are missing, otherwise the deployed SPA can serve
+// index.html for a .wasm URL and crash at WebAssembly.compile().
+run("Verify frontend circuit runtime artifacts", "tsx", [
   "scripts/verify-artifact-manifest.ts",
-  "--circuits",
+  "--frontend-circuits",
+  "--strict",
   "--vk-binding",
 ]);

@@ -29,6 +29,7 @@ import { getSorobanServer } from "./stellar";
 import { getNetworkPassphrase } from "./chain";
 import { getActiveManifest } from "../contracts/deploymentManifest";
 import { getPoolConfig } from "../contracts/poolConfig";
+import { publicAssetPath } from "./publicAssets";
 import {
   BN254_R,
   POOL_TREE_DEPTH,
@@ -39,8 +40,8 @@ import {
   type PoolNote,
 } from "./poolNotes";
 
-const WASM_PATH = "/circuits/v3/privacy_pool_withdraw.wasm";
-const ZKEY_PATH = "/circuits/v3/privacy_pool_withdraw_final.zkey";
+const WASM_PATH = publicAssetPath("circuits/v3/privacy_pool_withdraw.wasm");
+const ZKEY_PATH = publicAssetPath("circuits/v3/privacy_pool_withdraw_final.zkey");
 const EVENT_LOOKBACK = 16000;
 
 function parseOldestLedgerFromRangeError(err: unknown): number | null {

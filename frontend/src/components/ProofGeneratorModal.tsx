@@ -17,6 +17,7 @@ import { getCluster } from "../lib/chain";
 import { fetchLatestValidMerkleRoot } from "../lib/reputationProver";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { getDemoVerifierUrl } from "../lib/featureFlags";
+import { isWasmHtmlFallbackError, publicAssetPath } from "../lib/publicAssets";
 
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
@@ -28,8 +29,8 @@ import { buildPoseidon } from "circomlibjs";
 // Constants
 // =============================================================================
 
-const V2_CIRCUIT_WASM_PATH = "/circuits/v2/stealth_reputation.wasm";
-const V2_ZKEY_PATH = "/circuits/v2/stealth_reputation_final.zkey";
+const V2_CIRCUIT_WASM_PATH = publicAssetPath("circuits/v2/stealth_reputation.wasm");
+const V2_ZKEY_PATH = publicAssetPath("circuits/v2/stealth_reputation_final.zkey");
 const MERKLE_DEPTH = 20;
 
 // =============================================================================
@@ -264,15 +265,20 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
       setStep("done");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (
+      if (isWasmHtmlFallbackError(msg)) {
+        setError(
+          `The deployed app is serving HTML instead of the V2 witness WASM at ${V2_CIRCUIT_WASM_PATH}. ` +
+            "Redeploy with the frontend circuit artifacts present and hash-verified."
+        );
+      } else if (
         msg.includes("fetch") ||
         msg.includes("404") ||
         msg.includes("NetworkError") ||
         msg.includes("Failed to load")
       ) {
         setError(
-          "V2 circuit files not found. Run the V2 trusted setup and copy the WASM + zkey to frontend/public/circuits/v2/. " +
-            "See next_steps.md Phase 1 for instructions."
+          `V2 circuit files were not found at ${V2_CIRCUIT_WASM_PATH} and ${V2_ZKEY_PATH}. ` +
+            "Redeploy with the frontend circuit artifacts present and hash-verified."
         );
       } else {
         setError(msg);

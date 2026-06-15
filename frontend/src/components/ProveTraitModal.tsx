@@ -18,6 +18,7 @@ import { useOpaqueWasm } from "../hooks/useOpaqueWasm";
 import { useKeys } from "../context/KeysContext";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { fetchLatestValidMerkleRoot, generateReputationProof, submitProofOnChain } from "../lib/reputationProver";
+import { isWasmHtmlFallbackError } from "../lib/publicAssets";
 import type { DiscoveredTrait, ProofData } from "../lib/reputation";
 import { ModalShell } from "./ModalShell";
 
@@ -103,7 +104,11 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
       setStep("ready");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during proof generation";
-      setProofError(msg);
+      setProofError(
+        isWasmHtmlFallbackError(msg)
+          ? "The deployed app is serving HTML instead of the V2 witness WASM. Redeploy with the frontend circuit artifacts present and hash-verified."
+          : msg,
+      );
       setStep("error");
     }
   }, [wasm, isSetup, trait, getMasterKeys, startProof, setProofStage, setProofError, setProofReady]);

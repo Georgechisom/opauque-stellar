@@ -13,11 +13,12 @@ import { BASE_FEE, Contract, TransactionBuilder, nativeToScVal } from "@stellar/
 import { bytesToScVal, getSorobanServer, invokeContractMethod, u64ToScVal } from "./stellar";
 import type { SignTxFn } from "./stellar";
 import { getNetworkPassphrase } from "./chain";
+import { publicAssetPath } from "./publicAssets";
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
 
-const CIRCUIT_WASM_PATH = "/circuits/v2/stealth_reputation.wasm";
-const ZKEY_PATH = "/circuits/v2/stealth_reputation_final.zkey";
+const CIRCUIT_WASM_PATH = publicAssetPath("circuits/v2/stealth_reputation.wasm");
+const ZKEY_PATH = publicAssetPath("circuits/v2/stealth_reputation_final.zkey");
 const TREE_DEPTH = 20;
 
 const REPUTATION_CONTRACT_ID = reputationAddresses.reputationVerifier;

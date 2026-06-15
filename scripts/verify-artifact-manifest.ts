@@ -6,6 +6,7 @@
  *   node scripts/verify-artifact-manifest.mjs
  *   node scripts/verify-artifact-manifest.mjs --scanner
  *   node scripts/verify-artifact-manifest.mjs --circuits --strict
+ *   node scripts/verify-artifact-manifest.mjs --frontend-circuits --strict
  *   node scripts/verify-artifact-manifest.mjs --scanner --allow-scanner-wasm-variant
  *   node scripts/verify-artifact-manifest.mjs --vk-binding
  */
@@ -25,6 +26,7 @@ function parseArgs(argv) {
   const opts = {
     scanner: false,
     circuits: false,
+    frontendCircuits: false,
     vkBinding: false,
     strict: false,
     all: true,
@@ -38,6 +40,10 @@ function parseArgs(argv) {
         break;
       case "--circuits":
         opts.circuits = true;
+        opts.all = false;
+        break;
+      case "--frontend-circuits":
+        opts.frontendCircuits = true;
         opts.all = false;
         break;
       case "--vk-binding":
@@ -57,15 +63,22 @@ function parseArgs(argv) {
   if (opts.all) {
     opts.scanner = true;
     opts.circuits = true;
+    opts.frontendCircuits = false;
     opts.vkBinding = true;
   }
   return opts;
 }
 
 function shouldCheckEntry(group, opts) {
-  if (group.startsWith("scanner")) return opts.scanner;
-  if (group.startsWith("circuits")) return opts.circuits;
-  return true;
+  if (opts.scanner && group.startsWith("scanner")) return true;
+  if (opts.circuits && group.startsWith("circuits")) return true;
+  if (
+    opts.frontendCircuits &&
+    /^circuits\.(v2|v3)\.frontend$/.test(group)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function verifyVkBinding(manifest) {

@@ -226,7 +226,9 @@ jobs:
 
       - name: Fetch circuit artifacts
         run: npm run fetch:circuits
-        continue-on-error: true
+
+      - name: Verify frontend circuit runtime artifacts
+        run: npx tsx scripts/verify-artifact-manifest.ts --frontend-circuits --strict --vk-binding
 
       - name: Verify frontend env matches manifest
         run: |
