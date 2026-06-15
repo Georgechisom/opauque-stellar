@@ -13,11 +13,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "../hooks/useWallet";
 import { getCluster } from "../lib/chain";
 import { useSchemaStore, type V2DiscoveredTrait } from "../store/schemaStore";
+import type { SchemaV2 } from "../lib/schema";
 import { useOpaqueWasm } from "../hooks/useOpaqueWasm";
 import { useKeys } from "../context/KeysContext";
 import { useScanner } from "../hooks/useScanner";
 import { getConfigForCluster } from "../contracts/contract-config";
 import { getAnnouncementsForCluster } from "../lib/opaqueCache";
+import { fetchSchemasFromChain } from "../lib/chainSync";
 import type { Tab } from "./Layout";
 import {
   hexToBytes,
@@ -191,12 +193,13 @@ interface MyTraitsViewProps {
 export function MyTraitsView({ onNavigate, readOnly = false }: MyTraitsViewProps = {}) {
   const discoveredTraitsMap = useSchemaStore((s) => s.discoveredTraits);
   const schemaMap = useSchemaStore((s) => s.schemas);
+  const mergeSchemas = useSchemaStore((s) => s.mergeSchemas);
   const setDiscoveredTraits = useSchemaStore((s) => s.setDiscoveredTraits);
   const isScanning = useSchemaStore((s) => s.isScanning);
   const setIsScanning = useSchemaStore((s) => s.setIsScanning);
   const lastScannedSlot = useSchemaStore((s) => s.lastScannedSlot);
   const setLastScannedSlot = useSchemaStore((s) => s.setLastScannedSlot);
-  const { connection } = useWallet();
+  const { connection, publicKey } = useWallet();
   const { wasm, isReady: wasmReady } = useOpaqueWasm();
   const { isSetup, getMasterKeys } = useKeys();
   const cluster = getCluster();
@@ -257,7 +260,16 @@ export function MyTraitsView({ onNavigate, readOnly = false }: MyTraitsViewProps
         connection.getSlot(),
         getAnnouncementsForCluster(cluster),
       ]);
-      const schemaRows = Object.values(schemaMap);
+
+      // Load every registered schema from chain so received attestations can be
+      // matched and their issuers authorized even when localStorage was cleared.
+      // Without schemas, the WASM scanner has nothing to match traits against.
+      const chainSchemas = await fetchSchemasFromChain(cluster, publicKey);
+      if (chainSchemas.length) mergeSchemas(chainSchemas);
+      const schemaById = new Map<string, SchemaV2>();
+      for (const s of Object.values(schemaMap)) schemaById.set(s.schemaId, s);
+      for (const s of chainSchemas) schemaById.set(s.schemaId, s);
+      const schemaRows = Array.from(schemaById.values());
 
       let mapped: V2DiscoveredTrait[] = [];
       if (isSetup && wasmReady && wasm) {
@@ -364,6 +376,8 @@ export function MyTraitsView({ onNavigate, readOnly = false }: MyTraitsViewProps
     connection,
     getMasterKeys,
     schemaMap,
+    mergeSchemas,
+    publicKey,
   ]);
 
   useEffect(() => {

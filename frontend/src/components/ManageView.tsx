@@ -21,6 +21,10 @@ import {
   invokeRevokeAttestation,
 } from "../lib/programs";
 import { getCluster } from "../lib/chain";
+import {
+  fetchSchemasFromChain,
+  fetchIssuedAttestationsFromChain,
+} from "../lib/chainSync";
 import { useIssuedAttestationStore } from "../store/issuedAttestationStore";
 import type { Tab } from "./Layout";
 import { ModalShell } from "./ModalShell";
@@ -423,9 +427,11 @@ interface ManageViewProps {
 export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {}) {
   const { address: walletAddress, publicKey, connection, signTransaction } = useWallet();
   const schemaMap = useSchemaStore((s) => s.schemas);
+  const mergeSchemas = useSchemaStore((s) => s.mergeSchemas);
   const cluster = getCluster();
   const issuedAll = useIssuedAttestationStore((s) => s.issued);
   const markIssuedRevoked = useIssuedAttestationStore((s) => s.markRevoked);
+  const mergeIssued = useIssuedAttestationStore((s) => s.mergeIssued);
 
   const [attestations, setAttestations] = useState<ManagedAttestation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -523,6 +529,36 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
     }
   }, [publicKey, connection, schemaMap, issuedAll, cluster, showToast]);
 
+  // Rebuild schemas + issued attestations from chain so the page survives a
+  // localStorage clear or a fresh device. Results are merged into the stores;
+  // `load` then reactively reshapes them into the displayed rows.
+  const syncFromChain = useCallback(async () => {
+    if (!publicKey) return;
+    setLoading(true);
+    try {
+      const chainSchemas = await fetchSchemasFromChain(cluster, publicKey);
+      if (chainSchemas.length) mergeSchemas(chainSchemas);
+
+      const lookup = new Map(
+        chainSchemas.map((s) => [
+          s.schemaId.replace(/^0x/, "").toLowerCase(),
+          { name: s.name, revocable: s.revocable },
+        ]),
+      );
+      const chainIssued = await fetchIssuedAttestationsFromChain(
+        cluster,
+        publicKey,
+        lookup,
+        publicKey,
+      );
+      if (chainIssued.length) mergeIssued(chainIssued);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to sync from chain", true);
+    } finally {
+      setLoading(false);
+    }
+  }, [publicKey, cluster, mergeSchemas, mergeIssued, showToast]);
+
   const handleRevoke = useCallback(
     async (att: ManagedAttestation) => {
       if (!publicKey || !signTransaction) {
@@ -541,6 +577,11 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Pull authoritative state from chain on mount (and on wallet/cluster change).
+  useEffect(() => {
+    void syncFromChain();
+  }, [syncFromChain]);
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -578,7 +619,7 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
           )}
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void syncFromChain()}
             disabled={loading}
             className="rounded-xl border border-ink-700 bg-ink-900 px-4 py-2 text-xs font-medium text-white hover:bg-ink-800 disabled:opacity-50 transition-colors"
           >

@@ -31,6 +31,8 @@ export type IssuedAttestation = {
 type IssuedAttestationState = {
   issued: IssuedAttestation[];
   addIssued: (a: IssuedAttestation) => void;
+  /** Upsert many records at once (chain sync), keeping any not in the batch. */
+  mergeIssued: (list: IssuedAttestation[]) => void;
   markRevoked: (uidHex: string, cluster: string) => void;
   getForCluster: (cluster: string) => IssuedAttestation[];
 };
@@ -48,6 +50,22 @@ export const useIssuedAttestationStore = create<IssuedAttestationState>()(
             ),
           ],
         })),
+      mergeIssued: (list) =>
+        set((s) => {
+          const byKey = new Map<string, IssuedAttestation>();
+          const keyOf = (x: IssuedAttestation) => `${x.cluster}:${x.uidHex}`;
+          for (const x of s.issued) byKey.set(keyOf(x), x);
+          // Incoming chain records are authoritative for shared fields, but keep
+          // a locally recorded txHash if the chain record could not supply one.
+          for (const x of list) {
+            const prev = byKey.get(keyOf(x));
+            byKey.set(keyOf(x), {
+              ...x,
+              txHash: x.txHash || prev?.txHash || "",
+            });
+          }
+          return { issued: Array.from(byKey.values()) };
+        }),
       markRevoked: (uidHex, cluster) =>
         set((s) => ({
           issued: s.issued.map((x) =>

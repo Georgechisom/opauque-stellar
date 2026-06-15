@@ -65,6 +65,8 @@ interface SchemaStoreState {
   // Actions
   setSchemas: (schemas: SchemaV2[]) => void;
   addSchema: (schema: SchemaV2) => void;
+  /** Upsert many schemas at once (chain sync), keeping any not in the batch. */
+  mergeSchemas: (schemas: SchemaV2[]) => void;
   setDiscoveredTraits: (traits: V2DiscoveredTrait[]) => void;
   addDiscoveredTrait: (trait: V2DiscoveredTrait) => void;
   markTraitInvalid: (attestationUid: string) => void;
@@ -94,6 +96,13 @@ export const useSchemaStore = create<SchemaStoreState>()(
         set((state) => ({
           schemas: { ...state.schemas, [schema.schemaId]: schema },
         })),
+
+      mergeSchemas: (schemas) =>
+        set((state) => {
+          const next = { ...state.schemas };
+          for (const s of schemas) next[s.schemaId] = s;
+          return { schemas: next };
+        }),
 
       setDiscoveredTraits: (traits) =>
         set({
