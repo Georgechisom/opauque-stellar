@@ -120,6 +120,19 @@ fn b128(env: &Env, tag: u8) -> BytesN<128> {
     BytesN::from_array(env, &[tag; 128])
 }
 
+fn addr(env: &Env, s: &str) -> Address {
+    Address::from_string(&String::from_str(env, s))
+}
+
+fn hex32(env: &Env, hex: &str) -> BytesN<32> {
+    let clean = hex.strip_prefix("0x").unwrap_or(hex);
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(&clean[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    BytesN::from_array(env, &out)
+}
+
 fn register_relayer(h: &Harness, stake: i128) -> Address {
     let operator = Address::generate(&h.env);
     fund(h, &operator, stake);
@@ -373,4 +386,43 @@ fn deadline_and_double_accept_are_rejected() {
     h.registry.accept_job(&operator, &job_id);
     let again = h.registry.try_accept_job(&operator, &job_id);
     assert_eq!(again, Err(Ok(RegistryError::JobNotOpen)));
+}
+
+#[test]
+fn pool_withdraw_payload_hash_matches_typescript_fixture() {
+    let env = Env::default();
+    let pool = addr(
+        &env,
+        "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526",
+    );
+    let recipient = addr(
+        &env,
+        "GABTYFQAXDR724JAJSNZVUH56T62JJ7CLWT6YL56ME7OPA4DIIMAMOI6",
+    );
+    let relayer = addr(
+        &env,
+        "GDKPRDH3AGALVIZ3OX5LJGNIXZOWUBCIX5HA36YXOSQOGEZLDCJOSGDR",
+    );
+    let hash = pool_withdraw_payload_hash(
+        &env,
+        &pool,
+        &b64(&env, 0xA1),
+        &b128(&env, 0xB2),
+        &b64(&env, 0xC3),
+        500,
+        &b32(&env, 0x51),
+        &b32(&env, 0xA5),
+        &b32(&env, 0x9A),
+        &b32(&env, 0xCE),
+        &recipient,
+        0,
+        &relayer,
+    );
+    assert_eq!(
+        hash,
+        hex32(
+            &env,
+            "94f0acd43cc1f0b9afcc760a9a03699c5f18f52fdb6ec3044455feb3b39599d2",
+        ),
+    );
 }

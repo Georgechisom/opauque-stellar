@@ -95,6 +95,12 @@ describe("relayer market shared crypto", () => {
 });
 
 describe("relayer market messages", () => {
+  it("matches the contract payload hash fixture", () => {
+    expect(hashPoolWithdrawPayloadHex(payload(ACCOUNT_B))).toBe(
+      "0x94f0acd43cc1f0b9afcc760a9a03699c5f18f52fdb6ec3044455feb3b39599d2",
+    );
+  });
+
   it("signs and verifies bids", () => {
     const operator = Keypair.random();
     const x25519 = generateX25519Keypair();
