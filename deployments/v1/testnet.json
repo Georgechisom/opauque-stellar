@@ -5,7 +5,7 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": 3104203,
+  "deploymentLedger": 3101499,
   "deployedAt": "2026-06-15T14:30:19.131Z",
   "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
