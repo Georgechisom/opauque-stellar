@@ -7,7 +7,7 @@
  * - WASM matching offloaded with requestIdleCallback; call markSyncComplete when done (indexer path).
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Buffer } from "buffer";
 import {
   scValToNative,
@@ -598,14 +598,31 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ghostAddrKey/watchlistAddrKey are stable string proxies for the array deps
   }, [publicClient, cluster, ghostAddrKey, watchlistAddrKey]);
 
-  return {
-    announcements,
-    progress,
-    ghostBalances,
-    ghostTokenBalances,
-    isBackfilling,
-    retrySync,
-    refresh,
-    markSyncComplete,
-  };
+  // Memoize the returned object so its identity is stable across renders. All
+  // fields are already stable (useState values + useCallback functions); a bare
+  // object literal would be a new reference every render, and consumer effects
+  // that depend on `scanner` would re-run on every render and, combined with a
+  // setState, loop infinitely.
+  return useMemo(
+    () => ({
+      announcements,
+      progress,
+      ghostBalances,
+      ghostTokenBalances,
+      isBackfilling,
+      retrySync,
+      refresh,
+      markSyncComplete,
+    }),
+    [
+      announcements,
+      progress,
+      ghostBalances,
+      ghostTokenBalances,
+      isBackfilling,
+      retrySync,
+      refresh,
+      markSyncComplete,
+    ],
+  );
 }

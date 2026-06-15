@@ -652,7 +652,9 @@ export function PrivateBalanceView() {
     }
     if (scanner.announcements.length === 0) {
       if (scanner.progress.phase === "done") {
-        setFound([]);
+        // Return the same reference when already empty so React bails out of
+        // the re-render instead of looping (a fresh [] would re-trigger this).
+        setFound((prev) => (prev.length === 0 ? prev : []));
         setLoading(false);
       }
       return;
