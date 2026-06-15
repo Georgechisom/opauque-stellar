@@ -1,0 +1,86 @@
+/**
+ * The pool tick: read finalized deposits → screen via the policy → maintain the ordered
+ * approved set → reconcile the local root against the on-chain root → (re)publish the
+ * manifest and post `update_asp_root` only when they differ.
+ *
+ * Reconcile-not-append makes it idempotent and self-healing: the root is always recomputed
+ * from the durable `approvedIndices`, so a crash mid-publish is resolved on the next tick
+ * when the on-chain/local mismatch is re-detected.
+ */
+import { AssociationSet } from "./set.ts";
+import { computeDatasetHash, writeManifest } from "./publish.ts";
+import type { Store } from "./store.ts";
+import type { ChainAdapter, Policy, PoolState } from "./types.ts";
+
+export interface TickConfig {
+  poolId: string;
+  scope: number;
+  adapter: ChainAdapter;
+  store: Store;
+  policy: Policy;
+  /** If set, the manifest JSON is written under this directory. */
+  dataDir?: string;
+  /** Confirmations to wait before treating a deposit as final (cursor lag). */
+  confirmations?: number;
+  /** Clock injection for deterministic tests. */
+  now?: () => string;
+}
+
+export interface TickResult {
+  poolId: string;
+  approvedCount: number;
+  newlyApproved: number;
+  localRoot: string;
+  onChainRoot: string | null;
+  published: boolean;
+}
+
+function initState(poolId: string, scope: number): PoolState {
+  return { poolId, scope, approvedIndices: [], lastIndex: -1, lastLedger: 0 };
+}
+
+export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
+  const now = cfg.now ?? (() => new Date().toISOString());
+  const state = cfg.store.load(cfg.poolId) ?? initState(cfg.poolId, cfg.scope);
+
+  // 1. Read finalized deposits past our cursor and screen them.
+  const deposits = await cfg.adapter.readDeposits(state.lastIndex, state.lastLedger);
+  let newlyApproved = 0;
+  for (const dep of deposits) {
+    if (dep.index <= state.lastIndex) continue;
+    const verdict = await cfg.policy.screen(dep);
+    if (verdict === "approve") {
+      state.approvedIndices.push(dep.index);
+      newlyApproved++;
+    }
+    // "reject"/"defer" are simply not added; rejected stay out, deferred can be
+    // re-surfaced by a future policy revision (v1 approveAll never defers).
+    state.lastIndex = Math.max(state.lastIndex, dep.index);
+    state.lastLedger = Math.max(state.lastLedger, dep.ledger);
+  }
+
+  // 2. Rebuild the set + local root from the durable approved indices (reconcile).
+  const set = await AssociationSet.create(cfg.scope);
+  for (const idx of state.approvedIndices) set.add(idx);
+  const localRoot = set.rootHex();
+
+  // 3. Compare to on-chain; publish only on mismatch (idempotent).
+  const onChainRoot = await cfg.adapter.currentAspRoot();
+  let published = false;
+  if (set.size > 0 && localRoot !== onChainRoot) {
+    const manifest = set.manifest(cfg.poolId, now());
+    if (cfg.dataDir) writeManifest(cfg.dataDir, manifest);
+    await cfg.adapter.postAspRoot(localRoot, computeDatasetHash(manifest.labels));
+    published = true;
+  }
+
+  cfg.store.save(state);
+  return {
+    poolId: cfg.poolId,
+    approvedCount: state.approvedIndices.length,
+    newlyApproved,
+    localRoot,
+    onChainRoot,
+    published,
+  };
+}

@@ -1,0 +1,71 @@
+/**
+ * Core ASP interfaces. The Association Set Provider is liveness + curation, never
+ * integrity: it decides which deposits are "clean" and publishes the association-tree
+ * root that the withdraw circuit proves against. It can never mint, steal, or forge
+ * double-spends — a bad label list simply fails proof generation (withdrawers recompute
+ * the root locally and check it equals the on-chain aspRoot). See README for the full
+ * trust boundary.
+ */
+
+/** A deposit observed on-chain (from a `Deposit` event). */
+export interface Deposit {
+  /** Sequential leaf index assigned by the pool contract at deposit time. */
+  index: number;
+  /** The commitment inserted into the state tree (hex, 0x-prefixed, 32 bytes). */
+  commitment: string;
+  /** Deposited value in stroops. */
+  value: string;
+  /** The pool's scope (domain separator for labels). */
+  scope: number;
+  /** Ledger the deposit was finalized at. */
+  ledger: number;
+}
+
+export type PolicyVerdict = "approve" | "reject" | "defer";
+
+/** Pluggable screening policy: decides whether a deposit's label joins the clean set. */
+export interface Policy {
+  readonly name: string;
+  screen(deposit: Deposit): Promise<PolicyVerdict> | PolicyVerdict;
+}
+
+/** Persisted per-pool ASP state. */
+export interface PoolState {
+  poolId: string;
+  scope: number;
+  /** Deposit indices that have been approved, in approval order (== tree leaf order). */
+  approvedIndices: number[];
+  /** Highest deposit index seen (so ticks resume without rescanning from genesis). */
+  lastIndex: number;
+  /** Ledger cursor for incremental event reads. */
+  lastLedger: number;
+}
+
+/** A published association-set manifest (self-authenticating: anyone recomputes the root). */
+export interface SetManifest {
+  poolId: string;
+  root: string;
+  version: number;
+  levels: number;
+  algo: "poseidon-bn254";
+  /** Approved labels in tree-leaf order (decimal field elements). */
+  labels: string[];
+  /** Deposit index for each label (parallel to `labels`). */
+  indices: number[];
+  generatedAt: string;
+}
+
+/**
+ * Chain adapter abstraction so the engine is chain-agnostic. The Stellar implementation
+ * reads finalized `Deposit` events and posts the root via `update_asp_root`.
+ */
+export interface ChainAdapter {
+  /** Read finalized deposits with index > afterIndex (and from ledger cursor). */
+  readDeposits(afterIndex: number, fromLedger: number): Promise<Deposit[]>;
+  /** The currently published on-chain ASP root (hex), or null if none. */
+  currentAspRoot(): Promise<string | null>;
+  /** Publish a new ASP root + dataset hash. */
+  postAspRoot(root: string, datasetHash: string): Promise<void>;
+  /** Latest finalized ledger (for the cursor). */
+  latestLedger(): Promise<number>;
+}

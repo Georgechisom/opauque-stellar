@@ -279,6 +279,32 @@ jobs:
         run: npx tsx scripts/verify-deployment-manifest.ts --network testnet --check-wasm
         continue-on-error: true
 
+  asp:
+    name: ASP service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: asp/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Engine reconcile, set/tree byte-compatibility, policy, store. The live indexer
+      # is never run in CI (it would send real testnet transactions).
+      - name: Unit tests
+        run: npm test
+
   ci-success:
     name: CI success gate
     runs-on: ubuntu-latest
@@ -290,6 +316,7 @@ jobs:
       - circuit-regression
       - frontend
       - contracts
+      - asp
     steps:
       - name: Fail if any required job failed
         run: |
