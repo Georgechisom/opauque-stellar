@@ -103,12 +103,23 @@ fn cfg(env: &Env) -> PoolConfig {
 }
 
 fn root_entry_key(env: &Env, kind: bool, root: &BytesN<32>) -> (Symbol, BytesN<32>) {
-    let tag = if kind == STATE { "state_root" } else { "asp_root" };
+    let tag = if kind == STATE {
+        "state_root"
+    } else {
+        "asp_root"
+    };
     (Symbol::new(env, tag), root.clone())
 }
 
 fn history_key(env: &Env, kind: bool) -> Symbol {
-    Symbol::new(env, if kind == STATE { "state_hist" } else { "asp_hist" })
+    Symbol::new(
+        env,
+        if kind == STATE {
+            "state_hist"
+        } else {
+            "asp_hist"
+        },
+    )
 }
 
 fn nullifier_key(env: &Env, n: &BytesN<32>) -> (Symbol, BytesN<32>) {
@@ -148,9 +159,15 @@ impl PrivacyPool {
         env.storage()
             .instance()
             .set(&history_key(&env, ASP), &Vec::<BytesN<32>>::new(&env));
-        env.storage().instance().set(&Symbol::new(&env, "dep_count"), &0u64);
-        env.storage().instance().set(&Symbol::new(&env, "tot_dep"), &0i128);
-        env.storage().instance().set(&Symbol::new(&env, "tot_wd"), &0i128);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "dep_count"), &0u64);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "tot_dep"), &0i128);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "tot_wd"), &0i128);
         Ok(())
     }
 
@@ -195,9 +212,17 @@ impl PrivacyPool {
         env.storage()
             .persistent()
             .set(&commitment_key(&env, &commitment), &index);
-        env.storage().instance().set(&Symbol::new(&env, "dep_count"), &(index + 1));
-        let total: i128 = env.storage().instance().get(&Symbol::new(&env, "tot_dep")).unwrap_or(0);
-        env.storage().instance().set(&Symbol::new(&env, "tot_dep"), &(total + value));
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "dep_count"), &(index + 1));
+        let total: i128 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "tot_dep"))
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "tot_dep"), &(total + value));
 
         env.events().publish(
             (Symbol::new(&env, "Deposit"), EVENT_VERSION),
@@ -241,7 +266,10 @@ impl PrivacyPool {
         let ledger = env.ledger().sequence();
         env.storage().persistent().set(
             &root_entry_key(&env, kind, &root),
-            &RootEntry { ledger, dataset_hash: dataset_hash.clone() },
+            &RootEntry {
+                ledger,
+                dataset_hash: dataset_hash.clone(),
+            },
         );
         let mut hist: Vec<BytesN<32>> = env
             .storage()
@@ -252,11 +280,19 @@ impl PrivacyPool {
             hist.remove(0);
         }
         hist.push_back(root.clone());
-        env.storage().instance().set(&history_key(&env, kind), &hist);
+        env.storage()
+            .instance()
+            .set(&history_key(&env, kind), &hist);
 
-        let topic = if kind == STATE { "StateRootPublished" } else { "AspRootPublished" };
-        env.events()
-            .publish((Symbol::new(&env, topic), EVENT_VERSION), (root, ledger, dataset_hash));
+        let topic = if kind == STATE {
+            "StateRootPublished"
+        } else {
+            "AspRootPublished"
+        };
+        env.events().publish(
+            (Symbol::new(&env, topic), EVENT_VERSION),
+            (root, ledger, dataset_hash),
+        );
         Ok(())
     }
 
@@ -267,7 +303,9 @@ impl PrivacyPool {
             return Err(PoolError::Unauthorized);
         }
         config.root_expiry_ledgers = expiry_ledgers;
-        env.storage().instance().set(&Symbol::new(&env, "config"), &config);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "config"), &config);
         Ok(())
     }
 
@@ -293,16 +331,33 @@ impl PrivacyPool {
         }
 
         // Roots must be known and unexpired.
-        Self::require_fresh_root(&env, &config, STATE, &state_root, PoolError::UnknownStateRoot)?;
+        Self::require_fresh_root(
+            &env,
+            &config,
+            STATE,
+            &state_root,
+            PoolError::UnknownStateRoot,
+        )?;
         Self::require_fresh_root(&env, &config, ASP, &asp_root, PoolError::UnknownAspRoot)?;
 
         // Nullifier replay protection.
-        if env.storage().persistent().has(&nullifier_key(&env, &nullifier_hash)) {
+        if env
+            .storage()
+            .persistent()
+            .has(&nullifier_key(&env, &nullifier_hash))
+        {
             return Err(PoolError::NullifierUsed);
         }
 
         // Recompute the bound context — a relayer cannot redirect funds or alter the fee.
-        let context = compute_context(&env, &recipient, withdrawn_value, fee, &relayer, config.scope);
+        let context = compute_context(
+            &env,
+            &recipient,
+            withdrawn_value,
+            fee,
+            &relayer,
+            config.scope,
+        );
 
         let public_inputs = VerifyPublicInputsV3 {
             withdrawn_value: BytesN::from_array(&env, &i128_be32(withdrawn_value)),
@@ -322,8 +377,16 @@ impl PrivacyPool {
         }
 
         // Custody invariant: aggregate withdrawals can never exceed aggregate deposits.
-        let tot_dep: i128 = env.storage().instance().get(&Symbol::new(&env, "tot_dep")).unwrap_or(0);
-        let tot_wd: i128 = env.storage().instance().get(&Symbol::new(&env, "tot_wd")).unwrap_or(0);
+        let tot_dep: i128 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "tot_dep"))
+            .unwrap_or(0);
+        let tot_wd: i128 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "tot_wd"))
+            .unwrap_or(0);
         if tot_wd + withdrawn_value > tot_dep {
             return Err(PoolError::CustodyViolation);
         }
@@ -335,9 +398,17 @@ impl PrivacyPool {
         env.storage()
             .persistent()
             .set(&nullifier_key(&env, &nullifier_hash), &true);
-        let index: u64 = env.storage().instance().get(&Symbol::new(&env, "dep_count")).unwrap_or(0);
-        env.storage().persistent().set(&commitment_key(&env, &new_commitment), &index);
-        env.storage().instance().set(&Symbol::new(&env, "dep_count"), &(index + 1));
+        let index: u64 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "dep_count"))
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&commitment_key(&env, &new_commitment), &index);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "dep_count"), &(index + 1));
 
         // Pay out from the pool's own SAC balance.
         let pool = env.current_contract_address();
@@ -378,19 +449,28 @@ impl PrivacyPool {
 
     // ── Views ────────────────────────────────────────────────────────────────
     pub fn get_deposit_count(env: Env) -> u64 {
-        env.storage().instance().get(&Symbol::new(&env, "dep_count")).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "dep_count"))
+            .unwrap_or(0)
     }
 
     pub fn is_known_state_root(env: Env, root: BytesN<32>) -> bool {
-        env.storage().persistent().has(&root_entry_key(&env, STATE, &root))
+        env.storage()
+            .persistent()
+            .has(&root_entry_key(&env, STATE, &root))
     }
 
     pub fn is_known_asp_root(env: Env, root: BytesN<32>) -> bool {
-        env.storage().persistent().has(&root_entry_key(&env, ASP, &root))
+        env.storage()
+            .persistent()
+            .has(&root_entry_key(&env, ASP, &root))
     }
 
     pub fn is_spent(env: Env, nullifier_hash: BytesN<32>) -> bool {
-        env.storage().persistent().has(&nullifier_key(&env, &nullifier_hash))
+        env.storage()
+            .persistent()
+            .has(&nullifier_key(&env, &nullifier_hash))
     }
 
     pub fn get_latest_root(env: Env, state: bool) -> Result<BytesN<32>, PoolError> {
@@ -400,7 +480,11 @@ impl PrivacyPool {
             .get(&history_key(&env, state))
             .unwrap_or(Vec::new(&env));
         if hist.is_empty() {
-            return Err(if state { PoolError::UnknownStateRoot } else { PoolError::UnknownAspRoot });
+            return Err(if state {
+                PoolError::UnknownStateRoot
+            } else {
+                PoolError::UnknownAspRoot
+            });
         }
         Ok(hist.get(hist.len() - 1).unwrap())
     }
@@ -408,8 +492,14 @@ impl PrivacyPool {
     /// (total_deposited, total_withdrawn) — the custody counters.
     pub fn get_custody(env: Env) -> (i128, i128) {
         (
-            env.storage().instance().get(&Symbol::new(&env, "tot_dep")).unwrap_or(0),
-            env.storage().instance().get(&Symbol::new(&env, "tot_wd")).unwrap_or(0),
+            env.storage()
+                .instance()
+                .get(&Symbol::new(&env, "tot_dep"))
+                .unwrap_or(0),
+            env.storage()
+                .instance()
+                .get(&Symbol::new(&env, "tot_wd"))
+                .unwrap_or(0),
         )
     }
 }

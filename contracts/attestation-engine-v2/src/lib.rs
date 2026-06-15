@@ -287,12 +287,8 @@ impl AttestationEngineV2 {
         }
         validate_attestation_against_schema(&env, &schema_registry, &schema_id, &data)?;
         let issuance_sequence = next_issuance_sequence(&env, &schema_id, &stealth_address_hash);
-        let uid = compute_attestation_uid(
-            &env,
-            &schema_id,
-            &stealth_address_hash,
-            issuance_sequence,
-        );
+        let uid =
+            compute_attestation_uid(&env, &schema_id, &stealth_address_hash, issuance_sequence);
         let key = attestation_key(&uid);
         if env.storage().persistent().has(&key) {
             return Err(AttestationError::AttestationAlreadyExists);
