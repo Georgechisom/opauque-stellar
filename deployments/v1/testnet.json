@@ -5,8 +5,8 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": 3086996,
-  "deployedAt": "2026-06-14T14:34:22.094Z",
+  "deploymentLedger": 3101238,
+  "deployedAt": "2026-06-15T10:22:51.652Z",
   "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "multisig": null,
@@ -20,6 +20,12 @@
       "governance": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
       "schemaRegistry": "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP",
       "version": 1
+    },
+    "privacyPool": {
+      "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+      "groth16Verifier": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
+      "nativeSac": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      "scope": 1
     }
   },
   "deploymentStatus": "deployed",
@@ -53,6 +59,16 @@
       "id": "CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX",
       "wasmHash": "abd9e5285d8982670fcefd1c1b6458b623b9d6bed24b39887670a7f014b23520",
       "package": "attestation-engine-v2"
+    },
+    "poolVerifier": {
+      "id": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
+      "wasmHash": "bf1c8d1d2cccf6eba4e531aaf2ea259a69323663a787c2f4d561204e84c07d36",
+      "package": "groth16-verifier"
+    },
+    "privacyPool": {
+      "id": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+      "wasmHash": "be56375a242860d67143d19536c5404f7ddf29537ec16e7bfef4b624a21322db",
+      "package": "privacy-pool"
     }
   },
   "artifacts": {

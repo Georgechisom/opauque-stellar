@@ -24,6 +24,9 @@ const CONTRACT_KEYS = [
   "reputationVerifier",
   "schemaRegistry",
   "attestationEngineV2",
+  // Phase 5 privacy pool: a v3-capable groth16-verifier instance + the pool itself.
+  "poolVerifier",
+  "privacyPool",
 ];
 
 const ENV_SUFFIX = {
@@ -33,6 +36,8 @@ const ENV_SUFFIX = {
   reputationVerifier: "REPUTATION_VERIFIER_CONTRACT",
   schemaRegistry: "SCHEMA_REGISTRY_CONTRACT",
   attestationEngineV2: "ATTESTATION_ENGINE_CONTRACT",
+  poolVerifier: "POOL_VERIFIER_CONTRACT",
+  privacyPool: "PRIVACY_POOL_CONTRACT",
 };
 
 const PASSPHRASES = {
@@ -52,6 +57,7 @@ const WASM_PATHS = {
   "reputation-verifier": "target/wasm32v1-none/release/reputation_verifier.wasm",
   "schema-registry": "target/wasm32v1-none/release/schema_registry.wasm",
   "attestation-engine-v2": "target/wasm32v1-none/release/attestation_engine_v2.wasm",
+  "privacy-pool": "target/wasm32v1-none/release/privacy_pool.wasm",
 };
 
 function parseArgs(argv) {
@@ -208,6 +214,25 @@ function validateWiring(manifest) {
     }
     if (att.admin && !STELLAR_ACCOUNT_ID.test(att.admin)) {
       errors.push("wiring.attestationEngineV2.admin is not a valid Stellar account (G...) address");
+    }
+  }
+
+  // Phase 5 privacy pool (present once deployed): the recorded groth16 must match the
+  // poolVerifier instance, and the native SAC + scope must be recorded.
+  const poolWiring = wiring.privacyPool;
+  if (poolWiring) {
+    const poolVerifierId = manifest.contracts?.poolVerifier?.id;
+    if (poolWiring.groth16Verifier !== poolVerifierId) {
+      errors.push(
+        `wiring.privacyPool.groth16Verifier (${poolWiring.groth16Verifier}) does not match ` +
+          `contracts.poolVerifier.id (${poolVerifierId})`,
+      );
+    }
+    if (!poolWiring.nativeSac || !STELLAR_CONTRACT_ID.test(poolWiring.nativeSac)) {
+      errors.push("wiring.privacyPool.nativeSac is not a valid Stellar contract (C...) address");
+    }
+    if (poolWiring.scope == null) {
+      errors.push("wiring.privacyPool.scope must be recorded");
     }
   }
 

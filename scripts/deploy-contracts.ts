@@ -80,6 +80,9 @@ const PACKAGES = [
 
 const STELLAR_CONTRACT_ID = /C[A-Z2-7]{55}/g;
 
+// Domain separator for the privacy pool's deposit labels (Poseidon(scope, index)).
+const POOL_SCOPE = 1;
+
 function flag(name) {
   return process.argv.includes(`--${name}`);
 }
@@ -151,6 +154,99 @@ async function latestLedger(rpcUrl) {
   }
 }
 
+/**
+ * Incremental Phase 5 deploy: stand up a fresh v3-capable groth16-verifier instance
+ * (`poolVerifier` — the original on-chain verifier predates verify_proof_v3) plus the
+ * `privacy-pool`, initialize the pool, read back its wiring, and record both in the
+ * manifest WITHOUT touching the existing six contracts. Triggered by `--pool`.
+ */
+async function deployPrivacyPool({ network, source, deployerAddress, manifest, manifestPath, dryRun }) {
+  if (!deployerAddress) {
+    fail("Deployer G-address required as pool admin; set STELLAR_DEPLOYER_ADDRESS or use a named identity.");
+  }
+  const admin = deployerAddress;
+
+  // Native XLM Stellar Asset Contract id for this network.
+  const nativeSac = sh("stellar", [
+    "contract", "id", "asset", "--asset", "native", "--network", network,
+  ]).trim();
+  console.log(`• Native SAC: ${nativeSac}`);
+
+  const deployOne = (pkg, wasm) => {
+    const wasmPath = join(ROOT, "target", "wasm32v1-none", "release", `${wasm}.wasm`);
+    if (!existsSync(wasmPath)) fail(`WASM not found: ${wasmPath} (run without --skip-build first).`);
+    const wasmHash = sha256File(wasmPath);
+    if (dryRun) {
+      console.log(`• [dry-run] ${pkg}  wasmHash=${wasmHash}`);
+      return { id: null, wasmHash };
+    }
+    console.log(`• Deploying ${pkg}…`);
+    const out = sh("stellar", [
+      "contract", "deploy", "--wasm", wasmPath, "--source-account", source, "--network", network,
+    ]);
+    const matches = out.match(STELLAR_CONTRACT_ID);
+    const id = matches ? matches[matches.length - 1] : null;
+    if (!id) fail(`Could not parse contract ID from deploy output:\n${out}`);
+    console.log(`  ↳ ${id}`);
+    return { id, wasmHash };
+  };
+
+  const verifier = deployOne("groth16-verifier", "groth16_verifier");
+  const pool = deployOne("privacy-pool", "privacy_pool");
+
+  if (dryRun) {
+    console.log("\nDry run complete (pool). No contracts deployed, manifest not written.\n");
+    return;
+  }
+
+  console.log("• Initializing privacy-pool…");
+  invoke(pool.id, source, network, [
+    "initialize",
+    "--admin", admin,
+    "--groth16_verifier", verifier.id,
+    "--native_sac", nativeSac,
+    "--scope", String(POOL_SCOPE),
+  ]);
+
+  console.log("• Verifying wiring (read-back)…");
+  const cfg = parseInvokeResult(invoke(pool.id, source, network, ["get_config"]));
+  if (!cfg || cfg.groth16_verifier !== verifier.id || cfg.native_sac !== nativeSac) {
+    fail(
+      `privacy-pool wiring mismatch: groth16=${cfg?.groth16_verifier ?? "<none>"} ` +
+        `native_sac=${cfg?.native_sac ?? "<none>"}`,
+    );
+  }
+  console.log(
+    `  ↳ privacy-pool → groth16 ${cfg.groth16_verifier}, native SAC ${cfg.native_sac}, scope ${cfg.scope}`,
+  );
+
+  manifest.contracts.poolVerifier = {
+    id: verifier.id,
+    wasmHash: verifier.wasmHash,
+    package: "groth16-verifier",
+  };
+  manifest.contracts.privacyPool = {
+    id: pool.id,
+    wasmHash: pool.wasmHash,
+    package: "privacy-pool",
+  };
+  manifest.wiring ??= {};
+  manifest.wiring.privacyPool = {
+    admin,
+    groth16Verifier: verifier.id,
+    nativeSac,
+    scope: POOL_SCOPE,
+  };
+  manifest.deployedAt = new Date().toISOString();
+  manifest.deploymentLedger = await latestLedger(manifest.rpcUrl);
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`\n✓ Updated ${manifestPath} (poolVerifier + privacyPool)`);
+  console.log(
+    `\nNext: npm run verify:deployment:strict -- --network ${network} --check-wasm\n`,
+  );
+}
+
 async function main() {
   const network = arg("network", process.env.STELLAR_NETWORK || "testnet");
   const dryRun = flag("dry-run");
@@ -203,6 +299,12 @@ async function main() {
     } catch {
       /* leave null; record can be filled manually */
     }
+  }
+
+  // Incremental privacy-pool deploy (does not touch the existing six contracts).
+  if (flag("pool")) {
+    await deployPrivacyPool({ network, source, deployerAddress, manifest, manifestPath, dryRun });
+    return;
   }
 
   for (const { key, pkg, wasm } of PACKAGES) {
