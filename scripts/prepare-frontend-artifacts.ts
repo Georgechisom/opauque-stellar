@@ -41,10 +41,11 @@ if (fetchResult.status !== 0) {
   console.warn("Circuit artifact fetch skipped or incomplete (build locally or publish release assets).");
 }
 
-run("Verify pinned artifact hashes", "tsx", [
+run("Verify scanner runtime artifacts", "tsx", [
   "scripts/verify-artifact-manifest.ts",
   "--scanner",
   "--strict",
+  "--allow-scanner-wasm-variant",
 ]);
 
 // Fail build when circuit files are present but hashes drift from manifest.

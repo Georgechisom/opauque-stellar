@@ -29,12 +29,14 @@ npm run fetch:circuits
 npm run update:artifacts
 ```
 
-Frontend `npm run build` runs `prepare:frontend` automatically (build scanner, fetch circuits, verify scanner hashes).
+Frontend `npm run build` runs `prepare:frontend` automatically (build scanner, fetch circuits,
+verify scanner runtime artifacts).
 
 `cryptography_bg.wasm` can differ at the byte level across approved Rust/wasm-pack build
 hosts while preserving the same JS glue hash. Keep the canonical `sha256` plus any
-reviewed host-specific values in `sha256Alternates`; verification still fails for unknown
-hashes.
+reviewed host-specific values in `sha256Alternates`. Frontend prebuilds allow this WASM
+variant because they build scanner from source on the deploy host; strict scanner checks
+without `--allow-scanner-wasm-variant` still fail for unknown hashes.
 
 ## Retrieval from GitHub releases
 

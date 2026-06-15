@@ -78,7 +78,10 @@ export function* iterArtifactEntries(manifest, { includeNull = false } = {}) {
   }
 }
 
-export function verifyEntry(entry, { strict = true, label = entry.path } = {}) {
+export function verifyEntry(
+  entry,
+  { strict = true, label = entry.path, allowHashMismatch = false } = {},
+) {
   const errors = [];
   const fullPath = resolveArtifactPath(entry.path);
   const hashes = allowedHashes(entry);
@@ -99,7 +102,11 @@ export function verifyEntry(entry, { strict = true, label = entry.path } = {}) {
 
   const actual = sha256File(fullPath);
   if (!hashes.includes(actual)) {
-    errors.push(`${label}: hash mismatch manifest=${hashes.join(",")} actual=${actual}`);
+    const hashMismatch = `${label}: hash mismatch manifest=${hashes.join(",")} actual=${actual}`;
+    if (!allowHashMismatch) {
+      errors.push(hashMismatch);
+    }
+    return { errors, actual, hashMismatch };
   }
 
   return { errors, actual };

@@ -6,6 +6,7 @@
  *   node scripts/verify-artifact-manifest.mjs
  *   node scripts/verify-artifact-manifest.mjs --scanner
  *   node scripts/verify-artifact-manifest.mjs --circuits --strict
+ *   node scripts/verify-artifact-manifest.mjs --scanner --allow-scanner-wasm-variant
  *   node scripts/verify-artifact-manifest.mjs --vk-binding
  */
 
@@ -27,6 +28,7 @@ function parseArgs(argv) {
     vkBinding: false,
     strict: false,
     all: true,
+    allowScannerWasmVariant: false,
   };
   mainLoop: for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
@@ -44,6 +46,9 @@ function parseArgs(argv) {
         break;
       case "--strict":
         opts.strict = true;
+        break;
+      case "--allow-scanner-wasm-variant":
+        opts.allowScannerWasmVariant = true;
         break;
       default:
         break mainLoop;
@@ -132,15 +137,22 @@ function main() {
     const label = `${entry.group}.${entry.name}`;
     const fullPath = resolveArtifactPath(entry.path);
     const filePresent = existsSync(fullPath);
-    const { errors: entryErrors, skipped, missing } = verifyEntry(entry, {
+    const allowHashMismatch =
+      opts.allowScannerWasmVariant &&
+      entry.group === "scanner" &&
+      entry.name.endsWith(".wasm");
+    const { errors: entryErrors, skipped, missing, hashMismatch } = verifyEntry(entry, {
       strict: opts.strict || filePresent,
       label,
+      allowHashMismatch,
     });
     errors.push(...entryErrors);
     if (skipped && !opts.strict) {
       console.log(`SKIP: ${label} (hash not pinned)`);
     } else if (missing && !opts.strict) {
       console.log(`MISSING: ${label} (fetch/build required)`);
+    } else if (hashMismatch && allowHashMismatch) {
+      console.warn(`WARN: ${hashMismatch} (allowed scanner WASM build-host variant)`);
     } else if (entryErrors.length === 0 && !skipped) {
       console.log(`OK: ${label}`);
     }
