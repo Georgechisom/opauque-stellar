@@ -1,0 +1,24 @@
+{
+  "name": "@opaquecash/relayer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Relayer market node and gateway for Opaque Stellar privacy-pool withdrawals",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "relayer": "tsx scripts/relayer.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@stellar/stellar-sdk": "^15.1.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.0"
+  }
+}
