@@ -272,7 +272,7 @@ function SchemaCard({
         </div>
 
         {/* Actions */}
-        {!schema.deprecated && (
+        {!schema.deprecated && !readOnly && (
           <div className="pt-1 border-t border-ink-800">
             <button
               type="button"
