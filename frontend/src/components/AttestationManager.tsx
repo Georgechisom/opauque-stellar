@@ -18,6 +18,7 @@ import { parseFieldDefs } from "../lib/schema";
 import { encodeAttestationData } from "../lib/attestationV2";
 import { computeStealthAddressAndViewTag } from "../lib/stealth";
 import { hexToBytes, invokeAttest } from "../lib/programs";
+import { addressToAuthorityBytes } from "../lib/schemaEncoding";
 import { announceStealthTransfer, SCHEME_ID_SECP256K1 } from "../lib/contracts";
 import { getFeatureFlags } from "../lib/featureFlags";
 import { FeatureDisabledNotice } from "./FeatureDisabledNotice";
@@ -183,11 +184,36 @@ export function AttestationManager({
 
       // If we derived the stealth address from a meta-address, we have the ephemeral key
       // and can create an announcement so the recipient's scanner can discover this attestation.
+      // The metadata MUST be the full V2 payload, or the scanner drops it:
+      //   view_tag(1) || 0xB2(1) || schema_id(32) || issuer(32) || uid(32) || nonce(32) || expiry_be(4)
       if (ephemeralPubKey && stealthAddressHex && viewTag !== undefined) {
         try {
-          const metadata = new Uint8Array(2);
+          const issuerBytes = addressToAuthorityBytes(issuer);
+          // The engine derives the attestation UID as
+          // sha256(schema_id || stealth_address_hash || u64_be(issuance_sequence)).
+          // Each attestation derives a fresh stealth address, so the sequence is 1.
+          const seqBytes = new Uint8Array(8);
+          seqBytes[7] = 1;
+          const uidInput = new Uint8Array(
+            schemaIdBytes.length + stealthHashBytes.length + seqBytes.length,
+          );
+          uidInput.set(schemaIdBytes, 0);
+          uidInput.set(stealthHashBytes, schemaIdBytes.length);
+          uidInput.set(seqBytes, schemaIdBytes.length + stealthHashBytes.length);
+          const uidBytes = new Uint8Array(
+            await crypto.subtle.digest("SHA-256", uidInput),
+          );
+          const nonce = crypto.getRandomValues(new Uint8Array(32));
+
+          const metadata = new Uint8Array(134);
           metadata[0] = viewTag;
           metadata[1] = 0xb2;
+          metadata.set(schemaIdBytes, 2);
+          metadata.set(issuerBytes, 34);
+          metadata.set(uidBytes, 66);
+          metadata.set(nonce, 98);
+          new DataView(metadata.buffer).setUint32(130, expirySlotNum >>> 0, false);
+
           await announceStealthTransfer({
             sourcePublicKey: issuer,
             schemeId: SCHEME_ID_SECP256K1,
