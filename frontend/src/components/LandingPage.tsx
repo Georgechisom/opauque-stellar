@@ -14,17 +14,12 @@ const FEATURES = [
   {
     icon: "↕",
     title: "Stealth payments",
-    body: "Senders derive a fresh one-time receive surface from your stealth meta-address. Incoming XLM lands at outputs only you can spend.",
+    body: "Senders derive a fresh one-time receive surface from your stealth meta-address. Announcements let your wallet discover incoming XLM locally.",
   },
   {
-    icon: "⌘",
-    title: "On-chain registry",
-    body: "Link your Stellar account to a meta-address on Soroban so payers can resolve you without passing a long key every time.",
-  },
-  {
-    icon: "◉",
-    title: "Announcement stream",
-    body: "Contract events with view tags let your wallet discover which announcements are yours, without revealing who is scanning.",
+    icon: "◌",
+    title: "Privacy pool",
+    body: "Deposit XLM under a private commitment. Once the ASP publishes an approved association-set root, a Groth16 proof withdraws without revealing which deposit funded it.",
   },
   {
     icon: "✦",
@@ -32,14 +27,19 @@ const FEATURES = [
     body: "An optional PSR layer. Groth16 proofs, Merkle roots, and nullifiers let apps verify traits without tying them to your public wallet.",
   },
   {
+    icon: "⌘",
+    title: "On-chain registry",
+    body: "Link your Stellar account to a meta-address on Soroban so payers can resolve you without passing a long key every time.",
+  },
+  {
     icon: "⬡",
     title: "Browser-native crypto",
-    body: "Rust compiled to WASM for secp256k1 scanning, snarkjs and Circom for ZK proofs, running entirely on-device with no server round-trips.",
+    body: "Rust compiled to WASM for secp256k1 scanning, snarkjs and Circom for pool and reputation proofs, running on-device with no server round-trips.",
   },
   {
     icon: "⛓",
     title: "Open contracts",
-    body: "Registry, announcer, and verifier contracts on Soroban. No proprietary backend, so integrators use the same on-chain interfaces.",
+    body: "Registry, announcer, privacy pool, and verifier contracts on Soroban. No proprietary backend, so integrators use the same on-chain interfaces.",
   },
 ] as const;
 
@@ -51,18 +51,18 @@ const STEPS = [
   },
   {
     n: "02",
-    title: "Register",
-    body: "One-time transaction: register your meta-address on the stealth registry contract.",
+    title: "Choose a privacy path",
+    body: "Register a meta-address for stealth receives, or deposit XLM into the privacy pool under a note only your browser can spend.",
   },
   {
     n: "03",
-    title: "Receive",
-    body: "Senders use your meta-address; announcements land on-chain. You scan locally to find and manage balances.",
+    title: "Index roots",
+    body: "Pool deposits and withdrawals update the state tree. The ASP publishes approved roots so wallets can prove membership against current on-chain state.",
   },
   {
     n: "04",
-    title: "Prove (optional)",
-    body: "Generate a ZK proof scoped to an action, then verify on-chain without revealing your wallet.",
+    title: "Withdraw or prove",
+    body: "Withdraw from the pool with a nullifier-based proof, or generate a reputation proof scoped to an action without revealing your wallet.",
   },
 ] as const;
 
@@ -96,7 +96,7 @@ export function LandingPage({ onEnterVault }: LandingPageProps) {
         <div className="max-w-3xl">
           <span className="inline-flex items-center gap-2.5 rounded-full border border-border px-3.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-mist">
             <span className="h-1.5 w-1.5 rounded-full bg-glow" aria-hidden />
-            Stellar · Stealth addresses
+            Stellar · Stealth · Privacy pools
           </span>
 
           <h1 className="mt-7 font-display text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight leading-[1.02] text-white">
@@ -106,10 +106,10 @@ export function LandingPage({ onEnterVault }: LandingPageProps) {
           </h1>
 
           <p className="mt-7 max-w-2xl text-lg leading-relaxed text-mist">
-            <span className="font-semibold text-white">Opaque</span> is a Stellar-native stealth
-            layer: unlinkable receives, optional{" "}
-            <span className="font-semibold text-white">ZK-backed reputation</span>, and contracts you
-            can verify on-chain, without exposing your everyday wallet.
+            <span className="font-semibold text-white">Opaque</span> is a Stellar-native privacy
+            layer: unlinkable receives, shielded XLM withdrawals through a{" "}
+            <span className="font-semibold text-white">privacy pool</span>, optional ZK-backed
+            reputation, and contracts you can verify on-chain.
           </p>
 
           <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
@@ -221,6 +221,9 @@ export function LandingPage({ onEnterVault }: LandingPageProps) {
             </div>
           </div>
           <p className="mt-6 text-sm text-mist">
+            The privacy pool breaks the public link between an approved deposit and a later
+            withdrawal, but amounts, timing, RPC queries, and the destination account still need
+            operational care.{" "}
             <Link
               to={THREAT_MODEL_ROUTE}
               className="font-medium text-white underline decoration-glow underline-offset-4 hover:text-glow"
