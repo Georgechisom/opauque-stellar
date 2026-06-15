@@ -174,7 +174,13 @@ async function fetchLogsAdaptive(
         {
           type: "contract" as const,
           contractIds: [announcerAddress],
-          topics: [[xdr.ScVal.scvSymbol("Announcement").toXDR("base64")]],
+          // The announcer publishes a two-segment topic:
+          // (Symbol("Announcement"), EVENT_VERSION). Soroban getEvents matches
+          // topic filters positionally and requires the filter length to equal
+          // the event's topic length, so a single-segment ["Announcement"]
+          // filter matches nothing. The trailing "*" wildcard matches the
+          // version segment and stays correct across EVENT_VERSION bumps.
+          topics: [[xdr.ScVal.scvSymbol("Announcement").toXDR("base64"), "*"]],
         },
       ],
     };
