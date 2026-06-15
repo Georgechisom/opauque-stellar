@@ -29,10 +29,10 @@ function run(label, cmd, args, opts = {}) {
   }
 }
 
-run("Build scanner WASM", "node", ["scripts/build-scanner-wasm.ts"]);
+run("Build scanner WASM", "tsx", ["scripts/build-scanner-wasm.ts"]);
 
 // Best-effort fetch; build continues when release assets are not published yet.
-const fetchResult = spawnSync("node", ["scripts/fetch-circuit-artifacts.ts"], {
+const fetchResult = spawnSync("tsx", ["scripts/fetch-circuit-artifacts.ts"], {
   cwd: ROOT,
   stdio: "inherit",
   env: process.env,
@@ -41,14 +41,14 @@ if (fetchResult.status !== 0) {
   console.warn("Circuit artifact fetch skipped or incomplete (build locally or publish release assets).");
 }
 
-run("Verify pinned artifact hashes", "node", [
+run("Verify pinned artifact hashes", "tsx", [
   "scripts/verify-artifact-manifest.ts",
   "--scanner",
   "--strict",
 ]);
 
 // Fail build when circuit files are present but hashes drift from manifest.
-run("Verify circuit artifacts when present", "node", [
+run("Verify circuit artifacts when present", "tsx", [
   "scripts/verify-artifact-manifest.ts",
   "--circuits",
   "--vk-binding",
