@@ -203,9 +203,6 @@ jobs:
     name: Frontend build
     runs-on: ubuntu-latest
     needs: [verify-deployment-manifest, scanner]
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -221,41 +218,42 @@ jobs:
           path: frontend/public/pkg/
 
       - name: Install dependencies
+        working-directory: frontend
         run: npm ci
 
       - name: Install root tooling (tsx)
-        working-directory: ..
         run: npm ci
 
       - name: Fetch circuit artifacts
-        working-directory: ..
         run: npm run fetch:circuits
         continue-on-error: true
 
       - name: Verify frontend env matches manifest
-        working-directory: ..
         run: |
           eval "$(npx tsx scripts/export-manifest-env.ts testnet)"
           npx tsx scripts/verify-deployment-manifest.ts --network testnet
           cd frontend && npm run verify:deployment
 
       - name: Verify scanner WASM hashes
-        working-directory: ..
         run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 
       - name: Lint
+        working-directory: frontend
         run: npm run lint
 
       - name: Typecheck
+        working-directory: frontend
         run: npx tsc -b --noEmit
 
       - name: Typecheck and build
+        working-directory: frontend
         env:
           VITE_STELLAR_NETWORK: testnet
           SKIP_FRONTEND_PREBUILD: "1"
         run: npm run build
 
       - name: Run unit tests
+        working-directory: frontend
         run: npx vitest run --reporter=verbose
 
   contracts:
