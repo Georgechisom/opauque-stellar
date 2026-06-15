@@ -1,4 +1,4 @@
-# Ghost Address Key Storage — Threat Model
+# Ghost Address Key Storage - Threat Model
 
 ## What is protected
 

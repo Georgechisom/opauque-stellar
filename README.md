@@ -2,226 +2,146 @@
 
 # Opaque Stellar
 
-### Private payments · Provable reputation · Zero wallet exposure
+Private XLM payments, association-set privacy pools, relayed withdrawals, and ZK reputation on Stellar.
 
-**The Stellar/Soroban implementation of the Opaque privacy protocol** — DKSAP stealth addresses, on-chain ZK reputation, and a Freighter-powered browser wallet.
+[![CI](https://github.com/opaquecash/stellar/actions/workflows/ci.yml/badge.svg)](https://github.com/opaquecash/stellar/actions/workflows/ci.yml)
+[![GPLv3 License](https://img.shields.io/badge/license-GPLv3-111827?labelColor=0b1020)](LICENSE)
+[![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-14b8a6?labelColor=0b1020)](https://developers.stellar.org/docs/build/smart-contracts)
 
-<br/>
-
-[![GPLv3 License](https://img.shields.io/badge/license-GPLv3-ffd020?style=for-the-badge&labelColor=060914)](LICENSE)
-[![Stellar Soroban](https://img.shields.io/badge/Soroban-smart%20contracts-00b2ff?style=for-the-badge&labelColor=060914)](https://soroban.stellar.org)
-[![Freighter](https://img.shields.io/badge/wallet-Freighter-ffd020?style=for-the-badge&labelColor=060914)](https://freighter.app)
-
-<br/>
-
-[**Launch the wallet →**](frontend/) · [**GitHub**](https://github.com/collinsadi/opaque-stellar) · [**Solana sibling**](https://github.com/collinsadi/opaque-solana)
-
-<br/>
-
-```
-   Recipient                          Sender
-   ─────────                          ──────
-   Publishes meta-address V ∥ S
-                                      Ephemeral key → one-time Stellar account
-                                      Pays XLM + announces on Soroban
-   WASM scanner finds it → sweep to main wallet
-```
+[Wallet](frontend/) | [Technical overview](docs/technical-overview.md) | [ASP guide](docs/running-asp.md) | [Relayer guide](docs/running-relayer.md) | [Demo video](https://www.youtube.com/watch?v=REPLACE_WITH_DEMO_ID)
 
 </div>
 
----
+## Why Opaque Exists
 
-## What is this?
+Public ledgers make settlement verifiable, but they also make personal and business activity easy to map. A single public wallet can expose donations, payroll, supplier payments, savings behavior, and membership in private communities.
 
-**Opaque Stellar** is the canonical [Stellar](https://stellar.org) port of [Opaque](https://github.com/collinsadi/opaque-solana) — the same DKSAP cryptography and Groth16 reputation layer, settled on **XLM + Soroban** instead of Solana.
+Opaque Stellar keeps the auditability of Stellar while removing the need to expose a user's main wallet in every flow. It does this with five protocol pieces that work together:
 
-| Layer | What it does |
-|:------|:-------------|
-| **Stealth payments** | Fresh one-time receive accounts per payment — only you can derive the spend key |
-| **Soroban contracts** | Registry, announcer, schemas, attestations, Groth16 + reputation verifiers |
-| **Browser wallet** | Freighter signing · Rust→WASM scanner · snarkjs proofs — all on-device |
-| **ZK reputation** | Prove traits without linking them to your public Stellar address |
+| Piece | Problem it solves |
+| --- | --- |
+| Stealth payments | A sender can pay a fresh one-time Stellar account derived from the recipient's public meta-address. The recipient scans and sweeps without publishing their main wallet. |
+| Privacy pool | A user can deposit XLM into a commitment set, then withdraw later with a Groth16 proof that hides which deposit funded the withdrawal. |
+| Association Set Provider | The ASP publishes the approved set root used by withdrawal proofs. In the MVP demo it approves all deposits, so it provides liveness and root publication, not selective screening. |
+| Relayer market | A relayer submits the withdrawal transaction for the user, so the final withdrawal does not have to be sent from the user's connected wallet. |
+| ZK reputation | A user can prove a credential or reputation trait on Soroban without linking it to the wallet that received or holds funds. |
 
-> Experimental software. Read [DISCLAIMER.md](DISCLAIMER.md) before using real funds.
+Opaque is designed as a first of its kind Stellar-native privacy stack because it combines DKSAP stealth receiving, browser-side WASM scanning, Soroban Groth16 verification, an association-set privacy pool, and a stake-backed relayer market in one open protocol.
 
----
+## What Works Today
 
-## Quick start
+Opaque is live on Stellar testnet for the MVP path.
 
-### Prerequisites
+| Surface | Status |
+| --- | --- |
+| Private payments | Testnet contracts and browser wallet are wired for register, send, scan, and sweep. |
+| Privacy pool | Deposit, root publication, proof generation, partial withdrawal, and replay rejection are implemented. |
+| ASP | A demo ASP is running and approving all testnet deposits for the MVP demo. |
+| Relayer | A demo relayer is running for MVP relayed withdrawals at `https://g-stelar-relayer.opaque.cash`. |
+| Reputation | V2 Groth16 reputation proofs verify through Soroban contracts. |
+| CI/CD | GitHub Actions validate manifests, contracts, scanner WASM, circuits, frontend, ASP, relayer, and release artifacts. |
 
-Rust · [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup) · Node 20+ · [Freighter](https://freighter.app) · [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
+This is experimental software. Read [DISCLAIMER.md](DISCLAIMER.md) before using real funds.
+
+## How The Flow Feels
+
+1. A recipient initializes Opaque and publishes a stealth meta-address.
+2. A sender pays XLM to a one-time account that only the recipient can derive.
+3. The recipient scans announcements locally in the browser and sweeps funds.
+4. For stronger withdrawal privacy, the user deposits into the privacy pool and waits for published roots.
+5. The user withdraws with a zero-knowledge proof, optionally through the relayer market.
+6. The relayer receives an encrypted payload, submits the Soroban withdrawal, and earns the escrowed fee if it completes the job.
+
+Read more... [Technical overview](docs/technical-overview.md)
+
+## Use Cases
+
+| Use case | Why Opaque helps |
+| --- | --- |
+| Private creator payments | Fans can pay without linking the recipient's main wallet across every payment. |
+| Payroll and contractor payouts | Workers can receive XLM without making their salary history easy to inspect. |
+| DAO contributor rewards | Members can prove role or eligibility while separating payouts from public identity. |
+| Consumer wallet privacy | Wallets can offer one-time receive accounts and pool withdrawals without custodial infrastructure. |
+| Credential-gated access | Apps can verify reputation, eligibility, or attestations without learning the user's public wallet graph. |
+| Compliance-aware privacy | Association sets let operators define allowed deposits while preserving withdrawal unlinkability. |
+
+## Quick Start
+
+Prerequisites: Node 20+, Rust, Stellar CLI, Freighter, and wasm-pack.
 
 ```bash
-git clone https://github.com/collinsadi/opaque-stellar.git
-cd opaque-stellar
-```
-
-### 1 · Frontend wallet (fastest path)
-
-Contract IDs ship in [`deployments/v1/testnet.json`](deployments/v1/testnet.json) — no deploy needed to try the UI.
-
-```bash
-npm run build:scanner          # Rust → WASM scanner
-npm run fetch:circuits         # ZK artifacts (from release when published)
+git clone https://github.com/opaquecash/stellar.git
+cd stellar
+npm ci
+npm run build:scanner
+npm run fetch:circuits
 
 cd frontend
-cp .env.example .env           # VITE_STELLAR_NETWORK=testnet
-npm install
+npm ci
 npm run dev
 ```
 
-Open **http://localhost:5173** · connect Freighter on testnet · initialize stealth keys.
+Open `http://localhost:5173`, connect Freighter on Stellar testnet, and initialize Opaque keys.
 
-### 2 · Deploy contracts (optional)
+The frontend reads contract IDs from [deployments/v1/testnet.json](deployments/v1/testnet.json). You do not need to redeploy contracts to try the testnet wallet.
 
-```bash
-cp .env.example .env
-stellar keys generate opaque-deployer --network testnet --fund
-# Set STELLAR_DEPLOYER=opaque-deployer in .env
+Read more... [Frontend wallet](frontend/)
 
-npm run deploy:testnet         # build WASM + deploy + update manifest
-npm run deploy:testnet -- --dry-run   # preview only
-```
+## Run The Protocol Services
 
----
+The privacy pool needs roots, and relayed withdrawals need a public gateway. The repo ships both services.
 
-## Repository map
+| Service | Command | Guide |
+| --- | --- | --- |
+| ASP indexer | `cd asp && npm run indexer` | [Read more...](docs/running-asp.md) |
+| Relayer hub | `cd relayer && npm run hub` | [Read more...](docs/running-relayer.md) |
+| Relayer node | `cd relayer && npm run relayer` | [Read more...](docs/running-relayer.md) |
 
-Everything has one job. If you only care about the wallet, start with `frontend/`.
+For the MVP demo, a testnet ASP is already running with an approve-all policy, and a relayer is already running for relayed withdrawals at `https://g-stelar-relayer.opaque.cash`. Operators should still run their own services before relying on the system outside demo use.
 
-```
-opaque-stellar/
-├── frontend/          React wallet (Freighter, send, receive, scan, reputation)
-├── contracts/         6 Soroban smart contracts (Rust workspace)
-├── scanner/           DKSAP engine → WASM for the browser
-├── circuits/          Circom Groth16 circuits + regression fixtures
-├── deployments/       On-chain address book (contract IDs + WASM hashes)  ← read this
-├── scripts/           TypeScript tooling (deploy, verify, artifacts)
-├── artifacts/         Pinned SHA-256 hashes for scanner + circuit builds
-├── Cargo.toml         Rust workspace root
-├── soroban.toml       Stellar CLI contract build config
-├── deny.toml          cargo-deny supply-chain policy
-├── package.json       Root npm scripts (tsx)
-├── .env.example       Deployer config for npm run deploy:*
-├── SECURITY.md        Vulnerability disclosure
-└── DISCLAIMER.md      Legal / experimental notice
-```
+## Repository Map
 
-### What is `deployments/`?
+| Path | Purpose |
+| --- | --- |
+| [frontend/](frontend/) | React wallet for private receives, scans, sweeps, pool deposits, withdrawals, and reputation proofs. |
+| [contracts/](contracts/) | Soroban contracts for registries, announcements, attestations, verifiers, privacy pool, and relayer registry. |
+| [scanner/](scanner/) | Rust DKSAP scanner compiled to WASM for browser-side receive detection. |
+| [circuits/](circuits/) | Circom Groth16 circuits, fixtures, and regression tests. |
+| [asp/](asp/) | Association Set Provider and pool state root publisher. |
+| [relayer/](relayer/) | Relayer gateway, shared hub, node engine, registration helper, and market tests. |
+| [deployments/](deployments/) | Versioned on-chain address book and manifest data. |
+| [scripts/](scripts/) | TypeScript deploy, verification, artifact, and manifest tooling. |
+| [docs/](docs/) | Operator guides, protocol internals, and security notes. |
 
-**The on-chain address book.** After you deploy (or when we publish a release), `deployments/v1/testnet.json` holds every Soroban contract ID, WASM hash, and RPC URL. The frontend reads it at build time — you don't hardcode `C…` addresses in source. See [`deployments/README.md`](deployments/README.md).
+## CI/CD
 
-### What is `circuits/fixtures/`?
+The repository uses GitHub Actions for CI and release gates:
 
-**Deterministic test vectors for ZK regression.** Each folder (`v1/`, `v2/`) has `valid-input.json`, `invalid-input.json`, and `expected-public.json`. CI runs `npm run test:circuits` to prove the Circom circuits still produce the same public outputs — no drift in proof semantics.
+| Workflow | What it checks |
+| --- | --- |
+| [CI](.github/workflows/ci.yml) | Manifest validation, supply-chain checks, scanner WASM, circuits, frontend build and tests, contracts, ASP, and relayer. |
+| [Mainnet Release](.github/workflows/release.yml) | Release manifest checks, security audit register, contract artifacts, scanner, frontend, and deployment metadata. |
 
----
+Read more... [CI/CD guide](docs/ci-cd.md)
 
-## Soroban contracts
+## Stars Trend
 
-| Contract | Role |
-|:---------|:-----|
-| `stealth-registry` | Wallet → stealth meta-address |
-| `stealth-announcer` | On-chain payment announcements (view tags) |
-| `schema-registry` | Attestation schema definitions |
-| `attestation-engine-v2` | Issue / revoke credentials |
-| `groth16-verifier` | BN254 proof verification |
-| `reputation-verifier` | Merkle roots, nullifiers, PSR checks |
+[![Star History Chart](https://api.star-history.com/svg?repos=opaquecash/stellar&type=Date)](https://www.star-history.com/#opaquecash/stellar&Date)
 
-Build: `stellar contract build` · Test: `cargo test --workspace`
+## Security
 
----
+Report vulnerabilities through [SECURITY.md](SECURITY.md). The browser key-storage threat model is documented in [docs/GHOST_THREAT_MODEL.md](docs/GHOST_THREAT_MODEL.md).
 
-## Scripts (TypeScript)
+Mainnet use is blocked until the security register is signed off. Testnet deployments are for demonstration and integration testing.
 
-All root tooling is **TypeScript** run via [tsx](https://github.com/privatenumber/tsx):
+## License
 
-| Command | Does |
-|:--------|:-----|
-| `npm run deploy:testnet` | Build + deploy all contracts + update manifest |
-| `npm run build:scanner` | Compile scanner to `frontend/public/pkg/` |
-| `npm run fetch:circuits` | Download pinned ZK artifacts |
-| `npm run verify:deployment` | Validate deployment manifests |
-| `npm run verify:artifacts` | Check scanner/circuit SHA-256 hashes |
-| `npm run test:circuits` | Groth16 regression against fixtures |
-
----
-
-## Environment
-
-| File | Purpose |
-|:-----|:--------|
-| `.env` (root) | `STELLAR_DEPLOYER`, `STELLAR_NETWORK` for deploy scripts |
-| `frontend/.env` | `VITE_STELLAR_NETWORK`, optional RPC overrides |
-
-Contract IDs default from `deployments/v1/<network>.json`. Override with `VITE_TESTNET_*_CONTRACT` only for local dev.
-
----
-
-## Recovery {#recovery}
-
-Stealth **master keys** recover by re-signing with the same Freighter wallet — deterministic derivation, no server.
-
-**Manual ghost receives** bind ephemeral keys to the browser. Back them up or you lose those funds on device loss.
-
-Session cache (`Remember signature`) is **not** a backup — ~30 minutes per tab.
-
----
-
-## Privacy {#privacy}
-
-Stealth breaks the link between your public wallet and individual receives. It does **not** hide that you interacted with Opaque contracts, that you scanned announcements, or network-level metadata.
-
-The in-app [privacy threat model](frontend/src/lib/privacyThreatModel.ts) maps mitigations to code.
-
----
-
-## Payment links {#payment-links}
-
-Opaque payment URLs encode amount, asset (XLM), and recipient meta-address for one-click sends. Generated in-app from the Receive tab.
-
----
-
-## Cross-chain
-
-Same DKSAP layout as [EIP-5564](https://eips.ethereum.org/EIPS/eip-5564) / [ERC-6538](https://eips.ethereum.org/EIPS/erc-6538). Meta-addresses are portable; settlement here is Stellar.
-
-| Repo | Chain |
-|:-----|:------|
-| **opaque-stellar** (this) | Stellar / Soroban |
-| [opaque-solana](https://github.com/collinsadi/opaque-solana) | Solana |
-
----
-
-## Contributors
-
-Parts of this codebase were written by contributors at the project’s previous home, [**collinsadi/opauque-stellar**](https://github.com/collinsadi/opauque-stellar) (note the spelling: *opauque*, not *opaque*). Much of that work happened during the **Stellar wave** on [Drips](https://drips.network/wave). Development continues in **this** repository because that name cannot be corrected on GitHub right now, and the project needed a cleaner, stricter baseline for open-source work—supply-chain checks, CI gates, security policy, and related hygiene.
-
-Avatars below are generated automatically from Git commit history on the previous repository ([contrib.rocks](https://contrib.rocks) → GitHub Contributors API). New contributions in **this** repo will appear on its own graph once people land commits here.
-
-<a href="https://github.com/collinsadi/opauque-stellar/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=collinsadi/opauque-stellar&columns=10" alt="Contributors to collinsadi/opauque-stellar" />
-</a>
-
-<p align="center">
-  <sub>Made with <a href="https://contrib.rocks">contrib.rocks</a> · <a href="https://github.com/collinsadi/opauque-stellar/graphs/contributors">full contributor graph</a></sub>
-</p>
-
----
-
-## Contributing
-
-See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md). CI is strict: `cargo test`, `clippy -D warnings`, frontend lint/typecheck/vitest, circuit regression, manifest verification.
-
-Report vulnerabilities via [SECURITY.md](SECURITY.md).
-
----
+Opaque Stellar is licensed under [GPLv3](LICENSE).
 
 <div align="center">
 
-**[GPLv3 License](LICENSE)** · Built by [Collins Adi](https://github.com/collinsadi)
+Built by [Collins Adi](https://github.com/collinsadi), creator of Auraroom, an anonymous groupchat system, and Safemind, an anonymous therapy system.
 
-*Every transaction deserves the right to be private.*
+Every transaction deserves the right to be private.
 
 </div>
