@@ -270,6 +270,7 @@ async function main() {
   }
 
   console.log("\nOK: circuit regression tests passed");
+  process.exit(0);
 }
 
 main();
