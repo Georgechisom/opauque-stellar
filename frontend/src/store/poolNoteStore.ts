@@ -10,8 +10,8 @@ import type { PoolNote } from "../lib/poolNotes";
 type PoolNoteState = {
   notes: PoolNote[];
   addNote: (note: PoolNote) => void;
-  /** Mark the note with this leaf index (on a cluster) spent. */
-  markSpent: (cluster: string, leafIndex: number) => void;
+  /** Mark the note with this leaf index (on a pool) spent. */
+  markSpent: (cluster: string, poolId: string | undefined, leafIndex: number) => void;
   getForCluster: (cluster: string) => PoolNote[];
   /** Replace the full note set (used by recovery import). */
   importNotes: (notes: PoolNote[]) => void;
@@ -25,23 +25,32 @@ export const usePoolNoteStore = create<PoolNoteState>()(
       notes: [],
       addNote: (note) =>
         set((s) => {
-          // De-dup by (cluster, leafIndex).
+          // De-dup by (cluster, poolId, leafIndex). Legacy notes have no poolId.
           const without = s.notes.filter(
-            (n) => !(n.cluster === note.cluster && n.leafIndex === note.leafIndex),
+            (n) =>
+              !(
+                n.cluster === note.cluster &&
+                (n.poolId ?? "") === (note.poolId ?? "") &&
+                n.leafIndex === note.leafIndex
+              ),
           );
           return { notes: [...without, note] };
         }),
-      markSpent: (cluster, leafIndex) =>
+      markSpent: (cluster, poolId, leafIndex) =>
         set((s) => ({
           notes: s.notes.map((n) =>
-            n.cluster === cluster && n.leafIndex === leafIndex ? { ...n, spent: true } : n,
+            n.cluster === cluster && (n.poolId ?? "") === (poolId ?? "") && n.leafIndex === leafIndex
+              ? { ...n, spent: true }
+              : n,
           ),
         })),
       getForCluster: (cluster) => get().notes.filter((n) => n.cluster === cluster),
       importNotes: (notes) =>
         set((s) => {
           const byKey = new Map<string, PoolNote>();
-          for (const n of [...s.notes, ...notes]) byKey.set(`${n.cluster}:${n.leafIndex}`, n);
+          for (const n of [...s.notes, ...notes]) {
+            byKey.set(`${n.cluster}:${n.poolId ?? ""}:${n.leafIndex}`, n);
+          }
           return { notes: [...byKey.values()] };
         }),
       exportNotes: () => get().notes,

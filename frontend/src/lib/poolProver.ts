@@ -27,6 +27,7 @@ import { keccak_256 } from "@noble/hashes/sha3";
 import * as snarkjs from "snarkjs";
 import { getSorobanServer } from "./stellar";
 import { getNetworkPassphrase } from "./chain";
+import { getActiveManifest } from "../contracts/deploymentManifest";
 import { getPoolConfig } from "../contracts/poolConfig";
 import {
   BN254_R,
@@ -34,12 +35,39 @@ import {
   getPoseidon,
   hashFields,
   newNoteSecrets,
+  toHex32,
   type PoolNote,
 } from "./poolNotes";
 
 const WASM_PATH = "/circuits/v3/privacy_pool_withdraw.wasm";
 const ZKEY_PATH = "/circuits/v3/privacy_pool_withdraw_final.zkey";
 const EVENT_LOOKBACK = 16000;
+
+function parseOldestLedgerFromRangeError(err: unknown): number | null {
+  let msg = "";
+  if (err instanceof Error) msg = err.message;
+  else if (typeof err === "string") msg = err;
+  else if (err && typeof err === "object") {
+    const o = err as { message?: unknown };
+    msg = typeof o.message === "string" ? o.message : "";
+  }
+  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
+}
+
+async function poolEventStartLedger(server: rpc.Server): Promise<number> {
+  const latest = (await server.getLatestLedger()).sequence;
+  const deployedAt = getActiveManifest()?.deploymentLedger;
+  let start = deployedAt && deployedAt > 0 ? deployedAt : Math.max(1, latest - EVENT_LOOKBACK);
+  try {
+    const health = await server.getHealth();
+    const oldest = Number(health.oldestLedger);
+    if (start < oldest) start = oldest;
+  } catch {
+    /* health unavailable */
+  }
+  return start;
+}
 
 function toBE32(v: bigint): Uint8Array {
   const out = new Uint8Array(32);
@@ -112,8 +140,7 @@ type PoolEvents = {
 
 async function readPoolEvents(poolId: string): Promise<PoolEvents> {
   const server = getSorobanServer();
-  const latest = (await server.getLatestLedger()).sequence;
-  const startLedger = Math.max(1, latest - EVENT_LOOKBACK);
+  let startLedger = await poolEventStartLedger(server);
   const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
   const withdrawTopic = xdr.ScVal.scvSymbol("Withdraw").toXDR("base64");
 
@@ -126,10 +153,22 @@ async function readPoolEvents(poolId: string): Promise<PoolEvents> {
   ] as const) {
     let cursor: string | undefined;
     for (let page = 0; page < 25; page++) {
-      const req: rpc.Server.GetEventsRequest = cursor
-        ? { cursor, filters: [{ type: "contract", contractIds: [poolId], topics: [[topic, "*"]] }], limit: 100 }
-        : { startLedger, filters: [{ type: "contract", contractIds: [poolId], topics: [[topic, "*"]] }], limit: 100 };
-      const res = await server.getEvents(req);
+      let res: rpc.Api.GetEventsResponse;
+      const filters = [{ type: "contract" as const, contractIds: [poolId], topics: [[topic, "*"]] }];
+      try {
+        const req: rpc.Server.GetEventsRequest = cursor
+          ? { cursor, filters, limit: 100 }
+          : { startLedger, filters, limit: 100 };
+        res = await server.getEvents(req);
+      } catch (err) {
+        const oldest = parseOldestLedgerFromRangeError(err);
+        if (!cursor && oldest != null && startLedger < oldest) {
+          startLedger = oldest;
+          res = await server.getEvents({ startLedger, filters, limit: 100 });
+        } else {
+          throw err;
+        }
+      }
       for (const ev of res.events ?? []) {
         const data = scValToNative(ev.value) as unknown[];
         if (isDeposit) {
@@ -257,7 +296,22 @@ export async function generateWithdrawProof(opts: {
   const label = h([BigInt(cfg.scope), BigInt(note.leafIndex)]);
   const aspLeaves = depositIndices.map((i) => h([BigInt(cfg.scope), BigInt(i)]));
   const aspLeafIndex = depositIndices.indexOf(note.leafIndex);
-  if (aspLeafIndex < 0) throw new Error("Your deposit is not yet indexed on-chain. Try again shortly.");
+  const indexed = depositIndices.length > 0 ? depositIndices.join(", ") : "none";
+  if (aspLeafIndex < 0) {
+    throw new Error(
+      `Leaf #${note.leafIndex} is not a current pool Deposit event. Indexed deposits: ${indexed}. ` +
+        "Select the note created by your latest deposit, or clear/import notes if this one is stale.",
+    );
+  }
+  const onChainCommitment = stateLeaves[note.leafIndex] != null
+    ? toHex32(stateLeaves[note.leafIndex]).toLowerCase()
+    : null;
+  if (onChainCommitment && onChainCommitment !== note.commitment.toLowerCase()) {
+    throw new Error(
+      `Leaf #${note.leafIndex} exists, but this note's commitment does not match the current pool. ` +
+        "This note is probably from an older deposit or pool deployment.",
+    );
+  }
 
   const stateTree = new MerkleTree(poseidon as never, stateLeaves);
   const aspTree = new MerkleTree(poseidon as never, aspLeaves);

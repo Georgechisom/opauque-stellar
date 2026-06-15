@@ -21,6 +21,8 @@ export const BN254_R =
 export type PoolNote = {
   /** Network cluster this note belongs to. */
   cluster: string;
+  /** Privacy-pool contract this note belongs to. Legacy notes may not have this. */
+  poolId?: string;
   /** Deposited value, in stroops, as a decimal string. */
   value: string;
   /** Domain separator the deposit was made under. */

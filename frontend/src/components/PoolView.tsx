@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import type { Tab } from "./Layout";
 import { useWallet } from "../hooks/useWallet";
@@ -46,10 +46,14 @@ function be32(v: bigint): Uint8Array {
 const card = "rounded-2xl border border-ink-700 bg-ink-900/60 p-5";
 
 export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void; readOnly?: boolean }) {
-  const { publicKey, signTransaction, connected } = useWallet();
-  const cluster = useWallet().cluster ?? "testnet";
+  const wallet = useWallet();
+  const { publicKey, signTransaction, connected } = wallet;
+  const cluster = wallet.cluster ?? "testnet";
   const { showToast } = useToast();
-  const cfg = getPoolConfig();
+  const cfg = useMemo(() => {
+    void cluster;
+    return getPoolConfig();
+  }, [cluster]);
 
   const notes = usePoolNoteStore((s) => s.notes);
   const addNote = usePoolNoteStore((s) => s.addNote);
@@ -62,7 +66,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [poolBalance, setPoolBalance] = useState<bigint | null>(null);
   const [roots, setRoots] = useState<{ stateRoot: string | null; aspRoot: string | null } | null>(null);
 
-  const clusterNotes = notes.filter((n) => n.cluster === cluster);
+  const clusterNotes = notes.filter((n) => n.cluster === cluster && (!n.poolId || n.poolId === cfg?.poolId));
   const unspent = clusterNotes.filter((n) => !n.spent);
 
   const refreshChain = useCallback(async () => {
@@ -107,6 +111,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       });
       const note: PoolNote = {
         cluster,
+        poolId: cfg.poolId,
         value: value.toString(),
         scope: cfg.scope,
         leafIndex,
@@ -164,7 +169,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         relayer: publicKey,
         signTransaction,
       });
-      markSpent(cluster, note.leafIndex);
+      markSpent(cluster, note.poolId, note.leafIndex);
       setSelected(null);
       showToast(`Withdrew ${formatXlm(proof.withdrawnValue)} XLM to ${recipient.slice(0, 6)}…`, {
         explorerTx: { txSig: hash },
