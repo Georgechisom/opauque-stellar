@@ -101,7 +101,10 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [roots, setRoots] = useState<{ stateRoot: string | null; aspRoot: string | null } | null>(null);
   const [submitMode, setSubmitMode] = useState<"wallet" | "relayer">("wallet");
   const [relayerFee, setRelayerFee] = useState("0.1");
-  const [gateway, setGateway] = useState(relayerGatewayUrl());
+  const gateway = useMemo(() => {
+    void cluster;
+    return relayerGatewayUrl();
+  }, [cluster]);
   const [relayerDraft, setRelayerDraft] = useState<RelayerJobDraft | null>(null);
   const [relayerBids, setRelayerBids] = useState<VerifiedBid[]>([]);
   const [selectedRelayer, setSelectedRelayer] = useState<string | null>(null);
@@ -373,7 +376,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       const result = await deliverPayloadToRelayer({
         draft: relayerDraft,
         bid: selectedRelayerBid,
-        gateway: selectedRelayerBid.endpoint || gateway,
+        gateway,
       });
       if (result?.submittedTx) {
         markSpent(cluster, note.poolId, note.leafIndex);
@@ -659,17 +662,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
                   </p>
                 ) : (
                   <>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-1.5 text-sm">
-                        <span className="font-medium text-white">Gateway</span>
-                        <input
-                          type="url"
-                          value={gateway}
-                          onChange={(e) => setGateway(e.target.value)}
-                          disabled={readOnly || !!busy}
-                          className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-xs text-white placeholder:text-mist/40 focus:border-glow focus:outline-none disabled:opacity-50"
-                        />
-                      </label>
+                    <div className="grid gap-3">
                       <label className="space-y-1.5 text-sm">
                         <span className="font-medium text-white">Relayer fee (XLM)</span>
                         <input

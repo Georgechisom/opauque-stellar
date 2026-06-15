@@ -31,6 +31,9 @@
       "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
       "nativeSac": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
       "privacyPool": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+      "gatewayUrls": [
+        "http://127.0.0.1:8787"
+      ],
       "minimumStake": 1000000,
       "unstakeCooldownLedgers": 720,
       "maxDeadlineLedgers": 17280

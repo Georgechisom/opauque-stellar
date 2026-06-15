@@ -31,7 +31,7 @@ import {
 import { bytesToScVal, getSorobanServer } from "./stellar";
 import type { WithdrawProof } from "./poolProver";
 
-const DEFAULT_GATEWAY = "http://127.0.0.1:8787";
+const DEFAULT_GATEWAYS = ["http://127.0.0.1:8787"];
 const DEFAULT_JOB_DEADLINE_LEDGERS = 720;
 
 export type RelayerJobDraft = {
@@ -60,11 +60,22 @@ type NativeRegistryRelayer = {
   x25519_pubkey: Uint8Array | number[];
 };
 
+function splitGatewayUrls(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
+export function relayerGatewayUrls(): string[] {
+  const envUrls = splitGatewayUrls(import.meta.env.VITE_RELAYER_GATEWAY_URL as string | undefined);
+  if (envUrls.length > 0) return envUrls;
+  const manifestUrls = getRelayerConfig()?.gatewayUrls ?? [];
+  return manifestUrls.length > 0 ? manifestUrls : DEFAULT_GATEWAYS;
+}
+
 export function relayerGatewayUrl(): string {
-  return (
-    (import.meta.env.VITE_RELAYER_GATEWAY_URL as string | undefined)?.trim() ||
-    DEFAULT_GATEWAY
-  );
+  return relayerGatewayUrls()[0];
 }
 
 export function randomJobId(): Uint8Array {
