@@ -328,6 +328,15 @@ function scanForAttestations(
 
 export type PortfolioEntry = { tx: FoundTx; balanceRaw: bigint };
 
+// A stealth address is always a bare account (no subentries), so Stellar locks
+// 2 x base reserve = 1 XLM as its minimum balance and a sweep costs one base
+// fee. At or below that, spendable would be <= 0: the receive is real but
+// cannot be withdrawn (a payment can never drop an account below its reserve).
+// We treat these as dust and hide them by default behind a toggle.
+const DUST_CEILING_STROOPS = 10_000_000n + 100n; // 1 XLM reserve + 0.00001 fee
+
+const SHOW_DUST_STORAGE_KEY = "opaque-show-dust";
+
 export function PrivateBalanceView() {
   const [found, setFound] = useState<FoundTx[]>([]);
   const [loading, setLoading] = useState(true);
@@ -374,6 +383,24 @@ export function PrivateBalanceView() {
     null,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [showDust, setShowDust] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SHOW_DUST_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleShowDust = useCallback(() => {
+    setShowDust((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(SHOW_DUST_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* localStorage unavailable; keep in-memory only */
+      }
+      return next;
+    });
+  }, []);
   const [ghostAnnounceTarget, setGhostAnnounceTarget] = useState<{
     stealthAddress: `0x${string}`;
     ephemeralPrivKeyHex: `0x${string}`;
@@ -440,16 +467,22 @@ export function PrivateBalanceView() {
 
   const portfolio = useMemo(() => {
     const activeTxs = [...found.filter((tx) => !tx.isSpent), ...ghostTxs];
-    let totalRaw = 0n;
-    const entries: PortfolioEntry[] = [];
+    let claimableTotalRaw = 0n;
+    let dustTotalRaw = 0n;
+    const claimable: PortfolioEntry[] = [];
+    const dust: PortfolioEntry[] = [];
     for (const tx of activeTxs) {
       const balanceRaw = tx.balance;
-      if (balanceRaw > 0n) {
-        totalRaw += balanceRaw;
-        entries.push({ tx, balanceRaw });
+      if (balanceRaw <= 0n) continue;
+      if (balanceRaw <= DUST_CEILING_STROOPS) {
+        dustTotalRaw += balanceRaw;
+        dust.push({ tx, balanceRaw });
+      } else {
+        claimableTotalRaw += balanceRaw;
+        claimable.push({ tx, balanceRaw });
       }
     }
-    return { asset: nativeAsset, totalRaw, entries };
+    return { asset: nativeAsset, claimable, dust, claimableTotalRaw, dustTotalRaw };
   }, [found, ghostTxs, nativeAsset]);
 
   const setDestination = useCallback((txId: string, value: string) => {
@@ -836,8 +869,13 @@ export function PrivateBalanceView() {
     return () => clearTimeout(t);
   }, [newlyDetectedIds]);
 
-  const allEntries = portfolio.entries;
-  const totalSol = portfolio.totalRaw;
+  const claimableEntries = portfolio.claimable;
+  const dustEntries = portfolio.dust;
+  const visibleEntries = showDust
+    ? [...claimableEntries, ...dustEntries]
+    : claimableEntries;
+  // Headline reflects what is actually withdrawable; dust sits below the reserve.
+  const totalSol = portfolio.claimableTotalRaw;
 
   return (
     <div className="w-full flex flex-col">
@@ -972,7 +1010,7 @@ export function PrivateBalanceView() {
         <div className="rounded-2xl border border-ink-700 bg-ink-900/25 p-6">
           <p className="text-mist text-sm">Deciphering payments…</p>
         </div>
-      ) : totalSol === 0n && allEntries.length === 0 ? (
+      ) : claimableEntries.length === 0 && dustEntries.length === 0 ? (
         <div className="rounded-2xl border border-ink-700 bg-ink-900/25 p-6">
           <p className="text-mist text-sm">No incoming payments found yet.</p>
           <p className="text-mist/70 text-xs mt-1">
@@ -988,19 +1026,70 @@ export function PrivateBalanceView() {
               {formatXlm(totalSol)}
             </p>
             <p className="text-mist/70 text-xs mt-1">
-              {allEntries.length} address{allEntries.length !== 1 ? "es" : ""}
+              {claimableEntries.length} address
+              {claimableEntries.length !== 1 ? "es" : ""}
             </p>
           </div>
+
+          {/* Dust toggle: receives at or below the 1 XLM reserve cannot be
+              withdrawn, so they are hidden by default but always surfaced. */}
+          {dustEntries.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-800 bg-ink-900/20 px-4 py-2.5">
+              <p className="text-xs text-mist/80">
+                {dustEntries.length} small receive
+                {dustEntries.length !== 1 ? "s" : ""} below the 1 XLM reserve
+                {" "}({formatXlm(portfolio.dustTotalRaw)} XLM, not withdrawable)
+              </p>
+              <button
+                type="button"
+                onClick={toggleShowDust}
+                className="shrink-0 text-xs font-medium text-white hover:underline"
+              >
+                {showDust ? "Hide" : "Show"}
+              </button>
+            </div>
+          )}
 
           {/* List of stealth addresses */}
           <h3 className="font-display text-xl font-bold text-white">
             XLM Stealth addresses
           </h3>
           <div className="space-y-3">
-            {allEntries
+            {visibleEntries
               .filter((e) => e.balanceRaw > 0n)
               .map(({ tx, balanceRaw }) => {
                 const amountStr = formatXlm(balanceRaw);
+                // Receives at or below the reserve+fee cannot be swept; render
+                // them as informational-only cards (revealed via the toggle).
+                if (balanceRaw <= DUST_CEILING_STROOPS) {
+                  return (
+                    <div
+                      key={tx.id}
+                      className="rounded-2xl border border-ink-800 bg-ink-900/20 p-5 flex flex-wrap items-center justify-between gap-3 opacity-80"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-ink-800 text-mist/70 border border-ink-700">
+                            Below reserve
+                          </span>
+                          <ExplorerLink
+                            cluster={cluster}
+                            value={tx.address}
+                            type="address"
+                            className="text-mist text-xs"
+                          />
+                        </div>
+                        <p className="text-mist font-semibold mt-0.5">
+                          {amountStr} XLM
+                        </p>
+                        <p className="text-mist/60 text-xs mt-1">
+                          Stellar locks 1 XLM as the account reserve, so this
+                          receive cannot be withdrawn.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
                 const ghostEntry = ghostEntries.find(
                   (e) =>
                     e.stealthAddress.toLowerCase() === tx.address.toLowerCase(),
