@@ -5,6 +5,7 @@ members = [
     "contracts/groth16-verifier",
     "contracts/reputation-verifier",
     "contracts/privacy-pool",
+    "contracts/relayer-registry",
     "contracts/opaque-schema-core",
     "contracts/schema-registry",
     "contracts/attestation-engine-v2",

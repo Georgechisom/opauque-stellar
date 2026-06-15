@@ -1085,6 +1085,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "relayer-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "reputation-verifier"
 version = "0.1.0"
 dependencies = [
