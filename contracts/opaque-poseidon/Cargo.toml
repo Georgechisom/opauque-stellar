@@ -1,0 +1,22 @@
+[package]
+name = "opaque-poseidon"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "no_std circomlib-compatible Poseidon (BN254) for Soroban contracts"
+
+# Standalone workspace: this crate + poseidon-bench answered Task 5.1's gating
+# question (can we hash Poseidon on-chain?). The answer was no (~40M CPU/hash —
+# see poseidon-bench), so the deployed privacy-pool does NOT use it; it is kept
+# out of the main contract workspace/CI as reproducible reference evidence.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+# Pure no_std field + Poseidon: no soroban-sdk dependency, so it can be unit-tested
+# natively against circomlibjs vectors and embedded in any no_std contract.
+[dependencies]
+
+[features]
+default = []

@@ -1,0 +1,30 @@
+# Standalone benchmark crate (own workspace) — measures the on-chain CPU cost of a
+# depth-N incremental Merkle insertion using opaque-poseidon, to decide the final
+# privacy-pool tree depth (Task 5.1 gating benchmark). Not part of the main workspace
+# and never deployed.
+[package]
+name = "poseidon-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "=25.3.1"
+opaque-poseidon = { path = "../opaque-poseidon" }
+
+[dev-dependencies]
+soroban-sdk = { version = "=25.3.1", features = ["testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+panic = "abort"
+codegen-units = 1
+lto = true
