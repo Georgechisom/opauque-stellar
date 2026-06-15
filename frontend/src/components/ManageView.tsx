@@ -19,6 +19,9 @@ import {
   hexToBytes,
   hexPubkeyToBase58,
   invokeRevokeAttestation,
+  invokeDeprecateSchema,
+  invokeAddDelegate,
+  invokeRemoveDelegate,
 } from "../lib/programs";
 import { getCluster } from "../lib/chain";
 import {
@@ -71,6 +74,13 @@ function shortAddr(addr: string): string {
 function shortHex(hex: string): string {
   const clean = hex.startsWith("0x") ? hex : `0x${hex}`;
   return `${clean.slice(0, 10)}…${clean.slice(-6)}`;
+}
+
+/** Pull a human-readable message out of a Soroban invocation failure. */
+function extractActionError(e: unknown, fallback: string): string {
+  const logMsg = (e as { logs?: string[] })?.logs?.find((l) => l.includes("Error"));
+  if (logMsg) return logMsg;
+  return e instanceof Error ? e.message : fallback;
 }
 
 // =============================================================================
@@ -136,38 +146,64 @@ function PaginationControls({
 interface SchemaCardProps {
   schema: SchemaV2;
   onAction: (msg: string, isError?: boolean) => void;
+  onDeprecate: (schema: SchemaV2) => Promise<void>;
+  onAddDelegate: (schema: SchemaV2, delegate: string) => Promise<void>;
+  onRemoveDelegate: (schema: SchemaV2, delegate: string) => Promise<void>;
   readOnly?: boolean;
 }
 
-function SchemaCard({ schema, onAction, readOnly = false }: SchemaCardProps) {
+function SchemaCard({
+  schema,
+  onAction,
+  onDeprecate,
+  onAddDelegate,
+  onRemoveDelegate,
+  readOnly = false,
+}: SchemaCardProps) {
   const uid = useId();
 
   const [delegateInput, setDelegateInput] = useState("");
   const [busy, setBusy] = useState<string | null>(null); // action label currently running
   const [confirmDeprecateOpen, setConfirmDeprecateOpen] = useState(false);
 
-  const runUnavailableAction = useCallback(async (label: string) => {
-    setBusy(label);
+  const handleDeprecate = useCallback(async () => {
+    setBusy("Deprecate");
     try {
-      throw new Error(`${label} is not available until the Stellar management contract methods are wired.`);
+      await onDeprecate(schema);
+      onAction("Schema deprecated.", false);
     } catch (e) {
-      onAction(e instanceof Error ? e.message : `${label} failed`, true);
+      onAction(extractActionError(e, "Deprecation failed"), true);
     } finally {
       setBusy(null);
-      setDelegateInput("");
     }
-  }, [onAction]);
+  }, [onDeprecate, schema, onAction]);
 
-  const handleDeprecate = () => runUnavailableAction("Deprecate schema");
+  const handleAddDelegate = useCallback(async () => {
+    const delegate = delegateInput.trim();
+    if (!delegate) return;
+    setBusy("Add delegate");
+    try {
+      await onAddDelegate(schema, delegate);
+      onAction("Delegate added.", false);
+      setDelegateInput("");
+    } catch (e) {
+      onAction(extractActionError(e, "Add delegate failed"), true);
+    } finally {
+      setBusy(null);
+    }
+  }, [delegateInput, onAddDelegate, schema, onAction]);
 
-  const handleAddDelegate = () => {
-    if (!delegateInput.trim()) return;
-    void runUnavailableAction("Add delegate");
-  };
-
-  const handleRemoveDelegate = (_delegateAddr: string) => {
-    void runUnavailableAction("Remove delegate");
-  };
+  const handleRemoveDelegate = useCallback(async (delegate: string) => {
+    setBusy(`Remove delegate:${delegate}`);
+    try {
+      await onRemoveDelegate(schema, delegate);
+      onAction("Delegate removed.", false);
+    } catch (e) {
+      onAction(extractActionError(e, "Remove delegate failed"), true);
+    } finally {
+      setBusy(null);
+    }
+  }, [onRemoveDelegate, schema, onAction]);
 
   const isBusy = busy !== null;
 
@@ -201,10 +237,10 @@ function SchemaCard({ schema, onAction, readOnly = false }: SchemaCardProps) {
                   <button
                     type="button"
                     disabled={isBusy || schema.deprecated || readOnly}
-                    onClick={() => handleRemoveDelegate(d)}
+                    onClick={() => void handleRemoveDelegate(d)}
                     className="text-xs text-neutral-400 hover:text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
-                    {busy === "Remove delegate" ? "…" : "Remove"}
+                    {busy === `Remove delegate:${d}` ? "…" : "Remove"}
                   </button>
                 </div>
               ))}
@@ -225,7 +261,7 @@ function SchemaCard({ schema, onAction, readOnly = false }: SchemaCardProps) {
               />
               <button
                 type="button"
-                onClick={handleAddDelegate}
+                onClick={() => void handleAddDelegate()}
                 disabled={isBusy || !delegateInput.trim()}
                 className="rounded-lg bg-ink-700 hover:bg-ink-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
@@ -428,6 +464,7 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
   const { address: walletAddress, publicKey, connection, signTransaction } = useWallet();
   const schemaMap = useSchemaStore((s) => s.schemas);
   const mergeSchemas = useSchemaStore((s) => s.mergeSchemas);
+  const addSchema = useSchemaStore((s) => s.addSchema);
   const cluster = getCluster();
   const issuedAll = useIssuedAttestationStore((s) => s.issued);
   const markIssuedRevoked = useIssuedAttestationStore((s) => s.markRevoked);
@@ -574,6 +611,60 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
     [publicKey, signTransaction, markIssuedRevoked, cluster],
   );
 
+  const handleDeprecateSchema = useCallback(
+    async (schema: SchemaV2) => {
+      if (!publicKey || !signTransaction) {
+        throw new Error("Connect your wallet to deprecate a schema.");
+      }
+      await invokeDeprecateSchema({
+        authority: publicKey,
+        schemaId: hexToBytes(schema.schemaId),
+        signTransaction,
+      });
+      // Reflect the on-chain change locally so the card updates immediately.
+      addSchema({ ...schema, deprecated: true });
+    },
+    [publicKey, signTransaction, addSchema],
+  );
+
+  const handleAddDelegate = useCallback(
+    async (schema: SchemaV2, delegate: string) => {
+      if (!publicKey || !signTransaction) {
+        throw new Error("Connect your wallet to add a delegate.");
+      }
+      if (schema.delegates.includes(delegate)) {
+        throw new Error("That delegate is already authorized for this schema.");
+      }
+      await invokeAddDelegate({
+        authority: publicKey,
+        schemaId: hexToBytes(schema.schemaId),
+        delegate,
+        signTransaction,
+      });
+      addSchema({ ...schema, delegates: [...schema.delegates, delegate] });
+    },
+    [publicKey, signTransaction, addSchema],
+  );
+
+  const handleRemoveDelegate = useCallback(
+    async (schema: SchemaV2, delegate: string) => {
+      if (!publicKey || !signTransaction) {
+        throw new Error("Connect your wallet to remove a delegate.");
+      }
+      await invokeRemoveDelegate({
+        authority: publicKey,
+        schemaId: hexToBytes(schema.schemaId),
+        delegate,
+        signTransaction,
+      });
+      addSchema({
+        ...schema,
+        delegates: schema.delegates.filter((d) => d !== delegate),
+      });
+    },
+    [publicKey, signTransaction, addSchema],
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -688,7 +779,15 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {pagedSchemas.map((schema) => (
-                  <SchemaCard key={schema.schemaId} schema={schema} onAction={showToast} readOnly={readOnly} />
+                  <SchemaCard
+                    key={schema.schemaId}
+                    schema={schema}
+                    onAction={showToast}
+                    onDeprecate={handleDeprecateSchema}
+                    onAddDelegate={handleAddDelegate}
+                    onRemoveDelegate={handleRemoveDelegate}
+                    readOnly={readOnly}
+                  />
                 ))}
               </div>
               <PaginationControls
