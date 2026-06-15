@@ -76,6 +76,23 @@ export async function invokeAttest(opts: {
   });
 }
 
+export async function invokeRevokeAttestation(opts: {
+  revoker: string;
+  uid: Uint8Array;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.revoker,
+    contractId: ATTESTATION_ENGINE_V2_CONTRACT_ID,
+    method: "revoke_attestation",
+    args: [
+      nativeToScVal(opts.revoker, { type: "address" }),
+      nativeToScVal(Buffer.from(opts.uid), { type: "bytes" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
 export async function invokeVerifyProofV2(opts: {
   caller: string;
   proofA: Uint8Array;

@@ -12,6 +12,7 @@ import { keccak_256 } from "@noble/hashes/sha3";
 import { useWallet } from "../hooks/useWallet";
 import { useSchemaStore } from "../store/schemaStore";
 import { useTxHistoryStore } from "../store/txHistoryStore";
+import { useIssuedAttestationStore } from "../store/issuedAttestationStore";
 import { getCluster } from "../lib/chain";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { parseFieldDefs } from "../lib/schema";
@@ -182,6 +183,27 @@ export function AttestationManager({
         signTransaction,
       });
 
+      const toHex = (b: Uint8Array) =>
+        "0x" +
+        Array.from(b)
+          .map((x) => x.toString(16).padStart(2, "0"))
+          .join("");
+
+      // The engine derives the attestation UID as
+      // sha256(schema_id || stealth_address_hash || u64_be(issuance_sequence)).
+      // Each attestation derives a fresh stealth address, so the sequence is 1.
+      const seqBytes = new Uint8Array(8);
+      seqBytes[7] = 1;
+      const uidInput = new Uint8Array(
+        schemaIdBytes.length + stealthHashBytes.length + seqBytes.length,
+      );
+      uidInput.set(schemaIdBytes, 0);
+      uidInput.set(stealthHashBytes, schemaIdBytes.length);
+      uidInput.set(seqBytes, schemaIdBytes.length + stealthHashBytes.length);
+      const uidBytes = new Uint8Array(
+        await crypto.subtle.digest("SHA-256", uidInput),
+      );
+
       // If we derived the stealth address from a meta-address, we have the ephemeral key
       // and can create an announcement so the recipient's scanner can discover this attestation.
       // The metadata MUST be the full V2 payload, or the scanner drops it:
@@ -189,20 +211,6 @@ export function AttestationManager({
       if (ephemeralPubKey && stealthAddressHex && viewTag !== undefined) {
         try {
           const issuerBytes = addressToAuthorityBytes(issuer);
-          // The engine derives the attestation UID as
-          // sha256(schema_id || stealth_address_hash || u64_be(issuance_sequence)).
-          // Each attestation derives a fresh stealth address, so the sequence is 1.
-          const seqBytes = new Uint8Array(8);
-          seqBytes[7] = 1;
-          const uidInput = new Uint8Array(
-            schemaIdBytes.length + stealthHashBytes.length + seqBytes.length,
-          );
-          uidInput.set(schemaIdBytes, 0);
-          uidInput.set(stealthHashBytes, schemaIdBytes.length);
-          uidInput.set(seqBytes, schemaIdBytes.length + stealthHashBytes.length);
-          const uidBytes = new Uint8Array(
-            await crypto.subtle.digest("SHA-256", uidInput),
-          );
           const nonce = crypto.getRandomValues(new Uint8Array(32));
 
           const metadata = new Uint8Array(134);
@@ -233,6 +241,28 @@ export function AttestationManager({
       }
 
       setTxSig(signature);
+
+      // Record the issuance locally so the Manage page can list and revoke it.
+      if (cluster) {
+        let createdAtSlot = 0;
+        try {
+          createdAtSlot = await connection.getSlot();
+        } catch {
+          /* best effort, leave 0 */
+        }
+        useIssuedAttestationStore.getState().addIssued({
+          cluster,
+          uidHex: toHex(uidBytes),
+          schemaIdHex: selectedSchema.schemaId,
+          schemaName: selectedSchema.name,
+          stealthAddressHashHex: toHex(stealthHashBytes),
+          createdAtSlot,
+          expirationSlot: expirySlotNum,
+          isRevocable: selectedSchema.revocable,
+          revoked: false,
+          txHash: signature,
+        });
+      }
 
       // Log attestation issuance to transaction history
       if (cluster) {

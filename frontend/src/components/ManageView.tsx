@@ -16,8 +16,12 @@ import { useSchemaStore } from "../store/schemaStore";
 import type { SchemaV2 } from "../lib/schema";
 import {
   bytesToHex,
+  hexToBytes,
   hexPubkeyToBase58,
+  invokeRevokeAttestation,
 } from "../lib/programs";
+import { getCluster } from "../lib/chain";
+import { useIssuedAttestationStore } from "../store/issuedAttestationStore";
 import type { Tab } from "./Layout";
 import { ModalShell } from "./ModalShell";
 import { AdminPanel } from "./AdminPanel";
@@ -294,17 +298,21 @@ function SchemaCard({ schema, onAction, readOnly = false }: SchemaCardProps) {
 interface AttestationCardProps {
   att: ManagedAttestation;
   onAction: (msg: string, isError?: boolean) => void;
+  onRevoke?: (att: ManagedAttestation) => Promise<void>;
   readOnly?: boolean;
 }
 
-function AttestationCard({ att, onAction, readOnly = false }: AttestationCardProps) {
+function AttestationCard({ att, onAction, onRevoke, readOnly = false }: AttestationCardProps) {
   const [revoking, setRevoking] = useState(false);
   const [confirmRevokeOpen, setConfirmRevokeOpen] = useState(false);
 
   const handleRevoke = async () => {
+    if (!onRevoke) return;
     setRevoking(true);
     try {
-      throw new Error("Revocation is not available until the Stellar management contract method is wired.");
+      await onRevoke(att);
+      setConfirmRevokeOpen(false);
+      onAction("Attestation revoked.", false);
     } catch (e: unknown) {
       const msg =
         (e as { logs?: string[] })?.logs?.find((l: string) => l.includes("Error"))
@@ -413,8 +421,11 @@ interface ManageViewProps {
 }
 
 export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {}) {
-  const { address: walletAddress, publicKey, connection } = useWallet();
+  const { address: walletAddress, publicKey, connection, signTransaction } = useWallet();
   const schemaMap = useSchemaStore((s) => s.schemas);
+  const cluster = getCluster();
+  const issuedAll = useIssuedAttestationStore((s) => s.issued);
+  const markIssuedRevoked = useIssuedAttestationStore((s) => s.markRevoked);
 
   const [attestations, setAttestations] = useState<ManagedAttestation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -466,11 +477,9 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
     if (!publicKey) return;
     setLoading(true);
     try {
-      const [slot, schemaRows, attestationRows] = await Promise.all([
-        connection.getSlot(),
-        Promise.resolve(Object.values(schemaMap)),
-        Promise.resolve([] as ManagedAttestation[]),
-      ]);
+      const slot = await connection.getSlot();
+      const slotBn = BigInt(slot);
+      const schemaRows = Object.values(schemaMap);
 
       // Build schema lookup for attestation labels
       const schemaHexMap = new Map<string, { name: string; revocable: boolean; schemaPda: string }>();
@@ -481,16 +490,30 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
         );
       }
 
-      const slotBn = BigInt(slot);
-      const mine: ManagedAttestation[] = attestationRows
-        .map((attestation) => {
-          const sidHex = attestation.schemaIdHex.replace(/^0x/, "").toLowerCase();
+      const mine: ManagedAttestation[] = issuedAll
+        .filter((a) => a.cluster === cluster)
+        .map((a) => {
+          const sidHex = a.schemaIdHex.replace(/^0x/, "").toLowerCase();
           const schemaInfo = schemaHexMap.get(sidHex);
-          return { ...attestation, schemaName: schemaInfo?.name ?? attestation.schemaName };
+          const expirationSlot = BigInt(a.expirationSlot);
+          return {
+            address: a.uidHex,
+            uid: hexToBytes(a.uidHex),
+            uidHex: a.uidHex,
+            schemaPda: schemaInfo?.schemaPda ?? "",
+            schemaId: hexToBytes(a.schemaIdHex),
+            schemaIdHex: a.schemaIdHex,
+            schemaName: schemaInfo?.name ?? a.schemaName,
+            stealthAddressHash: hexToBytes(a.stealthAddressHashHex),
+            createdAt: BigInt(a.createdAtSlot),
+            expirationSlot,
+            revocationSlot: 0n,
+            isRevoked: a.revoked,
+            isExpired: expirationSlot > 0n && expirationSlot <= slotBn,
+            isRevocable: a.isRevocable,
+          };
         })
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)); // newest first
-
-      void slotBn;
 
       setAttestations(mine);
     } catch (e) {
@@ -498,7 +521,22 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
     } finally {
       setLoading(false);
     }
-  }, [publicKey, connection, schemaMap, showToast]);
+  }, [publicKey, connection, schemaMap, issuedAll, cluster, showToast]);
+
+  const handleRevoke = useCallback(
+    async (att: ManagedAttestation) => {
+      if (!publicKey || !signTransaction) {
+        throw new Error("Connect your wallet to revoke.");
+      }
+      await invokeRevokeAttestation({
+        revoker: publicKey,
+        uid: att.uid,
+        signTransaction,
+      });
+      markIssuedRevoked(att.uidHex, cluster);
+    },
+    [publicKey, signTransaction, markIssuedRevoked, cluster],
+  );
 
   useEffect(() => {
     void load();
@@ -704,6 +742,7 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
                     key={att.uidHex}
                     att={att}
                     readOnly={readOnly}
+                    onRevoke={handleRevoke}
                     onAction={(msg, isError) => {
                       showToast(msg, isError);
                       if (!isError) void load(); // refresh after successful revoke
