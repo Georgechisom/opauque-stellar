@@ -41,6 +41,16 @@ export interface PoolState {
   lastLedger: number;
 }
 
+/** Full state-tree snapshot reconstructed from Deposit + Withdraw events. */
+export interface StateTreeSnapshot {
+  /** Commitment/new-commitment leaves in state-tree index order, hex 0x-prefixed. */
+  leaves: string[];
+  /** Number of pool events used to build the snapshot. */
+  eventCount: number;
+  /** Highest leaf index present, or -1 when the pool is empty. */
+  maxIndex: number;
+}
+
 /** A published association-set manifest (self-authenticating: anyone recomputes the root). */
 export interface SetManifest {
   poolId: string;
@@ -68,4 +78,10 @@ export interface ChainAdapter {
   postAspRoot(root: string, datasetHash: string): Promise<void>;
   /** Latest finalized ledger (for the cursor). */
   latestLedger(): Promise<number>;
+  /** Optional: rebuild all state-tree leaves from pool Deposit + Withdraw events. */
+  readStateLeaves?(): Promise<StateTreeSnapshot>;
+  /** Optional: latest published state root. */
+  currentStateRoot?(): Promise<string | null>;
+  /** Optional: publish a new state root. */
+  postStateRoot?(root: string, datasetHash: string): Promise<void>;
 }

@@ -1,9 +1,9 @@
 // @ts-nocheck
 /**
  * Stellar/Soroban chain adapter: reads finalized `Deposit` events from the privacy-pool
- * contract and posts the association root via `update_asp_root`, signed by the ASP
- * authority keypair (the pool admin for the demo). Never run in CI — the engine is tested
- * against an in-memory fake adapter; this talks to a live network.
+ * contract, rebuilds public pool state leaves, and posts roots signed by the ASP authority
+ * keypair (the pool admin for the demo). Never run in CI — the engine is tested against an
+ * in-memory fake adapter; this talks to a live network.
  */
 import {
   Address,
@@ -15,7 +15,7 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
-import type { ChainAdapter, Deposit } from "../types.ts";
+import type { ChainAdapter, Deposit, StateTreeSnapshot } from "../types.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,8 +26,22 @@ export interface StellarAdapterConfig {
   scope: number;
   authority: Keypair;
   confirmations?: number;
-  /** Max ledgers to look back on a cold start (must stay within RPC event retention). */
+  /** Ledger the pool was deployed at (preferred cold-start cursor). */
+  deploymentLedger?: number;
+  /** Max ledgers to look back on a cold start when deploymentLedger is unknown. */
   lookback?: number;
+}
+
+function parseOldestLedgerFromRangeError(err: unknown): number | null {
+  let msg = "";
+  if (err instanceof Error) msg = err.message;
+  else if (typeof err === "string") msg = err;
+  else if (err && typeof err === "object") {
+    const o = err as { message?: unknown };
+    msg = typeof o.message === "string" ? o.message : "";
+  }
+  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
 }
 
 export class StellarChainAdapter implements ChainAdapter {
@@ -40,24 +54,101 @@ export class StellarChainAdapter implements ChainAdapter {
     return (await this.server.getLatestLedger()).sequence;
   }
 
-  async readDeposits(afterIndex: number, fromLedger: number): Promise<Deposit[]> {
+  private async resolveEventStartLedger(fromLedger = 0): Promise<number> {
+    if (fromLedger > 0) return fromLedger;
     const latest = await this.latestLedger();
     const lookback = this.cfg.lookback ?? 16000;
-    const startLedger = fromLedger > 0 ? fromLedger : Math.max(1, latest - lookback);
+    let start = this.cfg.deploymentLedger && this.cfg.deploymentLedger > 0
+      ? this.cfg.deploymentLedger
+      : Math.max(1, latest - lookback);
+    try {
+      const health = await this.server.getHealth();
+      const oldest = Number(health.oldestLedger);
+      if (start < oldest) start = oldest;
+    } catch {
+      /* health unavailable */
+    }
+    return start;
+  }
+
+  private async getEventsFrom(startLedger: number, filters: any[]): Promise<any> {
+    try {
+      return await this.server.getEvents({ startLedger, filters, limit: 100 });
+    } catch (err) {
+      const oldest = parseOldestLedgerFromRangeError(err);
+      if (oldest != null && startLedger < oldest) {
+        return await this.server.getEvents({ startLedger: oldest, filters, limit: 100 });
+      }
+      throw err;
+    }
+  }
+
+  private async currentRoot(state: boolean): Promise<string | null> {
+    try {
+      const acct = await this.server.getAccount(this.cfg.authority.publicKey());
+      const tx = new TransactionBuilder(acct, {
+        fee: BASE_FEE,
+        networkPassphrase: this.cfg.networkPassphrase,
+      })
+        .addOperation(new Contract(this.cfg.poolId).call("get_latest_root", xdr.ScVal.scvBool(state)))
+        .setTimeout(30)
+        .build();
+      const sim = await this.server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) return null;
+      const native = scValToNative(sim.result.retval);
+      return "0x" + Buffer.from(native).toString("hex");
+    } catch {
+      return null;
+    }
+  }
+
+  private async postRoot(state: boolean, root: string, datasetHash: string): Promise<void> {
+    const kp = this.cfg.authority;
+    const acct = await this.server.getAccount(kp.publicKey());
+    const toBytes = (hex: string) => xdr.ScVal.scvBytes(Buffer.from(hex.replace(/^0x/, ""), "hex"));
+    const method = state ? "update_state_root" : "update_asp_root";
+    let tx = new TransactionBuilder(acct, {
+      fee: BASE_FEE,
+      networkPassphrase: this.cfg.networkPassphrase,
+    })
+      .addOperation(
+        new Contract(this.cfg.poolId).call(
+          method,
+          new Address(kp.publicKey()).toScVal(),
+          toBytes(root),
+          toBytes(datasetHash),
+        ),
+      )
+      .setTimeout(120)
+      .build();
+    tx = await this.server.prepareTransaction(tx);
+    tx.sign(kp);
+    const sent = await this.server.sendTransaction(tx);
+    if (sent.status === "ERROR") {
+      throw new Error(`${method} rejected: ${JSON.stringify(sent.errorResult ?? sent)}`);
+    }
+    for (let i = 0; i < 60; i++) {
+      await sleep(2000);
+      const r = await this.server.getTransaction(sent.hash);
+      if (r.status === "SUCCESS") return;
+      if (r.status === "FAILED") throw new Error(`${method} FAILED ${sent.hash}`);
+    }
+    throw new Error(`${method} not confirmed: ${sent.hash}`);
+  }
+
+  async readDeposits(afterIndex: number, fromLedger: number): Promise<Deposit[]> {
+    const startLedger = await this.resolveEventStartLedger(fromLedger);
     const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
+    const filters = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[depositTopic, "*"]] }];
 
     const deposits: Deposit[] = [];
     let cursor: string | undefined;
     // Page through events; the Deposit topic is 2 segments [Symbol, version], so the
     // filter is exactly 2 long (matches Soroban's exact-length topic rule).
     for (let page = 0; page < 20; page++) {
-      const req: any = {
-        filters: [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[depositTopic, "*"]] }],
-        limit: 100,
-      };
-      if (cursor) req.cursor = cursor;
-      else req.startLedger = startLedger;
-      const res = await this.server.getEvents(req);
+      const res = cursor
+        ? await this.server.getEvents({ cursor, filters, limit: 100 })
+        : await this.getEventsFrom(startLedger, filters);
       for (const ev of res.events ?? []) {
         const [commitment, index, value, scope] = scValToNative(ev.value);
         const idx = Number(index);
@@ -78,54 +169,55 @@ export class StellarChainAdapter implements ChainAdapter {
   }
 
   async currentAspRoot(): Promise<string | null> {
-    try {
-      const acct = await this.server.getAccount(this.cfg.authority.publicKey());
-      const tx = new TransactionBuilder(acct, {
-        fee: BASE_FEE,
-        networkPassphrase: this.cfg.networkPassphrase,
-      })
-        .addOperation(new Contract(this.cfg.poolId).call("get_latest_root", xdr.ScVal.scvBool(false)))
-        .setTimeout(30)
-        .build();
-      const sim = await this.server.simulateTransaction(tx);
-      if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) return null;
-      const native = scValToNative(sim.result.retval);
-      return "0x" + Buffer.from(native).toString("hex");
-    } catch {
-      return null;
-    }
+    return this.currentRoot(false);
   }
 
   async postAspRoot(root: string, datasetHash: string): Promise<void> {
-    const kp = this.cfg.authority;
-    const acct = await this.server.getAccount(kp.publicKey());
-    const toBytes = (hex: string) => xdr.ScVal.scvBytes(Buffer.from(hex.replace(/^0x/, ""), "hex"));
-    let tx = new TransactionBuilder(acct, {
-      fee: BASE_FEE,
-      networkPassphrase: this.cfg.networkPassphrase,
-    })
-      .addOperation(
-        new Contract(this.cfg.poolId).call(
-          "update_asp_root",
-          new Address(kp.publicKey()).toScVal(),
-          toBytes(root),
-          toBytes(datasetHash),
-        ),
-      )
-      .setTimeout(120)
-      .build();
-    tx = await this.server.prepareTransaction(tx);
-    tx.sign(kp);
-    const sent = await this.server.sendTransaction(tx);
-    if (sent.status === "ERROR") {
-      throw new Error(`update_asp_root rejected: ${JSON.stringify(sent.errorResult ?? sent)}`);
+    return this.postRoot(false, root, datasetHash);
+  }
+
+  async currentStateRoot(): Promise<string | null> {
+    return this.currentRoot(true);
+  }
+
+  async postStateRoot(root: string, datasetHash: string): Promise<void> {
+    return this.postRoot(true, root, datasetHash);
+  }
+
+  async readStateLeaves(): Promise<StateTreeSnapshot> {
+    const startLedger = await this.resolveEventStartLedger(0);
+    const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
+    const withdrawTopic = xdr.ScVal.scvSymbol("Withdraw").toXDR("base64");
+    const byIndex = new Map<number, string>();
+    let eventCount = 0;
+
+    for (const [topic, isDeposit] of [
+      [depositTopic, true],
+      [withdrawTopic, false],
+    ] as const) {
+      const filters = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[topic, "*"]] }];
+      let cursor: string | undefined;
+      for (let page = 0; page < 200; page++) {
+        const res = cursor
+          ? await this.server.getEvents({ cursor, filters, limit: 100 })
+          : await this.getEventsFrom(startLedger, filters);
+        for (const ev of res.events ?? []) {
+          const data = scValToNative(ev.value);
+          const commitment = isDeposit ? data[0] : data[1];
+          const index = Number(isDeposit ? data[1] : data[2]);
+          byIndex.set(index, "0x" + Buffer.from(commitment).toString("hex"));
+          eventCount++;
+        }
+        cursor = res.cursor;
+        if (!res.events || res.events.length < 100) break;
+      }
     }
-    for (let i = 0; i < 30; i++) {
-      await sleep(2000);
-      const r = await this.server.getTransaction(sent.hash);
-      if (r.status === "SUCCESS") return;
-      if (r.status === "FAILED") throw new Error(`update_asp_root FAILED ${sent.hash}`);
+
+    const maxIndex = byIndex.size === 0 ? -1 : Math.max(...byIndex.keys());
+    const leaves: string[] = [];
+    for (let i = 0; i <= maxIndex; i++) {
+      leaves.push(byIndex.get(i) ?? `0x${"00".repeat(32)}`);
     }
-    throw new Error("update_asp_root not confirmed");
+    return { leaves, eventCount, maxIndex };
   }
 }

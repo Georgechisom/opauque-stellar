@@ -2,7 +2,9 @@
 
 The **Association Set Provider** for the Opaque privacy pool, with a Stellar/Soroban chain
 adapter. It is the off-chain curator that decides which deposits are "clean" and publishes
-the **association-tree root** that the withdraw circuit proves against.
+the **association-tree root** that the withdraw circuit proves against. For the testnet
+demo it also publishes the mechanical pool **state-tree root** reconstructed from public
+`Deposit`/`Withdraw` events, so the browser wallet has both roots required for withdrawal.
 
 ```
 npm install
@@ -24,10 +26,13 @@ ASP_SECRET=S... npm run indexer        # loop every ASP_INTERVAL_MS
 3. **Maintain** the ordered approved set and rebuild a depth-20 Poseidon(2) tree
    (`src/set.ts` + `src/merkle.ts`) byte-identical to the `privacy-pool` contract and the
    v3 circuit.
-4. **Reconcile**: compare the local root to the on-chain root and, only on mismatch,
+4. **Reconcile ASP**: compare the local association root to the on-chain root and, only on mismatch,
    publish the manifest (`data/sets/<poolId>/<root>.json`) and post `update_asp_root`.
    Reconcile-not-append makes it idempotent and self-healing — a crash mid-publish is
    resolved on the next tick.
+5. **Reconcile state**: rebuild the pool state tree from `Deposit` commitments and
+   `Withdraw` remainder commitments, then post `update_state_root` only when it differs
+   from the latest on-chain state root.
 
 ## Trust boundary — liveness + curation, never integrity
 
@@ -38,8 +43,8 @@ The ASP **cannot mint, steal, or forge double-spends.** It only gates withdrawal
   root locally and checks it equals the on-chain `aspRoot`, so a bad list simply fails
   proof generation.
 - **State-tree** (commitment) membership — which proves a deposit is real and backed — is
-  rebuilt client-side from on-chain `Deposit` events and verified against the on-chain
-  state root; the ASP never touches it.
+  rebuilt from public pool events and verified against the on-chain state root. The demo
+  ASP process publishes that root, but it does not choose the leaves.
 - The `privacy-pool` contract enforces a **custody invariant** (aggregate withdrawals ≤
   aggregate deposits) and the SAC balance is the physical backstop, so even the state-root
   publisher cannot authorize unbacked withdrawals.

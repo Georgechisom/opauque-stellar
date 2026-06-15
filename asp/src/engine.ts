@@ -1,13 +1,16 @@
 /**
  * The pool tick: read finalized deposits → screen via the policy → maintain the ordered
- * approved set → reconcile the local root against the on-chain root → (re)publish the
- * manifest and post `update_asp_root` only when they differ.
+ * approved set → reconcile the local ASP root against the on-chain root → (re)publish the
+ * manifest and post `update_asp_root` only when they differ. When the chain adapter
+ * supports it, the same tick also rebuilds the public pool state tree from Deposit +
+ * Withdraw events and posts `update_state_root` on mismatch.
  *
  * Reconcile-not-append makes it idempotent and self-healing: the root is always recomputed
  * from the durable `approvedIndices`, so a crash mid-publish is resolved on the next tick
  * when the on-chain/local mismatch is re-detected.
  */
 import { AssociationSet } from "./set.ts";
+import { MerkleTree, getPoseidon, toHex32 } from "./merkle.ts";
 import { computeDatasetHash, writeManifest } from "./publish.ts";
 import type { Store } from "./store.ts";
 import type { ChainAdapter, Policy, PoolState } from "./types.ts";
@@ -33,6 +36,10 @@ export interface TickResult {
   localRoot: string;
   onChainRoot: string | null;
   published: boolean;
+  stateLeafCount?: number;
+  stateRoot?: string;
+  onChainStateRoot?: string | null;
+  statePublished?: boolean;
 }
 
 function initState(poolId: string, scope: number): PoolState {
@@ -74,6 +81,32 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
     published = true;
   }
 
+  let stateLeafCount: number | undefined;
+  let stateRoot: string | undefined;
+  let onChainStateRoot: string | null | undefined;
+  let statePublished = false;
+  if (
+    cfg.adapter.readStateLeaves &&
+    cfg.adapter.currentStateRoot &&
+    cfg.adapter.postStateRoot
+  ) {
+    const snapshot = await cfg.adapter.readStateLeaves();
+    stateLeafCount = snapshot.leaves.length;
+    if (snapshot.eventCount > 0) {
+      const poseidon = await getPoseidon();
+      const tree = new MerkleTree(poseidon);
+      for (const leaf of snapshot.leaves) {
+        tree.insert(BigInt(leaf));
+      }
+      stateRoot = toHex32(tree.root());
+      onChainStateRoot = await cfg.adapter.currentStateRoot();
+      if (stateRoot !== onChainStateRoot) {
+        await cfg.adapter.postStateRoot(stateRoot, computeDatasetHash(snapshot.leaves));
+        statePublished = true;
+      }
+    }
+  }
+
   cfg.store.save(state);
   return {
     poolId: cfg.poolId,
@@ -82,5 +115,9 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
     localRoot,
     onChainRoot,
     published,
+    stateLeafCount,
+    stateRoot,
+    onChainStateRoot,
+    statePublished,
   };
 }

@@ -5,7 +5,7 @@ import { approveAll, allowlist } from "../src/policy.ts";
 import { MemoryStore } from "../src/store.ts";
 import { computeDatasetHash } from "../src/publish.ts";
 import { runPoolTick } from "../src/engine.ts";
-import type { ChainAdapter, Deposit } from "../src/types.ts";
+import type { ChainAdapter, Deposit, StateTreeSnapshot } from "../src/types.ts";
 
 const CANON_1_2 =
   7853200120776062878684798364095072458815029376092732009249414926327459813530n;
@@ -104,6 +104,9 @@ class FakeAdapter implements ChainAdapter {
   deposits: Deposit[] = [];
   root: string | null = null;
   posts: Array<{ root: string; datasetHash: string }> = [];
+  stateLeaves: string[] = [];
+  stateRoot: string | null = null;
+  statePosts: Array<{ root: string; datasetHash: string }> = [];
   async readDeposits(afterIndex: number): Promise<Deposit[]> {
     return this.deposits.filter((d) => d.index > afterIndex);
   }
@@ -113,6 +116,20 @@ class FakeAdapter implements ChainAdapter {
   async postAspRoot(root: string, datasetHash: string) {
     this.root = root;
     this.posts.push({ root, datasetHash });
+  }
+  async readStateLeaves(): Promise<StateTreeSnapshot> {
+    return {
+      leaves: [...this.stateLeaves],
+      eventCount: this.stateLeaves.length,
+      maxIndex: this.stateLeaves.length - 1,
+    };
+  }
+  async currentStateRoot() {
+    return this.stateRoot;
+  }
+  async postStateRoot(root: string, datasetHash: string) {
+    this.stateRoot = root;
+    this.statePosts.push({ root, datasetHash });
   }
   async latestLedger() {
     return 100;
@@ -169,5 +186,35 @@ describe("engine reconcile", () => {
     const r = await runPoolTick(base);
     expect(r.published).toBe(true);
     expect(adapter.posts.length).toBe(2);
+  });
+
+  it("publishes state roots reconstructed from pool leaves", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    adapter.stateLeaves = [
+      `0x${"01".padStart(64, "0")}`,
+      `0x${"02".padStart(64, "0")}`,
+    ];
+
+    const r1 = await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+    });
+    expect(r1.stateLeafCount).toBe(2);
+    expect(r1.statePublished).toBe(true);
+    expect(adapter.statePosts.length).toBe(1);
+
+    const r2 = await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+    });
+    expect(r2.statePublished).toBe(false);
+    expect(adapter.statePosts.length).toBe(1);
   });
 });

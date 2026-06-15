@@ -36,7 +36,8 @@ function loadConfig() {
     poolId,
     scope,
     authority: Keypair.fromSecret(secret),
-    rpcUrl: process.env.STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org",
+    rpcUrl: process.env.STELLAR_RPC_URL ?? manifest.rpcUrl ?? "https://soroban-testnet.stellar.org",
+    deploymentLedger: manifest.deploymentLedger ?? undefined,
     intervalMs: Number(process.env.ASP_INTERVAL_MS ?? 15000),
     confirmations: Number(process.env.ASP_CONFIRMATIONS ?? 1),
     dataDir: join(__dirname, "..", "data"),
@@ -54,9 +55,14 @@ async function tick(cfg, adapter, store) {
     confirmations: cfg.confirmations,
   });
   const when = new Date().toISOString();
+  const actions = [
+    res.published ? "ASP_PUBLISHED" : null,
+    res.statePublished ? "STATE_PUBLISHED" : null,
+  ].filter(Boolean);
   console.log(
-    `[${when}] approved=${res.approvedCount} (+${res.newlyApproved}) root=${res.localRoot.slice(0, 14)}… ` +
-      `${res.published ? "PUBLISHED" : "in-sync"}`,
+    `[${when}] approved=${res.approvedCount} (+${res.newlyApproved}) ` +
+      `asp=${res.localRoot.slice(0, 14)}… stateLeaves=${res.stateLeafCount ?? "n/a"} ` +
+      (actions.length > 0 ? actions.join(" ") : "in-sync"),
   );
   return res;
 }
@@ -70,6 +76,7 @@ async function main() {
     poolId: cfg.poolId,
     scope: cfg.scope,
     authority: cfg.authority,
+    deploymentLedger: cfg.deploymentLedger,
     confirmations: cfg.confirmations,
   });
   const store = new FileStore(cfg.dataDir);
