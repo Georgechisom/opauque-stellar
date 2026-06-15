@@ -12,7 +12,13 @@ import {
   poolNoteBackupFilename,
 } from "../lib/poolNoteBackup";
 import { deriveDeposit, newNoteSecrets, toHex32, unspentTotal, type PoolNote } from "../lib/poolNotes";
-import { invokePoolDeposit, invokePoolWithdraw, invokeRelayerCreateJob } from "../lib/programs";
+import {
+  invokePoolDeposit,
+  invokePoolWithdraw,
+  invokeRelayerCancelJob,
+  invokeRelayerCreateJob,
+  invokeRelayerSlashJob,
+} from "../lib/programs";
 import {
   fetchNextLeafIndex,
   fetchPoolBalance,
@@ -269,7 +275,9 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       const picked = pickStakeWeightedBid(bids);
       setSelectedRelayer((prev) => prev ?? picked?.operator ?? null);
       setRelayerStatus(
-        bids.length > 0 ? `${bids.length} valid relayer bid(s) found.` : "No valid bids yet.",
+        bids.length > 0
+          ? `${bids.length} valid on-chain relayer bid(s) found.`
+          : "No valid bids yet.",
       );
     } catch (e) {
       showToast(`Bid refresh failed: ${(e as Error).message}`);
@@ -330,7 +338,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       setSelectedRelayer(picked?.operator ?? null);
       setRelayerStatus(
         bids.length > 0
-          ? `Relayer job is ready. Pick one of ${bids.length} valid bid(s).`
+          ? `Relayer job is ready. Pick one of ${bids.length} valid on-chain bid(s).`
           : "Relayer job is advertised. No valid bids yet; retry shortly.",
       );
     } catch (e) {
@@ -365,7 +373,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       const result = await deliverPayloadToRelayer({
         draft: relayerDraft,
         bid: selectedRelayerBid,
-        gateway,
+        gateway: selectedRelayerBid.endpoint || gateway,
       });
       if (result?.submittedTx) {
         markSpent(cluster, note.poolId, note.leafIndex);
@@ -396,6 +404,46 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     selectedRelayerBid,
     showToast,
   ]);
+
+  const recoverRelayerJob = useCallback(
+    async (kind: "cancel" | "slash") => {
+      if (!publicKey || !signTransaction || !relayerDraft) {
+        showToast("Create a relayer job first.");
+        return;
+      }
+      try {
+        setBusy(kind === "cancel" ? "Canceling relayer job…" : "Slashing relayer job…");
+        const hash =
+          kind === "cancel"
+            ? await invokeRelayerCancelJob({
+                creator: publicKey,
+                jobId: relayerDraft.jobId,
+                signTransaction,
+              })
+            : await invokeRelayerSlashJob({
+                creator: publicKey,
+                jobId: relayerDraft.jobId,
+                signTransaction,
+              });
+        setRelayerDraft(null);
+        setRelayerBids([]);
+        setSelectedRelayer(null);
+        setRelayerStatus(
+          kind === "cancel"
+            ? "Expired unaccepted job canceled and refunded."
+            : "Expired accepted job slashed and refunded.",
+        );
+        showToast(kind === "cancel" ? "Relayer job canceled." : "Relayer job slashed.", {
+          explorerTx: { txSig: hash },
+        });
+      } catch (e) {
+        showToast(`Relayer recovery failed: ${(e as Error).message}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [publicKey, relayerDraft, showToast, signTransaction],
+  );
 
   const handleBackupSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -661,8 +709,39 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
                         {relayerStatus}
                       </p>
                     )}
+                    {relayerDraft && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => void recoverRelayerJob("cancel")}
+                          disabled={readOnly || !!busy}
+                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Cancel expired job
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void recoverRelayerJob("slash")}
+                          disabled={readOnly || !!busy}
+                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Slash failed relayer
+                        </button>
+                      </div>
+                    )}
                     {relayerBids.length > 0 && (
                       <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const picked = pickStakeWeightedBid(relayerBids);
+                            if (picked) setSelectedRelayer(picked.operator);
+                          }}
+                          disabled={readOnly || !!busy}
+                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Pick for me
+                        </button>
                         {relayerBids.map((bid) => (
                           <label
                             key={bid.operator}

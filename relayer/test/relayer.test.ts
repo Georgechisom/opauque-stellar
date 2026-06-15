@@ -124,6 +124,28 @@ describe("relayer market messages", () => {
       expect(verifyBid(bid!)).toBe(true);
     });
   });
+
+  it("does not bid when the registered X25519 key does not match the node key", async () => {
+    const operator = Keypair.random();
+    const x25519 = generateX25519Keypair();
+    const registered = generateX25519Keypair();
+    const p = payload(operator.publicKey());
+    const advert = makeAdvert({
+      jobId: bytes(32, 0x15),
+      fee: 100n,
+      deadline: 150,
+      payloadHash: hexToBytes(hashPoolWithdrawPayloadHex(p)),
+    });
+    const chain = new FakeChain(advert.payloadHash, bytesToHex(registered.publicKey));
+    const engine = new RelayerEngine({
+      operator,
+      x25519PublicKey: x25519.publicKey,
+      x25519SecretKey: x25519.secretKey,
+      minFee: 1n,
+      chain,
+    });
+    await expect(engine.handleAdvert(advert)).resolves.toBeNull();
+  });
 });
 
 describe("relayer engine", () => {

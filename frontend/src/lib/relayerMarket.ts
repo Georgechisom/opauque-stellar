@@ -1,4 +1,15 @@
 import {
+  BASE_FEE,
+  Contract,
+  TransactionBuilder,
+  nativeToScVal,
+  rpc,
+  scValToNative,
+  type xdr,
+} from "@stellar/stellar-sdk";
+import { getRelayerConfig } from "../contracts/relayerConfig";
+import { getNetworkPassphrase } from "./chain";
+import {
   makeAdvert,
   validateBid,
   verifyBid,
@@ -14,9 +25,10 @@ import {
 import {
   encodePoolWithdrawPayload,
   hashPoolWithdrawPayload,
+  RELAY_CHAIN_STELLAR,
   type PoolWithdrawPayload,
 } from "@relayer/shared/payload";
-import { getSorobanServer } from "./stellar";
+import { bytesToScVal, getSorobanServer } from "./stellar";
 import type { WithdrawProof } from "./poolProver";
 
 const DEFAULT_GATEWAY = "http://127.0.0.1:8787";
@@ -35,6 +47,17 @@ export type RelayerJobDraft = {
 
 export type VerifiedBid = RelayerBid & {
   freeStakeValue: bigint;
+};
+
+type NativeRegistryJob = {
+  status: number | bigint;
+  fee: bigint | number | string;
+};
+
+type NativeRegistryRelayer = {
+  endpoint?: string;
+  free_stake: bigint | number | string;
+  x25519_pubkey: Uint8Array | number[];
 };
 
 export function relayerGatewayUrl(): string {
@@ -130,10 +153,15 @@ export async function fetchRelayerBids(
   );
   if (!res.ok) throw new Error(`Could not fetch relayer bids (${res.status}).`);
   const body = (await res.json()) as { bids?: unknown[] };
-  return (body.bids ?? [])
+  const signed = (body.bids ?? [])
     .map((raw) => validateBid(raw))
     .filter((bid) => verifyBid(bid))
-    .map((bid) => ({ ...bid, freeStakeValue: BigInt(bid.freeStake ?? "0") }));
+    .filter((bid) => bid.jobId.toLowerCase() === jobIdHex.toLowerCase())
+    .filter((bid) => bid.chain === RELAY_CHAIN_STELLAR);
+  const checked = await Promise.all(
+    signed.map((bid) => verifyBidRegistryState(jobIdHex, bid)),
+  );
+  return checked.filter((bid): bid is VerifiedBid => bid !== null);
 }
 
 export async function deliverPayloadToRelayer(args: {
@@ -167,6 +195,60 @@ export async function deliverPayloadToRelayer(args: {
     result?: { acceptedTx?: string; submittedTx?: string } | null;
   };
   return body.result ?? null;
+}
+
+async function verifyBidRegistryState(
+  jobIdHex: string,
+  bid: RelayerBid,
+): Promise<VerifiedBid | null> {
+  try {
+    const cfg = getRelayerConfig();
+    if (!cfg) return null;
+    const [job, relayer] = await Promise.all([
+      simulateRegistryView<NativeRegistryJob>(bid.operator, "get_job", [
+        bytesToScVal(hexToBytes(jobIdHex)),
+      ]),
+      simulateRegistryView<NativeRegistryRelayer>(bid.operator, "get_relayer", [
+        nativeToScVal(bid.operator, { type: "address" }),
+      ]),
+    ]);
+    if (!job || !relayer) return null;
+    const fee = BigInt(job.fee);
+    const freeStakeValue = BigInt(relayer.free_stake);
+    if (Number(job.status) !== 0 || freeStakeValue < fee) return null;
+    const registeredPk = bytesToHex(Uint8Array.from(relayer.x25519_pubkey));
+    if (registeredPk.toLowerCase() !== bid.x25519Pk.toLowerCase()) return null;
+    const endpoint = relayer.endpoint?.trim() || bid.endpoint;
+    return {
+      ...bid,
+      endpoint,
+      freeStake: freeStakeValue.toString(),
+      freeStakeValue,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function simulateRegistryView<T>(
+  sourcePublicKey: string,
+  method: string,
+  args: xdr.ScVal[],
+): Promise<T | null> {
+  const cfg = getRelayerConfig();
+  if (!cfg) return null;
+  const server = getSorobanServer();
+  const account = await server.getAccount(sourcePublicKey);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: getNetworkPassphrase(),
+  })
+    .addOperation(new Contract(cfg.registryId).call(method, ...args))
+    .setTimeout(60)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) return null;
+  return scValToNative(sim.result.retval) as T;
 }
 
 export function pickStakeWeightedBid(bids: VerifiedBid[]): VerifiedBid | null {

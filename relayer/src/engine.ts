@@ -82,6 +82,9 @@ export class RelayerEngine {
     try {
       const relayer = await this.cfg.chain.getRelayer(this.cfg.operator.publicKey());
       if (!relayer?.registered) return null;
+      if (normalizeHex(relayer.x25519Pk) !== normalizeHex(bytesToHex(this.cfg.x25519PublicKey))) {
+        return null;
+      }
       const job = await this.cfg.chain.getJob(advert.jobId);
       if (!job?.exists || job.status !== "open") return null;
       if (job.fee < this.cfg.minFee || relayer.freeStake < job.fee) return null;
@@ -143,4 +146,8 @@ export class RelayerEngine {
       throw err;
     }
   }
+}
+
+function normalizeHex(value: string): string {
+  return value.toLowerCase().replace(/^0x/, "");
 }
