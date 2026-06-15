@@ -37,7 +37,13 @@ interface OpaqueCacheDBSchema extends DBSchema {
 }
 
 const DB_NAME = "OpaqueCache";
-const DB_VERSION = 2;
+// v3: the pre-fix scanner filtered announcement events with a single-segment
+// topic and silently matched nothing, yet still advanced lastScannedSlot to the
+// chain head. That leaves an empty cache with a sync cursor past every real
+// announcement, so incremental syncs never re-fetch them. Bumping the version
+// drops the stale stores on upgrade, forcing one clean backfill from the
+// deployment ledger with the corrected two-segment topic filter.
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<OpaqueCacheDBSchema>> | null = null;
 
