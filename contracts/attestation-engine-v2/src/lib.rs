@@ -112,13 +112,16 @@ fn compute_attestation_uid(
     env: &Env,
     schema_id: &BytesN<32>,
     stealth_hash: &BytesN<32>,
-    ledger: u32,
     issuance_sequence: u64,
 ) -> BytesN<32> {
+    // The UID must NOT depend on the current ledger sequence. The UID is the
+    // storage key for the attestation; a key derived from a value that differs
+    // between simulation and execution (the ledger advances between them) would
+    // fall outside the simulated footprint and trap on-chain. The per-(schema,
+    // stealth) issuance_sequence already makes each UID unique.
     let mut hasher = Sha256::new();
     hasher.update(schema_id.to_array());
     hasher.update(stealth_hash.to_array());
-    hasher.update(ledger.to_be_bytes());
     hasher.update(issuance_sequence.to_be_bytes());
     BytesN::from_array(env, &hasher.finalize().into())
 }
@@ -288,7 +291,6 @@ impl AttestationEngineV2 {
             &env,
             &schema_id,
             &stealth_address_hash,
-            ledger,
             issuance_sequence,
         );
         let key = attestation_key(&uid);
@@ -1117,8 +1119,8 @@ mod test {
         let env = Env::default();
         let schema_id = BytesN::from_array(&env, &[1u8; 32]);
         let stealth_hash = BytesN::from_array(&env, &[2u8; 32]);
-        let first = compute_attestation_uid(&env, &schema_id, &stealth_hash, 7, 1);
-        let second = compute_attestation_uid(&env, &schema_id, &stealth_hash, 7, 1);
+        let first = compute_attestation_uid(&env, &schema_id, &stealth_hash, 1);
+        let second = compute_attestation_uid(&env, &schema_id, &stealth_hash, 1);
         assert_eq!(first, second);
     }
 
@@ -1176,10 +1178,9 @@ mod test {
         let data = encode_data(&env, DEFAULT_DEFS, &[("field1", "")]);
         let ref_uid = BytesN::from_array(&env, &[0u8; 32]);
         // Pre-seed the storage with the uid that the first attest call would produce
-        // (issuance_sequence=1, ledger=0), so the engine hits AlreadyExists instead of
+        // (issuance_sequence=1), so the engine hits AlreadyExists instead of
         // writing a new entry.
-        let uid =
-            compute_attestation_uid(&env, &schema_id, &stealth_hash, env.ledger().sequence(), 1);
+        let uid = compute_attestation_uid(&env, &schema_id, &stealth_hash, 1);
         let key = attestation_key(&uid);
         let existing = Attestation {
             uid: uid.clone(),
