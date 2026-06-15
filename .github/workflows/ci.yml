@@ -16,6 +16,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install root tooling
+        run: npm ci
+
       - name: Validate manifests (schema, no legacy Solana/devnet)
         run: npm run verify:deployment
 
@@ -76,8 +79,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked 2>/dev/null || true
+      - name: Install cargo audit tools
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
 
       - name: Run cargo audit
         run: cargo audit
@@ -167,8 +172,11 @@ jobs:
       - name: Install circuit dependencies
         run: |
           npm ci
-          npm ci --prefix circuits/v2
+          npm ci --prefix v2
         working-directory: circuits
+
+      - name: Install root tooling (tsx)
+        run: npm ci
 
       - name: Fetch circuit release artifacts
         run: npm run fetch:circuits
@@ -176,9 +184,6 @@ jobs:
 
       - name: Run circuit regression tests
         run: npm run test:circuits
-
-      - name: Install root tooling (tsx)
-        run: npm ci
 
       - name: Verify artifact manifest (circuits + VK binding)
         run: npx tsx scripts/verify-artifact-manifest.ts --circuits --vk-binding
@@ -208,14 +213,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install root tooling (tsx)
+        working-directory: ..
+        run: npm ci
+
       - name: Fetch circuit artifacts
         working-directory: ..
         run: npm run fetch:circuits
         continue-on-error: true
-
-      - name: Install root tooling (tsx)
-        working-directory: ..
-        run: npm ci
 
       - name: Verify frontend env matches manifest
         working-directory: ..

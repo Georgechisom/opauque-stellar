@@ -22,6 +22,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Install root tooling
+        run: npm ci
+
       - name: Validate manifest schema
         run: npm run verify:deployment
 
@@ -36,9 +39,6 @@ jobs:
             exit 1
           fi
           echo "No legacy devnet JSON config"
-
-      - name: Install root tooling (tsx)
-        run: npm ci
 
       - name: Validate mainnet manifest
         run: npx tsx scripts/verify-deployment-manifest.ts --network mainnet
@@ -55,6 +55,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Install root tooling
+        run: npm ci
+
       - name: Validate security audit findings and signoff
         run: npm run verify:security-audit
 
@@ -65,6 +68,13 @@ jobs:
     needs: [validate-manifest, security-audit]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install root tooling
+        run: npm ci
 
       - uses: actions/cache@v4
         with:
@@ -77,7 +87,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@${{ env.RUST_TOOLCHAIN }}
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, wasm32v1-none
 
       - name: Install Stellar CLI
         run: curl -fsSL https://github.com/stellar/stellar-cli/releases/latest/download/stellar-cli-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
@@ -88,7 +98,8 @@ jobs:
       - name: Compute WASM hashes
         id: wasm-hashes
         run: |
-          for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+          for wasm in target/wasm32v1-none/release/*.wasm target/wasm32-unknown-unknown/release/*.wasm; do
+            [ -f "$wasm" ] || continue
             name=$(basename "$wasm")
             hash=$(sha256sum "$wasm" | cut -d' ' -f1)
             echo "${name}: ${hash}"
@@ -112,7 +123,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: contract-wasm
-          path: target/wasm32-unknown-unknown/release/*.wasm
+          path: |
+            target/wasm32v1-none/release/*.wasm
+            target/wasm32-unknown-unknown/release/*.wasm
           retention-days: 30
 
   # Gate 3: Scanner build + tests
@@ -122,6 +135,13 @@ jobs:
     needs: validate-manifest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install root tooling
+        run: npm ci
 
       - uses: actions/cache@v4
         with:
@@ -181,6 +201,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install root tooling
+        working-directory: ..
+        run: npm ci
+
       - name: Verify deployment
         working-directory: ..
         run: |
@@ -222,31 +246,7 @@ jobs:
           path: frontend/dist/
           retention-days: 30
 
-  # Gate 5: Demo build
-  demo:
-    name: Demo build
-    runs-on: ubuntu-latest
-    needs: validate-manifest
-    defaults:
-      run:
-        working-directory: demo
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: demo/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build demo
-        run: npm run build
-        continue-on-error: true
-
-  # Gate 6: NPM audit
+  # Gate 5: NPM audit
   audit:
     name: NPM audit
     runs-on: ubuntu-latest
@@ -270,7 +270,7 @@ jobs:
         run: npm audit --audit-level=high || true
         continue-on-error: true
 
-  # Gate 7: Artifact hash verification
+  # Gate 6: Artifact hash verification
   verify-artifacts:
     name: Verify artifact hashes
     runs-on: ubuntu-latest
@@ -307,19 +307,21 @@ jobs:
         run: |
           COMMIT=$(git rev-parse HEAD)
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat <<EOF > /tmp/artifacts/deployment-metadata.json
-          {
-            "commit": "${COMMIT}",
-            "date": "${DATE}",
-            "workflow": "${{ github.run_id }}",
-            "branch": "${{ github.ref_name }}",
-            "wasm_hashes": $(for wasm in /tmp/artifacts/wasm/*.wasm; do
-              name=$(basename "$wasm" .wasm)
-              hash=$(sha256sum "$wasm" | cut -d' ' -f1)
-              echo "\"${name}\": \"${hash}\""
-            done | jq -s 'add' )
-          }
-          EOF
+          jq -n \
+            --arg commit "${COMMIT}" \
+            --arg date "${DATE}" \
+            --arg workflow "${{ github.run_id }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --argjson wasm_hashes "$(
+              for wasm in /tmp/artifacts/wasm/*.wasm; do
+                [ -f "$wasm" ] || continue
+                name=$(basename "$wasm" .wasm)
+                hash=$(sha256sum "$wasm" | cut -d' ' -f1)
+                jq -n --arg name "$name" --arg hash "$hash" '{($name): $hash}'
+              done | jq -s 'add // {}'
+            )" \
+            '{commit: $commit, date: $date, workflow: $workflow, branch: $branch, wasm_hashes: $wasm_hashes}' \
+            > /tmp/artifacts/deployment-metadata.json
           cat /tmp/artifacts/deployment-metadata.json
 
       - name: Upload deployment metadata
@@ -333,7 +335,7 @@ jobs:
   release-summary:
     name: Release gate summary
     runs-on: ubuntu-latest
-    needs: [validate-manifest, contracts, scanner, frontend, demo, audit, verify-artifacts, security-audit]
+    needs: [validate-manifest, contracts, scanner, frontend, audit, verify-artifacts, security-audit]
     if: always()
     steps:
       - name: Check all gates
@@ -342,9 +344,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Gate | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          for job in validate-manifest security-audit contracts scanner frontend demo audit verify-artifacts; do
-            status="${{ needs[job].result }}"
-            icon="✅"
-            [ "$status" = "success" ] || icon="❌"
-            echo "| ${job} | ${icon} ${status} |" >> $GITHUB_STEP_SUMMARY
-          done
+          echo "| validate-manifest | ${{ needs.validate-manifest.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| security-audit | ${{ needs.security-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| contracts | ${{ needs.contracts.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| scanner | ${{ needs.scanner.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| frontend | ${{ needs.frontend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| audit | ${{ needs.audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| verify-artifacts | ${{ needs.verify-artifacts.result }} |" >> $GITHUB_STEP_SUMMARY

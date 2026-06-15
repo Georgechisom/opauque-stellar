@@ -179,8 +179,7 @@ fn hash_payload(h: &Harness, p: &Payload) -> BytesN<32> {
 
 fn create_job(h: &Harness, creator: &Address, job_id: &BytesN<32>, hash: &BytesN<32>, fee: i128) {
     fund(h, creator, fee);
-    h.registry
-        .create_job(creator, job_id, hash, &150u32, &fee);
+    h.registry.create_job(creator, job_id, hash, &150u32, &fee);
 }
 
 #[test]
@@ -375,9 +374,13 @@ fn deadline_and_double_accept_are_rejected() {
     let operator = register_relayer(&h, 1_000);
     let creator = Address::generate(&h.env);
     fund(&h, &creator, 100);
-    let bad = h
-        .registry
-        .try_create_job(&creator, &b32(&h.env, 0x06), &b32(&h.env, 0x10), &99u32, &100i128);
+    let bad = h.registry.try_create_job(
+        &creator,
+        &b32(&h.env, 0x06),
+        &b32(&h.env, 0x10),
+        &99u32,
+        &100i128,
+    );
     assert_eq!(bad, Err(Ok(RegistryError::BadDeadline)));
 
     let job_id = b32(&h.env, 0x07);

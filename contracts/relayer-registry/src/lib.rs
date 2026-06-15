@@ -249,11 +249,7 @@ impl RelayerRegistry {
         Ok(())
     }
 
-    pub fn request_unstake(
-        env: Env,
-        operator: Address,
-        amount: i128,
-    ) -> Result<(), RegistryError> {
+    pub fn request_unstake(env: Env, operator: Address, amount: i128) -> Result<(), RegistryError> {
         operator.require_auth();
         if amount <= 0 {
             return Err(RegistryError::BadAmount);
@@ -314,7 +310,9 @@ impl RelayerRegistry {
         }
         let config = cfg(&env)?;
         let now = env.ledger().sequence();
-        if deadline_ledger <= now || deadline_ledger.saturating_sub(now) > config.max_deadline_ledgers {
+        if deadline_ledger <= now
+            || deadline_ledger.saturating_sub(now) > config.max_deadline_ledgers
+        {
             return Err(RegistryError::BadDeadline);
         }
         if env.storage().persistent().has(&job_key(&env, &job_id)) {
@@ -454,11 +452,7 @@ impl RelayerRegistry {
         Ok(())
     }
 
-    pub fn slash_job(
-        env: Env,
-        creator: Address,
-        job_id: BytesN<32>,
-    ) -> Result<(), RegistryError> {
+    pub fn slash_job(env: Env, creator: Address, job_id: BytesN<32>) -> Result<(), RegistryError> {
         creator.require_auth();
         let config = cfg(&env)?;
         let mut job = read_job(&env, &job_id)?;
@@ -491,11 +485,7 @@ impl RelayerRegistry {
         Ok(())
     }
 
-    pub fn cancel_job(
-        env: Env,
-        creator: Address,
-        job_id: BytesN<32>,
-    ) -> Result<(), RegistryError> {
+    pub fn cancel_job(env: Env, creator: Address, job_id: BytesN<32>) -> Result<(), RegistryError> {
         creator.require_auth();
         let config = cfg(&env)?;
         let mut job = read_job(&env, &job_id)?;
