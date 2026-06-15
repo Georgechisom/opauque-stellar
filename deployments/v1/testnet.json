@@ -50,8 +50,8 @@
       "package": "schema-registry"
     },
     "attestationEngineV2": {
-      "id": "CCM3UIAADYHPTEZTIU6G6HYPXOKSSYGOZJAOWLPODBTDB3GQM2WAAHJU",
-      "wasmHash": "2472a57c4ec498c2bdfad598c2c6d077d8e98b1834e131b0d06f2473702deb04",
+      "id": "CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX",
+      "wasmHash": "abd9e5285d8982670fcefd1c1b6458b623b9d6bed24b39887670a7f014b23520",
       "package": "attestation-engine-v2"
     }
   },
