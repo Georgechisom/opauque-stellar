@@ -1,11 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { validateAdvert, validatePayload, type EncryptedPayload, type JobAdvert, type RelayerBid } from "./messages.ts";
+import { GOSSIP_TOPIC } from "./gossip.ts";
+import {
+  validateAdvert,
+  validatePayload,
+  validateRelayerMessage,
+  type EncryptedPayload,
+  type JobAdvert,
+  type RelayerBid,
+  type RelayerMessage,
+} from "./messages.ts";
 
 export type RelayerHttpBackend = {
   readonly stats: unknown;
   bidsFor(jobId: string): RelayerBid[];
   handleAdvert(advert: JobAdvert): Promise<RelayerBid | null> | Promise<null>;
   handlePayload(payload: EncryptedPayload): Promise<{ acceptedTx: string; submittedTx: string } | null> | Promise<null>;
+  publishGossipMessage?(message: RelayerMessage): Promise<void>;
+  subscribeGossip?(handler: (message: RelayerMessage) => Promise<void> | void): () => void;
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -27,12 +38,45 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+function readGossipEnvelope(value: unknown): RelayerMessage {
+  const env = value as { topic?: unknown; message?: unknown };
+  if (env?.topic !== GOSSIP_TOPIC) throw new Error("Invalid gossip topic.");
+  return validateRelayerMessage(env.message);
+}
+
 export function createRelayerHttpServer(backend: RelayerHttpBackend) {
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "OPTIONS") {
         send(res, 204, {});
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/v1/gossip/stream") {
+        if (!backend.subscribeGossip) {
+          send(res, 404, { error: "gossip unavailable" });
+          return;
+        }
+        res.writeHead(200, {
+          "access-control-allow-origin": "*",
+          "cache-control": "no-cache, no-transform",
+          "connection": "keep-alive",
+          "content-type": "text/event-stream",
+        });
+        res.write(`: ${GOSSIP_TOPIC}\n\n`);
+        const unsubscribe = backend.subscribeGossip((message) => {
+          res.write(`data: ${JSON.stringify({ topic: GOSSIP_TOPIC, message })}\n\n`);
+        });
+        req.on("close", unsubscribe);
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/v1/gossip/messages") {
+        if (!backend.publishGossipMessage) {
+          send(res, 404, { error: "gossip unavailable" });
+          return;
+        }
+        await backend.publishGossipMessage(readGossipEnvelope(await readJson(req)));
+        send(res, 202, { ok: true });
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/jobs") {

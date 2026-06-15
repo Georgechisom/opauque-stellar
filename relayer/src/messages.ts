@@ -38,6 +38,14 @@ export type EncryptedPayload = {
 
 export type RelayerMessage = JobAdvert | RelayerBid | EncryptedPayload;
 
+export function validateRelayerMessage(value: unknown): RelayerMessage {
+  const v = value as { t?: unknown };
+  if (v?.t === "advert") return validateAdvert(value);
+  if (v?.t === "bid") return validateBid(value);
+  if (v?.t === "payload") return validatePayload(value);
+  throw new Error("Invalid relayer message.");
+}
+
 export function makeAdvert(args: {
   jobId: Uint8Array;
   fee: bigint;

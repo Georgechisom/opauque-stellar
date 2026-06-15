@@ -3,10 +3,12 @@ import type { GossipTransport } from "./gossip.ts";
 import {
   validateAdvert,
   validateBid,
+  validateRelayerMessage,
   validatePayload,
   type EncryptedPayload,
   type JobAdvert,
   type RelayerBid,
+  type RelayerMessage,
 } from "./messages.ts";
 
 export type RelayerHubStats = {
@@ -25,6 +27,7 @@ export class RelayerHub {
   };
 
   private bids = new Map<string, RelayerBid[]>();
+  private subscribers = new Set<(message: RelayerMessage) => Promise<void> | void>();
   private started = false;
 
   constructor(private readonly transport: GossipTransport) {}
@@ -32,18 +35,18 @@ export class RelayerHub {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    await this.transport.subscribe((message) => {
+    await this.transport.subscribe(async (message) => {
       try {
-        if (message.t === "advert") {
-          validateAdvert(message);
+        const valid = validateRelayerMessage(message);
+        if (valid.t === "advert") {
           this.stats.advertsSeen += 1;
-        } else if (message.t === "bid") {
-          this.rememberBid(validateBid(message));
+        } else if (valid.t === "bid") {
+          this.rememberBid(valid);
           this.stats.bidsSeen += 1;
-        } else if (message.t === "payload") {
-          validatePayload(message);
+        } else if (valid.t === "payload") {
           this.stats.payloadsSeen += 1;
         }
+        await Promise.all(Array.from(this.subscribers, (handler) => handler(valid)));
       } catch (err) {
         this.stats.lastError = err instanceof Error ? err.message : String(err);
       }
@@ -55,15 +58,25 @@ export class RelayerHub {
   }
 
   async handleAdvert(advert: JobAdvert): Promise<null> {
-    await this.start();
-    await this.transport.publish(validateAdvert(advert));
+    await this.publishGossipMessage(validateAdvert(advert));
     return null;
   }
 
   async handlePayload(payload: EncryptedPayload): Promise<null> {
-    await this.start();
-    await this.transport.publish(validatePayload(payload));
+    await this.publishGossipMessage(validatePayload(payload));
     return null;
+  }
+
+  async publishGossipMessage(message: RelayerMessage): Promise<void> {
+    await this.start();
+    await this.transport.publish(validateRelayerMessage(message));
+  }
+
+  subscribeGossip(handler: (message: RelayerMessage) => Promise<void> | void): () => void {
+    this.subscribers.add(handler);
+    return () => {
+      this.subscribers.delete(handler);
+    };
   }
 
   rememberBid(bid: RelayerBid): void {

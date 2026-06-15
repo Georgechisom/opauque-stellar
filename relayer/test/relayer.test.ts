@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { createRelayerHttpServer } from "../src/http.ts";
 import { RelayerEngine, type RelayerChainAdapter, type OnChainJob, type OnChainRelayer } from "../src/engine.ts";
-import { MemoryGossipTransport } from "../src/gossip.ts";
+import { HttpGossipTransport, MemoryGossipTransport } from "../src/gossip.ts";
 import { RelayerHub, attachRelayerEngineToGossip } from "../src/hub.ts";
 import { generateX25519Keypair, openBox, sealBox } from "../src/shared/box.ts";
 import { bytesToHex, hexToBytes } from "../src/shared/bytes.ts";
@@ -19,6 +19,18 @@ const CONTRACT = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
 
 function bytes(len: number, tag: number): Uint8Array {
   return new Uint8Array(len).fill(tag);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForBids(base: string, jobId: string): Promise<unknown[]> {
+  for (let i = 0; i < 20; i += 1) {
+    const listed = await fetch(`${base}/v1/jobs/${encodeURIComponent(jobId)}/bids`);
+    const body = (await listed.json()) as { bids?: unknown[] };
+    if ((body.bids ?? []).length > 0) return body.bids ?? [];
+    await sleep(25);
+  }
+  return [];
 }
 
 function payload(poolRelayer = ACCOUNT_B): PoolWithdrawPayload {
@@ -280,5 +292,50 @@ describe("relayer HTTP gateway", () => {
     const body = (await listed.json()) as { bids: unknown[] };
     expect(body.bids).toHaveLength(1);
     expect(verifyBid(body.bids[0] as RelayerBid)).toBe(true);
+  });
+
+  it("lets relayer nodes subscribe to a gateway hub over HTTP gossip", async () => {
+    const operator = Keypair.random();
+    const x25519 = generateX25519Keypair();
+    const p = payload(operator.publicKey());
+    const advert = makeAdvert({
+      jobId: bytes(32, 0x17),
+      fee: 100n,
+      deadline: 150,
+      payloadHash: hexToBytes(hashPoolWithdrawPayloadHex(p)),
+    });
+    const chain = new FakeChain(advert.payloadHash, bytesToHex(x25519.publicKey));
+    const engine = new RelayerEngine({
+      operator,
+      x25519PublicKey: x25519.publicKey,
+      x25519SecretKey: x25519.secretKey,
+      minFee: 1n,
+      chain,
+    });
+    const hubTransport = new MemoryGossipTransport();
+    const hub = new RelayerHub(hubTransport);
+    await hub.start();
+    const server = createRelayerHttpServer(hub);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No server port.");
+    const base = `http://127.0.0.1:${address.port}`;
+    const nodeTransport = new HttpGossipTransport(base);
+    await attachRelayerEngineToGossip(engine, nodeTransport);
+    cleanup = async () => {
+      await nodeTransport.close();
+      await hubTransport.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    };
+
+    const post = await fetch(`${base}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(advert),
+    });
+    expect(post.status).toBe(202);
+    const bids = await waitForBids(base, advert.jobId);
+    expect(bids).toHaveLength(1);
+    expect(verifyBid(bids[0] as RelayerBid)).toBe(true);
   });
 });
