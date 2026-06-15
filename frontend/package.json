@@ -16,7 +16,8 @@
     "smoke:realset": "tsx scripts/smoke-reputation-realset.ts",
     "publish:root": "tsx scripts/publish-reputation-root.ts",
     "verify:deployment": "tsx ../scripts/verify-deployment-manifest.ts",
-    "smoke:pool": "tsx scripts/smoke-pool.ts"
+    "smoke:pool": "tsx scripts/smoke-pool.ts",
+    "smoke:pool:relayer": "tsx scripts/smoke-relayed-pool.ts"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

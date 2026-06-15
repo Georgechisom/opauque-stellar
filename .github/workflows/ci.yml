@@ -48,6 +48,10 @@ jobs:
             echo "frontend/package-lock.json is required"
             exit 1
           fi
+          if [ ! -f relayer/package-lock.json ]; then
+            echo "relayer/package-lock.json is required"
+            exit 1
+          fi
           echo "All required lockfiles present"
 
   supply-chain:
@@ -88,6 +92,11 @@ jobs:
       - name: Run npm audit (frontend)
         run: npm audit --audit-level=moderate
         working-directory: frontend
+        continue-on-error: true
+
+      - name: Run npm audit (relayer)
+        run: npm audit --audit-level=moderate
+        working-directory: relayer
         continue-on-error: true
 
       - name: Run npm audit (circuits)
@@ -305,6 +314,30 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  relayer:
+    name: Relayer market
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relayer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: relayer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
   ci-success:
     name: CI success gate
     runs-on: ubuntu-latest
@@ -317,6 +350,7 @@ jobs:
       - frontend
       - contracts
       - asp
+      - relayer
     steps:
       - name: Fail if any required job failed
         run: |

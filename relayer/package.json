@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "relayer": "tsx scripts/relayer.ts"
+    "relayer": "tsx scripts/relayer.ts",
+    "smoke:market": "tsx scripts/smoke-market.ts"
   },
   "dependencies": {
     "@noble/hashes": "^1.8.0",
