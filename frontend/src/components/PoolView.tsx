@@ -31,6 +31,7 @@ import {
   defaultDeadlineLedger,
   deliverPayloadToRelayer,
   fetchRelayerBids,
+  fetchRelayerJobStatus,
   pickStakeWeightedBid,
   publishAdvert,
   relayerGatewayUrl,
@@ -39,6 +40,8 @@ import {
 } from "../lib/relayerMarket";
 
 const STROOPS_PER_XLM = 10_000_000n;
+const RELAYER_SUBMISSION_POLL_MS = 2_000;
+const RELAYER_SUBMISSION_TIMEOUT_MS = 120_000;
 
 function parseXlm(input: string): bigint | null {
   const s = input.trim();
@@ -65,6 +68,10 @@ function be32(v: bigint): Uint8Array {
     n >>= 8n;
   }
   return out;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const card = "rounded-2xl border border-ink-700 bg-ink-900/60 p-5";
@@ -390,6 +397,30 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         void refreshChain();
       } else {
         setRelayerStatus("Payload delivered. Waiting for relayer submission.");
+        const started = Date.now();
+        while (Date.now() - started < RELAYER_SUBMISSION_TIMEOUT_MS) {
+          await sleep(RELAYER_SUBMISSION_POLL_MS);
+          const status = await fetchRelayerJobStatus(relayerDraft.jobIdHex, publicKey ?? selectedRelayerBid.operator);
+          if (status === "submitted") {
+            markSpent(cluster, note.poolId, note.leafIndex);
+            setSelected(null);
+            setRelayerDraft(null);
+            setRelayerBids([]);
+            setSelectedRelayer(null);
+            setRelayerStatus(null);
+            showToast(`Relayer submitted withdrawal to ${recipient.slice(0, 6)}…`);
+            void refreshChain();
+            return;
+          }
+          if (status === "accepted") {
+            setRelayerStatus("Relayer accepted the job. Waiting for on-chain submission.");
+          } else if (status === "open") {
+            setRelayerStatus("Payload delivered. Waiting for relayer acceptance.");
+          } else if (status === "slashed" || status === "canceled") {
+            throw new Error(`Relayer job was ${status}.`);
+          }
+        }
+        setRelayerStatus("Payload delivered. Submission is still pending; refresh chain status shortly.");
       }
     } catch (e) {
       showToast(`Relayer assignment failed: ${(e as Error).message}`);
@@ -401,6 +432,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     gateway,
     markSpent,
     recipient,
+    publicKey,
     refreshChain,
     relayerDraft,
     selectedNote,

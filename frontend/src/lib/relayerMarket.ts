@@ -49,9 +49,26 @@ export type VerifiedBid = RelayerBid & {
   freeStakeValue: bigint;
 };
 
+export type RelayerJobStatus =
+  | "open"
+  | "accepted"
+  | "submitted"
+  | "slashed"
+  | "canceled"
+  | "unknown";
+
+const REGISTRY_JOB_STATUS: Record<number, RelayerJobStatus> = {
+  0: "open",
+  1: "accepted",
+  2: "submitted",
+  3: "slashed",
+  4: "canceled",
+};
+
 type NativeRegistryJob = {
   status: number | bigint;
   fee: bigint | number | string;
+  deadline_ledger?: number | bigint;
 };
 
 type NativeRegistryRelayer = {
@@ -206,6 +223,17 @@ export async function deliverPayloadToRelayer(args: {
     result?: { acceptedTx?: string; submittedTx?: string } | null;
   };
   return body.result ?? null;
+}
+
+export async function fetchRelayerJobStatus(
+  jobIdHex: string,
+  sourcePublicKey: string,
+): Promise<RelayerJobStatus> {
+  const job = await simulateRegistryView<NativeRegistryJob>(sourcePublicKey, "get_job", [
+    bytesToScVal(hexToBytes(jobIdHex)),
+  ]);
+  if (!job) return "unknown";
+  return REGISTRY_JOB_STATUS[Number(job.status)] ?? "unknown";
 }
 
 async function verifyBidRegistryState(
