@@ -232,7 +232,7 @@ jobs:
         run: |
           eval "$(npx tsx scripts/export-manifest-env.ts testnet)"
           npx tsx scripts/verify-deployment-manifest.ts --network testnet
-          cd frontend && npm run verify:deployment
+          cd frontend && npm run verify:deployment -- --network testnet
 
       - name: Verify scanner WASM hashes
         run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
