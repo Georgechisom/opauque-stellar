@@ -38,6 +38,15 @@ export function isSetHash(hash) {
   return typeof hash === "string" && SHA256_HEX.test(hash);
 }
 
+function allowedHashes(entry) {
+  const hashes = [];
+  if (isSetHash(entry.sha256)) hashes.push(entry.sha256);
+  for (const hash of entry.sha256Alternates ?? []) {
+    if (isSetHash(hash) && !hashes.includes(hash)) hashes.push(hash);
+  }
+  return hashes;
+}
+
 /**
  * Walk manifest artifact entries that carry { path, sha256 }.
  */
@@ -72,8 +81,9 @@ export function* iterArtifactEntries(manifest, { includeNull = false } = {}) {
 export function verifyEntry(entry, { strict = true, label = entry.path } = {}) {
   const errors = [];
   const fullPath = resolveArtifactPath(entry.path);
+  const hashes = allowedHashes(entry);
 
-  if (!isSetHash(entry.sha256)) {
+  if (hashes.length === 0) {
     if (strict) {
       errors.push(`${label}: sha256 not set in manifest (run update-artifact-manifest.mjs)`);
     }
@@ -88,8 +98,8 @@ export function verifyEntry(entry, { strict = true, label = entry.path } = {}) {
   }
 
   const actual = sha256File(fullPath);
-  if (actual !== entry.sha256) {
-    errors.push(`${label}: hash mismatch manifest=${entry.sha256} actual=${actual}`);
+  if (!hashes.includes(actual)) {
+    errors.push(`${label}: hash mismatch manifest=${hashes.join(",")} actual=${actual}`);
   }
 
   return { errors, actual };

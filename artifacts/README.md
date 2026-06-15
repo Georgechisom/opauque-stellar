@@ -31,6 +31,11 @@ npm run update:artifacts
 
 Frontend `npm run build` runs `prepare:frontend` automatically (build scanner, fetch circuits, verify scanner hashes).
 
+`cryptography_bg.wasm` can differ at the byte level across approved Rust/wasm-pack build
+hosts while preserving the same JS glue hash. Keep the canonical `sha256` plus any
+reviewed host-specific values in `sha256Alternates`; verification still fails for unknown
+hashes.
+
 ## Retrieval from GitHub releases
 
 When release assets are published at tag `v1-circuit-artifacts`:
