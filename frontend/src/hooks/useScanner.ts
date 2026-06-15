@@ -15,6 +15,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "../lib/chain";
+import { getManifestForNetwork } from "../contracts/deploymentManifest";
 import {
   getAnnouncementsForCluster,
   getSyncState,
@@ -96,8 +97,13 @@ export type UseScannerResult = {
   markSyncComplete: () => void;
 };
 
-function getStartBlock(_cluster: StellarNetwork): bigint {
-  return 1n; // Soroban events start from ledger 1
+function getStartBlock(cluster: StellarNetwork): bigint {
+  // Announcements only exist from the contract deployment ledger onward.
+  // Starting there (rather than ledger 1) keeps a fresh scan to a small range
+  // near the chain head instead of grinding the entire RPC retention window,
+  // which made fresh scans appear to hang before reaching recent events.
+  const deployLedger = getManifestForNetwork(cluster)?.deploymentLedger ?? null;
+  return deployLedger != null && deployLedger > 0 ? BigInt(deployLedger) : 1n;
 }
 
 function getSubgraphUrl(_cluster: StellarNetwork): string | null {
@@ -330,10 +336,6 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
 
   const runScan = useCallback(
     async (clearCache: boolean) => {
-      console.log("runScan", cluster);
-      console.log("publicClient", publicClient);
-      console.log("announcerAddress", announcerAddress);
-      console.log("enabled", enabled);
       if (cluster == null || !publicClient || !announcerAddress || !enabled) return;
 
 
@@ -485,12 +487,6 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
 
   useEffect(() => {
     if (!enabled || cluster == null || !publicClient || !announcerAddress) {
-      console.log("[useScanner] effect skip (guard):", {
-        cluster,
-        enabled,
-        hasPublicClient: !!publicClient,
-        hasAnnouncerAddress: !!announcerAddress,
-      });
       setProgress((p: ScanProgress) => ({ ...p, phase: "idle" }));
       return;
     }
