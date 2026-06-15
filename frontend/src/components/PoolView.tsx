@@ -5,19 +5,32 @@ import { useWallet } from "../hooks/useWallet";
 import { useToast } from "../context/ToastContext";
 import { usePoolNoteStore } from "../store/poolNoteStore";
 import { getPoolConfig } from "../contracts/poolConfig";
+import { getRelayerConfig } from "../contracts/relayerConfig";
 import {
   buildEncryptedPoolNoteBackup,
   downloadBlob,
   poolNoteBackupFilename,
 } from "../lib/poolNoteBackup";
 import { deriveDeposit, newNoteSecrets, toHex32, unspentTotal, type PoolNote } from "../lib/poolNotes";
-import { invokePoolDeposit, invokePoolWithdraw } from "../lib/programs";
+import { invokePoolDeposit, invokePoolWithdraw, invokeRelayerCreateJob } from "../lib/programs";
 import {
   fetchNextLeafIndex,
   fetchPoolBalance,
   fetchPoolRoots,
   generateWithdrawProof,
 } from "../lib/poolProver";
+import {
+  buildRelayedWithdrawPayload,
+  buildRelayerJobDraft,
+  defaultDeadlineLedger,
+  deliverPayloadToRelayer,
+  fetchRelayerBids,
+  pickStakeWeightedBid,
+  publishAdvert,
+  relayerGatewayUrl,
+  type RelayerJobDraft,
+  type VerifiedBid,
+} from "../lib/relayerMarket";
 
 const STROOPS_PER_XLM = 10_000_000n;
 
@@ -59,6 +72,10 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     void cluster;
     return getPoolConfig();
   }, [cluster]);
+  const relayerCfg = useMemo(() => {
+    void cluster;
+    return getRelayerConfig();
+  }, [cluster]);
 
   const notes = usePoolNoteStore((s) => s.notes);
   const addNote = usePoolNoteStore((s) => s.addNote);
@@ -76,9 +93,17 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [backupBusy, setBackupBusy] = useState(false);
   const [poolBalance, setPoolBalance] = useState<bigint | null>(null);
   const [roots, setRoots] = useState<{ stateRoot: string | null; aspRoot: string | null } | null>(null);
+  const [submitMode, setSubmitMode] = useState<"wallet" | "relayer">("wallet");
+  const [relayerFee, setRelayerFee] = useState("0.1");
+  const [gateway, setGateway] = useState(relayerGatewayUrl());
+  const [relayerDraft, setRelayerDraft] = useState<RelayerJobDraft | null>(null);
+  const [relayerBids, setRelayerBids] = useState<VerifiedBid[]>([]);
+  const [selectedRelayer, setSelectedRelayer] = useState<string | null>(null);
+  const [relayerStatus, setRelayerStatus] = useState<string | null>(null);
 
   const clusterNotes = notes.filter((n) => n.cluster === cluster && (!n.poolId || n.poolId === cfg?.poolId));
   const unspent = clusterNotes.filter((n) => !n.spent);
+  const selectedRelayerBid = relayerBids.find((bid) => bid.operator === selectedRelayer) ?? null;
 
   const refreshChain = useCallback(async () => {
     if (!cfg || !publicKey) return;
@@ -94,6 +119,17 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   useEffect(() => {
     void refreshChain();
   }, [refreshChain]);
+
+  useEffect(() => {
+    if (submitMode === "relayer" && !relayerCfg) setSubmitMode("wallet");
+  }, [relayerCfg, submitMode]);
+
+  useEffect(() => {
+    setRelayerDraft(null);
+    setRelayerBids([]);
+    setSelectedRelayer(null);
+    setRelayerStatus(null);
+  }, [recipient, selected]);
 
   const closeBackupDialog = useCallback(() => {
     if (backupBusy) return;
@@ -161,17 +197,27 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     }
   }, [cfg, publicKey, signTransaction, amount, cluster, addNote, showToast, refreshChain]);
 
-  const handleWithdraw = useCallback(async () => {
-    if (!cfg || !publicKey || !signTransaction) return;
-    const note = unspent.find((n) => n.leafIndex === selected);
+  const selectedNote = useCallback(() => {
+    return unspent.find((n) => n.leafIndex === selected) ?? null;
+  }, [selected, unspent]);
+
+  const validateWithdrawInputs = useCallback((): PoolNote | null => {
+    const note = selectedNote();
     if (!note) {
       showToast("Select a note to withdraw.");
-      return;
+      return null;
     }
     if (!StrKey.isValidEd25519PublicKey(recipient)) {
       showToast("Enter a valid recipient address (G…).");
-      return;
+      return null;
     }
+    return note;
+  }, [recipient, selectedNote, showToast]);
+
+  const handleWalletWithdraw = useCallback(async () => {
+    if (!cfg || !publicKey || !signTransaction) return;
+    const note = validateWithdrawInputs();
+    if (!note) return;
     try {
       setBusy("Generating proof…");
       const proof = await generateWithdrawProof({
@@ -209,7 +255,147 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     } finally {
       setBusy(null);
     }
-  }, [cfg, publicKey, signTransaction, unspent, selected, recipient, cluster, markSpent, showToast, refreshChain]);
+  }, [cfg, publicKey, signTransaction, recipient, cluster, markSpent, showToast, refreshChain, validateWithdrawInputs]);
+
+  const refreshRelayerBids = useCallback(async () => {
+    if (!relayerDraft) {
+      showToast("Create a relayer job first.");
+      return;
+    }
+    try {
+      setBusy("Fetching relayer bids…");
+      const bids = await fetchRelayerBids(relayerDraft.jobIdHex, gateway);
+      setRelayerBids(bids);
+      const picked = pickStakeWeightedBid(bids);
+      setSelectedRelayer((prev) => prev ?? picked?.operator ?? null);
+      setRelayerStatus(
+        bids.length > 0 ? `${bids.length} valid relayer bid(s) found.` : "No valid bids yet.",
+      );
+    } catch (e) {
+      showToast(`Bid refresh failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [gateway, relayerDraft, showToast]);
+
+  const prepareRelayerWithdrawal = useCallback(async () => {
+    if (!cfg || !relayerCfg || !publicKey || !signTransaction) return;
+    const note = validateWithdrawInputs();
+    if (!note) return;
+    const fee = parseXlm(relayerFee);
+    if (!fee) {
+      showToast("Enter a valid relayer fee.");
+      return;
+    }
+    try {
+      setRelayerDraft(null);
+      setRelayerBids([]);
+      setSelectedRelayer(null);
+      setRelayerStatus(null);
+      setBusy("Generating relayer proof…");
+      const proof = await generateWithdrawProof({
+        note,
+        recipient,
+        fee: 0n,
+        relayer: relayerCfg.registryId,
+        caller: publicKey,
+        onProgress: (stage) => setBusy(`Proving (${stage})…`),
+      });
+      setBusy("Creating relayer job…");
+      const deadlineLedger = await defaultDeadlineLedger(
+        Math.min(relayerCfg.maxDeadlineLedgers, 720),
+      );
+      const payload = buildRelayedWithdrawPayload({
+        poolId: cfg.poolId,
+        registryId: relayerCfg.registryId,
+        proof,
+        recipient,
+      });
+      const draft = buildRelayerJobDraft({ payload, fee, deadlineLedger });
+      const tx = await invokeRelayerCreateJob({
+        creator: publicKey,
+        jobId: draft.jobId,
+        payloadHash: draft.payloadHash,
+        deadlineLedger: draft.deadlineLedger,
+        fee,
+        signTransaction,
+      });
+      setBusy("Publishing job advert…");
+      await publishAdvert(draft.advert, gateway);
+      setRelayerDraft(draft);
+      setRelayerStatus(`Relayer job created (${tx.slice(0, 10)}…). Fetching bids…`);
+      const bids = await fetchRelayerBids(draft.jobIdHex, gateway);
+      setRelayerBids(bids);
+      const picked = pickStakeWeightedBid(bids);
+      setSelectedRelayer(picked?.operator ?? null);
+      setRelayerStatus(
+        bids.length > 0
+          ? `Relayer job is ready. Pick one of ${bids.length} valid bid(s).`
+          : "Relayer job is advertised. No valid bids yet; retry shortly.",
+      );
+    } catch (e) {
+      showToast(`Relayer setup failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    cfg,
+    gateway,
+    publicKey,
+    recipient,
+    relayerCfg,
+    relayerFee,
+    signTransaction,
+    showToast,
+    validateWithdrawInputs,
+  ]);
+
+  const assignRelayer = useCallback(async () => {
+    if (!relayerDraft || !selectedRelayerBid) {
+      showToast("Select a relayer bid first.");
+      return;
+    }
+    const note = selectedNote();
+    if (!note) {
+      showToast("Select a note to withdraw.");
+      return;
+    }
+    try {
+      setBusy("Assigning relayer…");
+      const result = await deliverPayloadToRelayer({
+        draft: relayerDraft,
+        bid: selectedRelayerBid,
+        gateway,
+      });
+      if (result?.submittedTx) {
+        markSpent(cluster, note.poolId, note.leafIndex);
+        setSelected(null);
+        setRelayerDraft(null);
+        setRelayerBids([]);
+        setSelectedRelayer(null);
+        showToast(`Relayer submitted withdrawal to ${recipient.slice(0, 6)}…`, {
+          explorerTx: { txSig: result.submittedTx },
+        });
+        void refreshChain();
+      } else {
+        setRelayerStatus("Payload delivered. Waiting for relayer submission.");
+      }
+    } catch (e) {
+      showToast(`Relayer assignment failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    cluster,
+    gateway,
+    markSpent,
+    recipient,
+    refreshChain,
+    relayerDraft,
+    selectedNote,
+    selectedRelayerBid,
+    showToast,
+  ]);
 
   const handleBackupSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -382,14 +568,141 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
               disabled={readOnly || !!busy}
               className="w-full rounded-xl border border-ink-700 bg-ink-950 px-3 py-2 font-mono text-xs text-white placeholder:text-mist/40 focus:border-glow focus:outline-none disabled:opacity-50"
             />
-            <button
-              type="button"
-              onClick={handleWithdraw}
-              disabled={readOnly || !connected || !!busy || selected == null}
-              className="w-full rounded-xl bg-glow px-5 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {busy && busy !== "Depositing…" ? busy : "Withdraw (full)"}
-            </button>
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-ink-700 bg-ink-950 p-1">
+              <button
+                type="button"
+                onClick={() => setSubmitMode("wallet")}
+                className={`min-h-10 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow ${
+                  submitMode === "wallet"
+                    ? "bg-glow text-ink-950"
+                    : "text-mist hover:bg-ink-800 hover:text-white"
+                }`}
+              >
+                Connected wallet
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubmitMode("relayer")}
+                disabled={!relayerCfg}
+                className={`min-h-10 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40 ${
+                  submitMode === "relayer"
+                    ? "bg-glow text-ink-950"
+                    : "text-mist hover:bg-ink-800 hover:text-white"
+                }`}
+              >
+                Relayer market
+              </button>
+            </div>
+
+            {submitMode === "wallet" ? (
+              <button
+                type="button"
+                onClick={handleWalletWithdraw}
+                disabled={readOnly || !connected || !!busy || selected == null}
+                className="w-full rounded-xl bg-glow px-5 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy && busy !== "Depositing…" ? busy : "Withdraw with connected wallet"}
+              </button>
+            ) : (
+              <div className="space-y-3 rounded-xl border border-ink-700 bg-ink-950 p-3">
+                {!relayerCfg ? (
+                  <p className="text-sm text-mist/70">
+                    Relayer market is not deployed on this network yet.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5 text-sm">
+                        <span className="font-medium text-white">Gateway</span>
+                        <input
+                          type="url"
+                          value={gateway}
+                          onChange={(e) => setGateway(e.target.value)}
+                          disabled={readOnly || !!busy}
+                          className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-xs text-white placeholder:text-mist/40 focus:border-glow focus:outline-none disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-sm">
+                        <span className="font-medium text-white">Relayer fee (XLM)</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={relayerFee}
+                          onChange={(e) => setRelayerFee(e.target.value)}
+                          disabled={readOnly || !!busy}
+                          className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-xs text-white placeholder:text-mist/40 focus:border-glow focus:outline-none disabled:opacity-50"
+                        />
+                      </label>
+                    </div>
+                    <p className="text-xs leading-relaxed text-mist/60">
+                      The job-funding transaction is public. The selected relayer cannot alter the
+                      recipient, amount, or proof; it only learns the payload when it submits.
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={prepareRelayerWithdrawal}
+                        disabled={readOnly || !connected || !!busy || selected == null}
+                        className="min-h-10 flex-1 rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {busy && busy !== "Depositing…" ? busy : "Create relayer job"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={refreshRelayerBids}
+                        disabled={readOnly || !!busy || !relayerDraft}
+                        className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Refresh bids
+                      </button>
+                    </div>
+                    {relayerStatus && (
+                      <p className="rounded-xl border border-ink-700 bg-ink-900 p-3 text-xs text-mist">
+                        {relayerStatus}
+                      </p>
+                    )}
+                    {relayerBids.length > 0 && (
+                      <div className="space-y-2">
+                        {relayerBids.map((bid) => (
+                          <label
+                            key={bid.operator}
+                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                              selectedRelayer === bid.operator
+                                ? "border-glow bg-black/30 text-white"
+                                : "border-ink-700 text-mist hover:border-white/30"
+                            }`}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="radio"
+                                name="relayer-bid"
+                                checked={selectedRelayer === bid.operator}
+                                onChange={() => setSelectedRelayer(bid.operator)}
+                                className="accent-glow"
+                              />
+                              <span className="truncate font-mono text-xs">
+                                {bid.operator.slice(0, 8)}…{bid.operator.slice(-6)}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-xs text-mist/60">
+                              free {formatXlm(bid.freeStakeValue)} XLM
+                            </span>
+                          </label>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={assignRelayer}
+                          disabled={readOnly || !!busy || !selectedRelayerBid}
+                          className="min-h-10 w-full rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {busy === "Assigning relayer…" ? "Assigning…" : "Assign selected relayer"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             <p className="text-xs text-mist/60">
               v1 withdraws the full note to a fresh address. The proof attests your deposit is in the
               pool and ASP-approved, without revealing which one.

@@ -12,7 +12,12 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, {
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -20,6 +25,10 @@ export function createRelayerHttpServer(engine: RelayerEngine) {
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (req.method === "OPTIONS") {
+        send(res, 204, {});
+        return;
+      }
       if (req.method === "POST" && url.pathname === "/v1/jobs") {
         const advert = validateAdvert(await readJson(req));
         const bid = await engine.handleAdvert(advert);

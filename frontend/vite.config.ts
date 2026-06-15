@@ -30,6 +30,7 @@ export default defineConfig({
     alias: {
       '@wasm': path.resolve(__dirname, 'public/pkg'),
       '@deployments': path.resolve(__dirname, '../deployments'),
+      '@relayer': path.resolve(__dirname, '../relayer/src'),
       buffer: 'buffer',
       process: 'process/browser',
     },

@@ -192,11 +192,18 @@ export async function invokeVerifyProofV2(opts: {
 // ---------------------------------------------------------------------------
 
 import { getPoolConfig } from "../contracts/poolConfig";
+import { getRelayerConfig } from "../contracts/relayerConfig";
 
 function requirePoolId(): string {
   const cfg = getPoolConfig();
   if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
   return cfg.poolId;
+}
+
+function requireRelayerRegistryId(): string {
+  const cfg = getRelayerConfig();
+  if (!cfg) throw new Error("Relayer market is not deployed on this network.");
+  return cfg.registryId;
 }
 
 /** Deposit `value` stroops under a precomputed `commitment` at `expectedIndex`. */
@@ -292,6 +299,67 @@ export const invokeUpdateStateRoot = (opts: {
   datasetHash: Uint8Array;
   signTransaction: SignTxFn;
 }) => invokePoolRoot({ ...opts, kind: "state" });
+
+// ---------------------------------------------------------------------------
+// Relayer market (Phase 6)
+// ---------------------------------------------------------------------------
+
+export async function invokeRelayerCreateJob(opts: {
+  creator: string;
+  jobId: Uint8Array;
+  payloadHash: Uint8Array;
+  deadlineLedger: number;
+  fee: bigint;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.creator,
+    contractId: requireRelayerRegistryId(),
+    method: "create_job",
+    args: [
+      nativeToScVal(opts.creator, { type: "address" }),
+      bytesToScVal(opts.jobId),
+      bytesToScVal(opts.payloadHash),
+      nativeToScVal(opts.deadlineLedger, { type: "u32" }),
+      nativeToScVal(opts.fee, { type: "i128" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+export async function invokeRelayerCancelJob(opts: {
+  creator: string;
+  jobId: Uint8Array;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.creator,
+    contractId: requireRelayerRegistryId(),
+    method: "cancel_job",
+    args: [
+      nativeToScVal(opts.creator, { type: "address" }),
+      bytesToScVal(opts.jobId),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+export async function invokeRelayerSlashJob(opts: {
+  creator: string;
+  jobId: Uint8Array;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.creator,
+    contractId: requireRelayerRegistryId(),
+    method: "slash_job",
+    args: [
+      nativeToScVal(opts.creator, { type: "address" }),
+      bytesToScVal(opts.jobId),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
 
 export { hexToBytes } from "./stealth";
 
