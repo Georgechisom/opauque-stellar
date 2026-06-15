@@ -1,0 +1,370 @@
+/**
+ * Privacy-pool browser prover.
+ *
+ * Withdrawal is proven against the ON-CHAIN PUBLISHED roots (the contract only accepts
+ * published state/ASP roots), so the frontend reconstructs the trees from on-chain events
+ * — the state tree from `Deposit` + `Withdraw` (remainder) commitments by index, and the
+ * ASP tree from deposit labels — and checks the reconstructed roots equal the published
+ * ones before proving. If the ASP indexer hasn't yet published a root covering the user's
+ * deposit, withdrawal waits.
+ *
+ * v1 supports FULL withdrawals (remainder = 0): the change commitment is a throwaway
+ * zero-value leaf. Partial withdrawals (change re-noted) are a documented follow-up; the
+ * contract + circuit already support them.
+ */
+import {
+  Address,
+  BASE_FEE,
+  Contract,
+  TransactionBuilder,
+  nativeToScVal,
+  rpc,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
+import { keccak_256 } from "@noble/hashes/sha3";
+// @ts-expect-error snarkjs has no bundled types
+import * as snarkjs from "snarkjs";
+import { getSorobanServer } from "./stellar";
+import { getNetworkPassphrase } from "./chain";
+import { getPoolConfig } from "../contracts/poolConfig";
+import {
+  BN254_R,
+  POOL_TREE_DEPTH,
+  getPoseidon,
+  hashFields,
+  newNoteSecrets,
+  type PoolNote,
+} from "./poolNotes";
+
+const WASM_PATH = "/circuits/v3/privacy_pool_withdraw.wasm";
+const ZKEY_PATH = "/circuits/v3/privacy_pool_withdraw_final.zkey";
+const EVENT_LOOKBACK = 16000;
+
+function toBE32(v: bigint): Uint8Array {
+  const out = new Uint8Array(32);
+  let n = v;
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+
+function beBytes(v: bigint, len: number): Uint8Array {
+  const out = new Uint8Array(len);
+  let n = v;
+  for (let i = len - 1; i >= 0; i--) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+
+// ── depth-20 Poseidon Merkle tree (byte-matches the contract/circuit/ASP) ──
+class MerkleTree {
+  private zero: bigint[];
+  private poseidon: never;
+  private leaves: bigint[];
+  private depth: number;
+  constructor(poseidon: never, leaves: bigint[], depth = POOL_TREE_DEPTH) {
+    this.poseidon = poseidon;
+    this.leaves = leaves;
+    this.depth = depth;
+    this.zero = [0n];
+    for (let i = 0; i < depth; i++) {
+      this.zero.push(hashFields(this.poseidon, [this.zero[i], this.zero[i]]));
+    }
+  }
+  private rootFrom(start: number, level: number): bigint {
+    if (start >= this.leaves.length) return this.zero[level];
+    if (level === 0) return this.leaves[start];
+    const half = 1 << (level - 1);
+    const left = this.rootFrom(start, level - 1);
+    const right = this.rootFrom(start + half, level - 1);
+    return hashFields(this.poseidon, [left, right]);
+  }
+  root(): bigint {
+    return this.rootFrom(0, this.depth);
+  }
+  private node(index: number, level: number): bigint {
+    return this.rootFrom(index * (1 << level), level);
+  }
+  proof(index: number): { siblings: bigint[]; indices: number[] } {
+    const siblings: bigint[] = [];
+    const indices: number[] = [];
+    let cur = index;
+    for (let level = 0; level < this.depth; level++) {
+      siblings.push(this.node(cur ^ 1, level));
+      indices.push(cur & 1);
+      cur >>= 1;
+    }
+    return { siblings, indices };
+  }
+}
+
+type PoolEvents = {
+  /** Commitment field element at each state-tree leaf index (deposits + remainders). */
+  stateLeaves: bigint[];
+  /** State-tree leaf index of each DEPOSIT, in event order (== ASP-tree leaf order). */
+  depositIndices: number[];
+};
+
+async function readPoolEvents(poolId: string): Promise<PoolEvents> {
+  const server = getSorobanServer();
+  const latest = (await server.getLatestLedger()).sequence;
+  const startLedger = Math.max(1, latest - EVENT_LOOKBACK);
+  const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
+  const withdrawTopic = xdr.ScVal.scvSymbol("Withdraw").toXDR("base64");
+
+  const byIndex = new Map<number, bigint>();
+  const depositIndices: number[] = [];
+
+  for (const [topic, isDeposit] of [
+    [depositTopic, true],
+    [withdrawTopic, false],
+  ] as const) {
+    let cursor: string | undefined;
+    for (let page = 0; page < 25; page++) {
+      const req: rpc.Server.GetEventsRequest = cursor
+        ? { cursor, filters: [{ type: "contract", contractIds: [poolId], topics: [[topic, "*"]] }], limit: 100 }
+        : { startLedger, filters: [{ type: "contract", contractIds: [poolId], topics: [[topic, "*"]] }], limit: 100 };
+      const res = await server.getEvents(req);
+      for (const ev of res.events ?? []) {
+        const data = scValToNative(ev.value) as unknown[];
+        if (isDeposit) {
+          // (commitment, index, value, scope)
+          const commitment = BigInt("0x" + Buffer.from(data[0] as Uint8Array).toString("hex"));
+          const index = Number(data[1]);
+          byIndex.set(index, commitment);
+          depositIndices.push(index);
+        } else {
+          // (nullifier_hash, new_commitment, index, withdrawn_value)
+          const newCommitment = BigInt("0x" + Buffer.from(data[1] as Uint8Array).toString("hex"));
+          const index = Number(data[2]);
+          byIndex.set(index, newCommitment);
+        }
+      }
+      cursor = res.cursor;
+      if (!res.events || res.events.length < 100) break;
+    }
+  }
+
+  const max = byIndex.size === 0 ? -1 : Math.max(...byIndex.keys());
+  const stateLeaves: bigint[] = [];
+  for (let i = 0; i <= max; i++) stateLeaves.push(byIndex.get(i) ?? 0n);
+  depositIndices.sort((a, b) => a - b);
+  return { stateLeaves, depositIndices };
+}
+
+/** Read the latest published root (state or ASP) via a read-only simulation. */
+async function latestRoot(poolId: string, sourcePublicKey: string, state: boolean): Promise<Uint8Array | null> {
+  const server = getSorobanServer();
+  try {
+    const source = await server.getAccount(sourcePublicKey);
+    const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: getNetworkPassphrase() })
+      .addOperation(new Contract(poolId).call("get_latest_root", xdr.ScVal.scvBool(state)))
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) return null;
+    const native = scValToNative(sim.result.retval) as Uint8Array;
+    return Uint8Array.from(native);
+  } catch {
+    return null;
+  }
+}
+
+export type WithdrawProof = {
+  proofA: Uint8Array;
+  proofB: Uint8Array;
+  proofC: Uint8Array;
+  withdrawnValue: bigint;
+  stateRoot: Uint8Array;
+  aspRoot: Uint8Array;
+  nullifierHash: Uint8Array;
+  newCommitment: Uint8Array;
+};
+
+/** keccak256(recipient_xdr ∥ withdrawn(16) ∥ fee(16) ∥ relayer_xdr ∥ scope(8)) mod r. */
+export function computeContext(
+  recipient: string,
+  withdrawn: bigint,
+  fee: bigint,
+  relayer: string,
+  scope: number,
+): bigint {
+  const recXdr = new Uint8Array(new Address(recipient).toScVal().toXDR());
+  const relXdr = new Uint8Array(new Address(relayer).toScVal().toXDR());
+  const parts = [recXdr, beBytes(withdrawn, 16), beBytes(fee, 16), relXdr, beBytes(BigInt(scope), 8)];
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const preimage = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) {
+    preimage.set(p, o);
+    o += p.length;
+  }
+  const digest = keccak_256(preimage);
+  let v = 0n;
+  for (const b of digest) v = (v << 8n) + BigInt(b);
+  return v % BN254_R;
+}
+
+function serializeProof(proof: { pi_a: string[]; pi_b: string[][]; pi_c: string[] }): {
+  a: Uint8Array;
+  b: Uint8Array;
+  c: Uint8Array;
+} {
+  const a = new Uint8Array(64);
+  a.set(toBE32(BigInt(proof.pi_a[0])), 0);
+  a.set(toBE32(BigInt(proof.pi_a[1])), 32);
+  const b = new Uint8Array(128);
+  const flat = proof.pi_b.slice(0, 2).flatMap((p) => [BigInt(p[1]), BigInt(p[0])]);
+  for (let i = 0; i < 4; i++) b.set(toBE32(flat[i]), i * 32);
+  const c = new Uint8Array(64);
+  c.set(toBE32(BigInt(proof.pi_c[0])), 0);
+  c.set(toBE32(BigInt(proof.pi_c[1])), 32);
+  return { a, b, c };
+}
+
+export type ProofProgress = (stage: string) => void;
+
+/**
+ * Generate a full-withdrawal proof for `note`, paying `recipient` (minus `fee` to
+ * `relayer`). `caller` is the source account used for read-only simulations.
+ */
+export async function generateWithdrawProof(opts: {
+  note: PoolNote;
+  recipient: string;
+  fee: bigint;
+  relayer: string;
+  caller: string;
+  onProgress?: ProofProgress;
+}): Promise<WithdrawProof> {
+  const cfg = getPoolConfig();
+  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  const { note } = opts;
+  const value = BigInt(note.value);
+  const withdrawnValue = value; // full withdrawal
+  const remainder = 0n;
+  opts.onProgress?.("reading-chain");
+
+  const poseidon = await getPoseidon();
+  const h = (xs: bigint[]) => hashFields(poseidon as never, xs);
+
+  // Reconstruct trees from on-chain events.
+  const { stateLeaves, depositIndices } = await readPoolEvents(cfg.poolId);
+  const label = h([BigInt(cfg.scope), BigInt(note.leafIndex)]);
+  const aspLeaves = depositIndices.map((i) => h([BigInt(cfg.scope), BigInt(i)]));
+  const aspLeafIndex = depositIndices.indexOf(note.leafIndex);
+  if (aspLeafIndex < 0) throw new Error("Your deposit is not yet indexed on-chain. Try again shortly.");
+
+  const stateTree = new MerkleTree(poseidon as never, stateLeaves);
+  const aspTree = new MerkleTree(poseidon as never, aspLeaves);
+  const statePath = stateTree.proof(note.leafIndex);
+  const aspPath = aspTree.proof(aspLeafIndex);
+
+  // Use the PUBLISHED roots; they must equal our reconstruction or the contract rejects.
+  opts.onProgress?.("checking-roots");
+  const publishedState = await latestRoot(cfg.poolId, opts.caller, true);
+  const publishedAsp = await latestRoot(cfg.poolId, opts.caller, false);
+  if (!publishedState || !publishedAsp) {
+    throw new Error("No published pool roots yet — the ASP indexer must publish first.");
+  }
+  const reconStateRoot = toBE32(stateTree.root());
+  const reconAspRoot = toBE32(aspTree.root());
+  const eq = (x: Uint8Array, y: Uint8Array) => x.length === y.length && x.every((b, i) => b === y[i]);
+  if (!eq(reconStateRoot, publishedState) || !eq(reconAspRoot, publishedAsp)) {
+    throw new Error(
+      "Published roots don't yet cover your deposit (ASP indexer is behind). Try again shortly.",
+    );
+  }
+
+  // Throwaway change commitment (remainder = 0 in v1).
+  const change = newNoteSecrets();
+  const newPrecommit = h([BigInt(change.nullifier), BigInt(change.secret)]);
+  const newCommitment = h([remainder, label, newPrecommit]);
+  const nullifierHash = h([BigInt(note.nullifier)]);
+  const context = computeContext(opts.recipient, withdrawnValue, opts.fee, opts.relayer, cfg.scope);
+
+  const input = {
+    withdrawnValue: withdrawnValue.toString(),
+    stateRoot: stateTree.root().toString(),
+    aspRoot: aspTree.root().toString(),
+    nullifierHash: nullifierHash.toString(),
+    newCommitment: newCommitment.toString(),
+    context: context.toString(),
+    value: value.toString(),
+    label: label.toString(),
+    nullifier: note.nullifier,
+    secret: note.secret,
+    newNullifier: change.nullifier,
+    newSecret: change.secret,
+    stateSiblings: statePath.siblings.map((x) => x.toString()),
+    stateIndex: statePath.indices.map((x) => x.toString()),
+    aspSiblings: aspPath.siblings.map((x) => x.toString()),
+    aspIndex: aspPath.indices.map((x) => x.toString()),
+  };
+
+  opts.onProgress?.("proving");
+  const { proof } = await snarkjs.groth16.fullProve(input, WASM_PATH, ZKEY_PATH);
+  const { a, b, c } = serializeProof(proof);
+
+  return {
+    proofA: a,
+    proofB: b,
+    proofC: c,
+    withdrawnValue,
+    stateRoot: publishedState,
+    aspRoot: publishedAsp,
+    nullifierHash: toBE32(nullifierHash),
+    newCommitment: toBE32(newCommitment),
+  };
+}
+
+/** Latest published state/ASP roots (hex) for status display; null if absent. */
+export async function fetchPoolRoots(
+  caller: string,
+): Promise<{ stateRoot: string | null; aspRoot: string | null }> {
+  const cfg = getPoolConfig();
+  if (!cfg) return { stateRoot: null, aspRoot: null };
+  const toHex = (u: Uint8Array | null) =>
+    u ? "0x" + Array.from(u).map((x) => x.toString(16).padStart(2, "0")).join("") : null;
+  const [s, a] = await Promise.all([
+    latestRoot(cfg.poolId, caller, true),
+    latestRoot(cfg.poolId, caller, false),
+  ]);
+  return { stateRoot: toHex(s), aspRoot: toHex(a) };
+}
+
+/** Read the next deposit leaf index (the value `deposit` will assign). */
+export async function fetchNextLeafIndex(caller: string): Promise<number> {
+  const cfg = getPoolConfig();
+  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  const server = getSorobanServer();
+  const source = await server.getAccount(caller);
+  const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: getNetworkPassphrase() })
+    .addOperation(new Contract(cfg.poolId).call("get_deposit_count"))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) {
+    throw new Error("Could not read pool deposit count.");
+  }
+  return Number(scValToNative(sim.result.retval));
+}
+
+/** Native pool balance (stroops) via the SAC `balance` view. */
+export async function fetchPoolBalance(caller: string): Promise<bigint> {
+  const cfg = getPoolConfig();
+  if (!cfg) return 0n;
+  const server = getSorobanServer();
+  const source = await server.getAccount(caller);
+  const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: getNetworkPassphrase() })
+    .addOperation(new Contract(cfg.nativeSac).call("balance", nativeToScVal(cfg.poolId, { type: "address" })))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) return 0n;
+  return BigInt(scValToNative(sim.result.retval) as bigint);
+}

@@ -16,7 +16,9 @@ export type Tab =
   | "schemas"
   | "attest"
   | "my-traits"
-  | "manage";
+  | "manage"
+  // Phase 5
+  | "pool";
 
 type LayoutProps = {
   tab: Tab;
@@ -136,6 +138,7 @@ function DesktopNav({
                 <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl border border-ink-700 bg-ink-900/95 py-1.5 shadow-2xl backdrop-blur-lg z-30">
                   {([
                     { id: "balance" as Tab, label: "Private balance" },
+                    ...(isTabNavVisible("pool") ? [{ id: "pool" as Tab, label: "Privacy pool" }] : []),
                     { id: "history" as Tab, label: "Transaction history" },
                     ...(isTabNavVisible("manage") ? [{ id: "manage" as Tab, label: "Manage" }] : []),
                     { id: "profile" as Tab, label: "Profile" },

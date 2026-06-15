@@ -30,6 +30,7 @@ const SchemaStudio = lazy(() => import("./components/SchemaStudio").then((m) => 
 const AttestationManager = lazy(() => import("./components/AttestationManager").then((m) => ({ default: m.AttestationManager })));
 const MyTraitsView = lazy(() => import("./components/MyTraitsView").then((m) => ({ default: m.MyTraitsView })));
 const ManageView = lazy(() => import("./components/ManageView").then((m) => ({ default: m.ManageView })));
+const PoolView = lazy(() => import("./components/PoolView").then((m) => ({ default: m.PoolView })));
 
 function LazyFallback() {
   return (
@@ -110,7 +111,11 @@ function AppContent() {
     const access = getTabAccess(tab);
     if (access === "hidden") {
       const hiddenFeature =
-        tab === "schemas" || tab === "attest" ? "schemaManagement" : "reputationProofs";
+        tab === "pool"
+          ? "privacyPool"
+          : tab === "schemas" || tab === "attest"
+            ? "schemaManagement"
+            : "reputationProofs";
       return (
         <div className="max-w-lg mx-auto py-8">
           <FeatureDisabledNotice feature={hiddenFeature} />
@@ -149,6 +154,13 @@ function AppContent() {
       return (
         <Suspense fallback={<LazyFallback />}>
           <ManageView onNavigate={setTab} readOnly={access === "readonly"} />
+        </Suspense>
+      );
+    }
+    if (tab === "pool") {
+      return (
+        <Suspense fallback={<LazyFallback />}>
+          <PoolView onNavigate={setTab} readOnly={access === "readonly"} />
         </Suspense>
       );
     }

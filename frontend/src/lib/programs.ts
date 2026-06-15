@@ -187,6 +187,112 @@ export async function invokeVerifyProofV2(opts: {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Privacy pool (Phase 5)
+// ---------------------------------------------------------------------------
+
+import { getPoolConfig } from "../contracts/poolConfig";
+
+function requirePoolId(): string {
+  const cfg = getPoolConfig();
+  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  return cfg.poolId;
+}
+
+/** Deposit `value` stroops under a precomputed `commitment` at `expectedIndex`. */
+export async function invokePoolDeposit(opts: {
+  depositor: string;
+  value: bigint;
+  commitment: Uint8Array;
+  expectedIndex: number;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.depositor,
+    contractId: requirePoolId(),
+    method: "deposit",
+    args: [
+      nativeToScVal(opts.depositor, { type: "address" }),
+      nativeToScVal(opts.value, { type: "i128" }),
+      bytesToScVal(opts.commitment),
+      nativeToScVal(BigInt(opts.expectedIndex), { type: "u64" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+/** Withdraw `withdrawnValue` to `recipient` (minus `fee` to `relayer`) with a v3 proof. */
+export async function invokePoolWithdraw(opts: {
+  caller: string;
+  proofA: Uint8Array;
+  proofB: Uint8Array;
+  proofC: Uint8Array;
+  withdrawnValue: bigint;
+  stateRoot: Uint8Array;
+  aspRoot: Uint8Array;
+  nullifierHash: Uint8Array;
+  newCommitment: Uint8Array;
+  recipient: string;
+  fee: bigint;
+  relayer: string;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.caller,
+    contractId: requirePoolId(),
+    method: "withdraw",
+    args: [
+      bytesToScVal(opts.proofA),
+      bytesToScVal(opts.proofB),
+      bytesToScVal(opts.proofC),
+      nativeToScVal(opts.withdrawnValue, { type: "i128" }),
+      bytesToScVal(opts.stateRoot),
+      bytesToScVal(opts.aspRoot),
+      bytesToScVal(opts.nullifierHash),
+      bytesToScVal(opts.newCommitment),
+      nativeToScVal(opts.recipient, { type: "address" }),
+      nativeToScVal(opts.fee, { type: "i128" }),
+      nativeToScVal(opts.relayer, { type: "address" }),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+/** Publish a tree root (admin only). `kind` selects state vs ASP root. */
+export async function invokePoolRoot(opts: {
+  admin: string;
+  kind: "state" | "asp";
+  root: Uint8Array;
+  datasetHash: Uint8Array;
+  signTransaction: SignTxFn;
+}): Promise<string> {
+  return invokeContractMethod({
+    sourcePublicKey: opts.admin,
+    contractId: requirePoolId(),
+    method: opts.kind === "state" ? "update_state_root" : "update_asp_root",
+    args: [
+      nativeToScVal(opts.admin, { type: "address" }),
+      bytesToScVal(opts.root),
+      bytesToScVal(opts.datasetHash),
+    ],
+    signTransaction: opts.signTransaction,
+  });
+}
+
+export const invokeUpdateAspRoot = (opts: {
+  admin: string;
+  root: Uint8Array;
+  datasetHash: Uint8Array;
+  signTransaction: SignTxFn;
+}) => invokePoolRoot({ ...opts, kind: "asp" });
+
+export const invokeUpdateStateRoot = (opts: {
+  admin: string;
+  root: Uint8Array;
+  datasetHash: Uint8Array;
+  signTransaction: SignTxFn;
+}) => invokePoolRoot({ ...opts, kind: "state" });
+
 export { hexToBytes } from "./stealth";
 
 export const SCHEMA_REGISTRY_PROGRAM_ID = SCHEMA_REGISTRY_CONTRACT_ID;

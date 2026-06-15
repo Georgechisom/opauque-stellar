@@ -42,6 +42,7 @@ const ACTION_CARDS: {
 
 const QUICK_LINKS: { id: Tab; label: string }[] = [
   { id: "balance" as Tab, label: "Private balance" },
+  { id: "pool" as Tab, label: "Privacy pool" },
   { id: "history" as Tab, label: "History" },
   { id: "reputation" as Tab, label: "My Traits" },
   { id: "manage" as Tab, label: "Manage" },

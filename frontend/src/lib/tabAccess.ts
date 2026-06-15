@@ -15,6 +15,8 @@ export function getTabAccess(tab: Tab): TabAccess {
       return flags.schemaManagement ? "full" : "hidden";
     case "manage":
       return flags.schemaManagement ? "full" : "readonly";
+    case "pool":
+      return flags.privacyPool ? "full" : "hidden";
     default:
       return "full";
   }

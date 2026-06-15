@@ -11,6 +11,7 @@ export type FeatureFlagKey =
   | "manualGhostAddresses"
   | "reputationProofs"
   | "schemaManagement"
+  | "privacyPool"
   | "demoVerifierLinks"
   | "debugLogs";
 
@@ -21,6 +22,7 @@ export const FEATURE_FLAG_ENV: Record<FeatureFlagKey, string> = {
   manualGhostAddresses: "VITE_FEATURE_MANUAL_GHOST",
   reputationProofs: "VITE_FEATURE_REPUTATION_PROOFS",
   schemaManagement: "VITE_FEATURE_SCHEMA_MANAGEMENT",
+  privacyPool: "VITE_FEATURE_PRIVACY_POOL",
   demoVerifierLinks: "VITE_FEATURE_DEMO_VERIFIER_LINKS",
   debugLogs: "VITE_FEATURE_DEBUG_LOGS",
 };
@@ -93,6 +95,12 @@ export function buildFeatureFlags(opts: {
       env[FEATURE_FLAG_ENV.schemaManagement],
       isDev,
     ),
+    privacyPool: resolveFeatureFlag(
+      FEATURE_FLAG_ENV.privacyPool,
+      network,
+      env[FEATURE_FLAG_ENV.privacyPool],
+      isDev,
+    ),
     demoVerifierLinks: resolveFeatureFlag(
       FEATURE_FLAG_ENV.demoVerifierLinks,
       network,
@@ -156,6 +164,7 @@ export const FEATURE_LABELS: Record<FeatureFlagKey, string> = {
   manualGhostAddresses: "Manual ghost addresses",
   reputationProofs: "Reputation proofs (V2)",
   schemaManagement: "Schema & attestation management",
+  privacyPool: "Privacy pool (shielded XLM)",
   demoVerifierLinks: "Demo verifier links",
   debugLogs: "Protocol debug logs",
 };
