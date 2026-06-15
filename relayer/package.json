@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "hub": "tsx scripts/hub.ts",
     "relayer": "tsx scripts/relayer.ts",
     "smoke:market": "tsx scripts/smoke-market.ts"
   },
