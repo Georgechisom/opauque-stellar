@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { createRelayerHttpServer } from "../src/http.ts";
 import { RelayerEngine } from "../src/engine.ts";
+import { MemoryGossipTransport } from "../src/gossip.ts";
+import { RelayerHub, attachRelayerEngineToGossip } from "../src/hub.ts";
 import { StellarRelayerChain } from "../src/chains/stellar.ts";
 import { generateX25519Keypair } from "../src/shared/box.ts";
 import { bytesToHex, hexToBytes } from "../src/shared/bytes.ts";
@@ -71,7 +73,12 @@ const engine = new RelayerEngine({
   chain,
 });
 
-const server: ReturnType<typeof createServer> = createRelayerHttpServer(engine);
+const transport = new MemoryGossipTransport();
+const hub = new RelayerHub(transport);
+await hub.start();
+await attachRelayerEngineToGossip(engine, transport);
+
+const server: ReturnType<typeof createServer> = createRelayerHttpServer(hub);
 server.listen(port, () => {
   console.log(`Opaque relayer gateway listening on ${endpoint}`);
   console.log(`operator=${operator.publicKey()}`);

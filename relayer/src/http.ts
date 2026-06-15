@@ -1,6 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { RelayerEngine } from "./engine.ts";
-import { validateAdvert, validatePayload, type RelayerBid } from "./messages.ts";
+import { validateAdvert, validatePayload, type EncryptedPayload, type JobAdvert, type RelayerBid } from "./messages.ts";
+
+export type RelayerHttpBackend = {
+  readonly stats: unknown;
+  bidsFor(jobId: string): RelayerBid[];
+  handleAdvert(advert: JobAdvert): Promise<RelayerBid | null> | Promise<null>;
+  handlePayload(payload: EncryptedPayload): Promise<{ acceptedTx: string; submittedTx: string } | null> | Promise<null>;
+};
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = [];
@@ -21,7 +27,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export function createRelayerHttpServer(engine: RelayerEngine) {
+export function createRelayerHttpServer(backend: RelayerHttpBackend) {
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -31,13 +37,13 @@ export function createRelayerHttpServer(engine: RelayerEngine) {
       }
       if (req.method === "POST" && url.pathname === "/v1/jobs") {
         const advert = validateAdvert(await readJson(req));
-        const bid = await engine.handleAdvert(advert);
+        const bid = await backend.handleAdvert(advert);
         send(res, 202, { ok: true, bid });
         return;
       }
       const bidMatch = /^\/v1\/jobs\/([^/]+)\/bids$/.exec(url.pathname);
       if (req.method === "GET" && bidMatch) {
-        const bids: RelayerBid[] = engine.bidsFor(decodeURIComponent(bidMatch[1]));
+        const bids: RelayerBid[] = backend.bidsFor(decodeURIComponent(bidMatch[1]));
         send(res, 200, { bids });
         return;
       }
@@ -48,12 +54,12 @@ export function createRelayerHttpServer(engine: RelayerEngine) {
           send(res, 400, { error: "jobId mismatch" });
           return;
         }
-        const result = await engine.handlePayload(payload);
+        const result = await backend.handlePayload(payload);
         send(res, 202, { ok: true, result });
         return;
       }
       if (req.method === "GET" && url.pathname === "/health") {
-        send(res, 200, { ok: true, stats: engine.stats });
+        send(res, 200, { ok: true, stats: backend.stats });
         return;
       }
       send(res, 404, { error: "not found" });

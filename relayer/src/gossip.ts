@@ -1,6 +1,6 @@
 import type { RelayerMessage } from "./messages.ts";
 
-export const GOSSIP_TOPIC = "opaque/jobs/v1";
+export const GOSSIP_TOPIC = "opaque/stellar/jobs/v1";
 
 export interface GossipTransport {
   publish(message: RelayerMessage): Promise<void>;

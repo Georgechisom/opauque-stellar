@@ -1,5 +1,6 @@
 export * from "./engine.ts";
 export * from "./gossip.ts";
+export * from "./hub.ts";
 export * from "./http.ts";
 export * from "./messages.ts";
 export * from "./chains/stellar.ts";

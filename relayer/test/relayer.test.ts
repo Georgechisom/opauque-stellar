@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import { createRelayerHttpServer } from "../src/http.ts";
 import { RelayerEngine, type RelayerChainAdapter, type OnChainJob, type OnChainRelayer } from "../src/engine.ts";
+import { MemoryGossipTransport } from "../src/gossip.ts";
+import { RelayerHub, attachRelayerEngineToGossip } from "../src/hub.ts";
 import { generateX25519Keypair, openBox, sealBox } from "../src/shared/box.ts";
 import { bytesToHex, hexToBytes } from "../src/shared/bytes.ts";
 import {
@@ -9,7 +11,7 @@ import {
   hashPoolWithdrawPayloadHex,
   type PoolWithdrawPayload,
 } from "../src/shared/payload.ts";
-import { makeAdvert, verifyBid } from "../src/messages.ts";
+import { makeAdvert, verifyBid, type RelayerBid } from "../src/messages.ts";
 
 const ACCOUNT_A = "GABTYFQAXDR724JAJSNZVUH56T62JJ7CLWT6YL56ME7OPA4DIIMAMOI6";
 const ACCOUNT_B = "GDKPRDH3AGALVIZ3OX5LJGNIXZOWUBCIX5HA36YXOSQOGEZLDCJOSGDR";
@@ -233,5 +235,50 @@ describe("relayer HTTP gateway", () => {
     expect(listed.status).toBe(200);
     const body = (await listed.json()) as { bids: unknown[] };
     expect(body.bids).toHaveLength(1);
+  });
+
+  it("bridges gateway adverts and bids through gossip transport", async () => {
+    const operator = Keypair.random();
+    const x25519 = generateX25519Keypair();
+    const p = payload(operator.publicKey());
+    const advert = makeAdvert({
+      jobId: bytes(32, 0x16),
+      fee: 100n,
+      deadline: 150,
+      payloadHash: hexToBytes(hashPoolWithdrawPayloadHex(p)),
+    });
+    const chain = new FakeChain(advert.payloadHash, bytesToHex(x25519.publicKey));
+    const engine = new RelayerEngine({
+      operator,
+      x25519PublicKey: x25519.publicKey,
+      x25519SecretKey: x25519.secretKey,
+      minFee: 1n,
+      chain,
+    });
+    const transport = new MemoryGossipTransport();
+    const hub = new RelayerHub(transport);
+    await hub.start();
+    await attachRelayerEngineToGossip(engine, transport);
+
+    const server = createRelayerHttpServer(hub);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup = async () => {
+      await transport.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    };
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No server port.");
+    const base = `http://127.0.0.1:${address.port}`;
+
+    const post = await fetch(`${base}/v1/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(advert),
+    });
+    expect(post.status).toBe(202);
+    const listed = await fetch(`${base}/v1/jobs/${encodeURIComponent(advert.jobId)}/bids`);
+    const body = (await listed.json()) as { bids: unknown[] };
+    expect(body.bids).toHaveLength(1);
+    expect(verifyBid(body.bids[0] as RelayerBid)).toBe(true);
   });
 });
