@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { createRelayerHttpServer } from "../src/http.ts";
 import { RelayerEngine } from "../src/engine.ts";
-import { MemoryGossipTransport } from "../src/gossip.ts";
+import { HttpGossipTransport, MemoryGossipTransport } from "../src/gossip.ts";
 import { RelayerHub, attachRelayerEngineToGossip } from "../src/hub.ts";
 import { StellarRelayerChain } from "../src/chains/stellar.ts";
 import { generateX25519Keypair } from "../src/shared/box.ts";
@@ -73,15 +73,26 @@ const engine = new RelayerEngine({
   chain,
 });
 
-const transport = new MemoryGossipTransport();
-const hub = new RelayerHub(transport);
-await hub.start();
-await attachRelayerEngineToGossip(engine, transport);
+const hubUrl = process.env.RELAYER_HUB_URL?.trim();
 
-const server: ReturnType<typeof createServer> = createRelayerHttpServer(hub);
-server.listen(port, () => {
-  console.log(`Opaque relayer gateway listening on ${endpoint}`);
+if (hubUrl) {
+  const transport = new HttpGossipTransport(hubUrl);
+  await attachRelayerEngineToGossip(engine, transport);
+  console.log(`Opaque relayer connected to hub ${hubUrl}`);
   console.log(`operator=${operator.publicKey()}`);
   console.log(`x25519=${bytesToHex(x25519.publicKey)}`);
   console.log(`registry=${registryId}`);
-});
+} else {
+  const transport = new MemoryGossipTransport();
+  const hub = new RelayerHub(transport);
+  await hub.start();
+  await attachRelayerEngineToGossip(engine, transport);
+
+  const server: ReturnType<typeof createServer> = createRelayerHttpServer(hub);
+  server.listen(port, () => {
+    console.log(`Opaque relayer gateway listening on ${endpoint}`);
+    console.log(`operator=${operator.publicKey()}`);
+    console.log(`x25519=${bytesToHex(x25519.publicKey)}`);
+    console.log(`registry=${registryId}`);
+  });
+}
