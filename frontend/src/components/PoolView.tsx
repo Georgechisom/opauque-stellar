@@ -5,6 +5,11 @@ import { useWallet } from "../hooks/useWallet";
 import { useToast } from "../context/ToastContext";
 import { usePoolNoteStore } from "../store/poolNoteStore";
 import { getPoolConfig } from "../contracts/poolConfig";
+import {
+  buildEncryptedPoolNoteBackup,
+  downloadBlob,
+  poolNoteBackupFilename,
+} from "../lib/poolNoteBackup";
 import { deriveDeposit, newNoteSecrets, toHex32, unspentTotal, type PoolNote } from "../lib/poolNotes";
 import { invokePoolDeposit, invokePoolWithdraw } from "../lib/programs";
 import {
@@ -63,6 +68,12 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [recipient, setRecipient] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [backupPin, setBackupPin] = useState("");
+  const [backupConfirm, setBackupConfirm] = useState("");
+  const [backupAcknowledged, setBackupAcknowledged] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
   const [poolBalance, setPoolBalance] = useState<bigint | null>(null);
   const [roots, setRoots] = useState<{ stateRoot: string | null; aspRoot: string | null } | null>(null);
 
@@ -83,6 +94,24 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   useEffect(() => {
     void refreshChain();
   }, [refreshChain]);
+
+  const closeBackupDialog = useCallback(() => {
+    if (backupBusy) return;
+    setBackupOpen(false);
+    setBackupPin("");
+    setBackupConfirm("");
+    setBackupAcknowledged(false);
+    setBackupError(null);
+  }, [backupBusy]);
+
+  useEffect(() => {
+    if (!backupOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeBackupDialog();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [backupOpen, closeBackupDialog]);
 
   const handleDeposit = useCallback(async () => {
     if (!cfg || !publicKey || !signTransaction) return;
@@ -182,6 +211,56 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     }
   }, [cfg, publicKey, signTransaction, unspent, selected, recipient, cluster, markSpent, showToast, refreshChain]);
 
+  const handleBackupSubmit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setBackupError(null);
+      if (!cfg) return;
+      if (clusterNotes.length === 0) {
+        setBackupError("There are no pool notes to back up.");
+        return;
+      }
+      if (!backupAcknowledged) {
+        setBackupError("Acknowledge the privacy risk before downloading a backup.");
+        return;
+      }
+      if (!/^\d{6,12}$/.test(backupPin)) {
+        setBackupError("Use a 6-12 digit PIN.");
+        return;
+      }
+      if (backupPin !== backupConfirm) {
+        setBackupError("PINs do not match.");
+        return;
+      }
+      setBackupBusy(true);
+      try {
+        const blob = await buildEncryptedPoolNoteBackup({
+          notes: clusterNotes,
+          pin: backupPin,
+          cluster,
+          poolId: cfg.poolId,
+        });
+        downloadBlob(blob, poolNoteBackupFilename());
+        showToast(`Encrypted backup downloaded with ${clusterNotes.length} note(s).`);
+        closeBackupDialog();
+      } catch (e) {
+        setBackupError((e as Error).message || "Could not create backup.");
+      } finally {
+        setBackupBusy(false);
+      }
+    },
+    [
+      backupAcknowledged,
+      backupConfirm,
+      backupPin,
+      cfg,
+      closeBackupDialog,
+      cluster,
+      clusterNotes,
+      showToast,
+    ],
+  );
+
   if (!cfg) {
     return (
       <div className="max-w-lg mx-auto py-10 text-center">
@@ -207,6 +286,17 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
           <div className="text-xs uppercase tracking-wide text-mist/70">Your shielded balance</div>
           <div className="mt-1 text-2xl font-bold text-white">{formatXlm(unspentTotal(unspent))} XLM</div>
           <div className="mt-1 text-xs text-mist/60">{unspent.length} unspent note(s)</div>
+          <button
+            type="button"
+            onClick={() => {
+              setBackupError(null);
+              setBackupOpen(true);
+            }}
+            disabled={clusterNotes.length === 0 || backupBusy}
+            className="mt-4 min-h-10 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Download backup
+          </button>
         </div>
         <div className={card}>
           <div className="text-xs uppercase tracking-wide text-mist/70">Pool TVL (on-chain)</div>
@@ -307,6 +397,121 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
           </div>
         )}
       </div>
+
+      {backupOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pool-note-backup-title"
+        >
+          <form
+            onSubmit={handleBackupSubmit}
+            className="w-full max-w-lg rounded-2xl border border-ink-700 bg-ink-950 p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="pool-note-backup-title" className="text-lg font-semibold text-white">
+                  Back up pool notes
+                </h2>
+                <p className="mt-1 text-sm text-mist/70">
+                  This backup contains encrypted spending material for {clusterNotes.length} note(s).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeBackupDialog}
+                disabled={backupBusy}
+                aria-label="Close backup dialog"
+                className="min-h-10 min-w-10 rounded-xl border border-ink-700 text-mist transition-colors hover:border-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
+              Anyone with the decrypted notes can withdraw the matching pool funds. Store the ZIP and
+              PIN separately. If you lose the PIN, this backup cannot be recovered.
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <label className="flex items-start gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-sm text-mist">
+                <input
+                  type="checkbox"
+                  checked={backupAcknowledged}
+                  onChange={(e) => setBackupAcknowledged(e.target.checked)}
+                  className="mt-1 accent-glow"
+                />
+                <span>I understand this backup protects funds and must be kept private.</span>
+              </label>
+
+              <div className="space-y-1.5">
+                <label htmlFor="pool-backup-pin" className="block text-sm font-medium text-white">
+                  Backup PIN
+                </label>
+                <input
+                  id="pool-backup-pin"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  value={backupPin}
+                  onChange={(e) => setBackupPin(e.target.value)}
+                  disabled={backupBusy}
+                  aria-invalid={backupError ? "true" : undefined}
+                  aria-describedby={backupError ? "pool-backup-error" : "pool-backup-pin-help"}
+                  className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-white placeholder:text-mist/40 focus:border-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:opacity-50"
+                />
+                <p id="pool-backup-pin-help" className="text-xs text-mist/60">
+                  Use 6-12 digits. This PIN encrypts the note JSON inside the ZIP.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="pool-backup-pin-confirm" className="block text-sm font-medium text-white">
+                  Confirm PIN
+                </label>
+                <input
+                  id="pool-backup-pin-confirm"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  value={backupConfirm}
+                  onChange={(e) => setBackupConfirm(e.target.value)}
+                  disabled={backupBusy}
+                  aria-invalid={backupError ? "true" : undefined}
+                  aria-describedby={backupError ? "pool-backup-error" : undefined}
+                  className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-white placeholder:text-mist/40 focus:border-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:opacity-50"
+                />
+              </div>
+
+              {backupError && (
+                <p id="pool-backup-error" className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">
+                  {backupError}
+                </p>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeBackupDialog}
+                disabled={backupBusy}
+                className="min-h-10 rounded-xl border border-ink-700 px-4 py-2 text-sm font-medium text-mist transition-colors hover:border-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={backupBusy}
+                aria-busy={backupBusy ? "true" : undefined}
+                className="min-h-10 rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {backupBusy ? "Encrypting…" : "Download encrypted ZIP"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

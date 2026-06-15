@@ -10,13 +10,13 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-function randomBytes(length: number): Uint8Array {
-  const out = new Uint8Array(length);
+function randomBytes(length: number): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(length));
   crypto.getRandomValues(out);
   return out;
 }
 
-async function deriveBackupKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveBackupKey(pin: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(pin),
