@@ -27,13 +27,22 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@wasm': path.resolve(__dirname, 'public/pkg'),
-      '@deployments': path.resolve(__dirname, '../deployments'),
-      '@relayer': path.resolve(__dirname, '../relayer/src'),
-      buffer: 'buffer',
-      process: 'process/browser',
-    },
+    alias: [
+      { find: '@wasm', replacement: path.resolve(__dirname, 'public/pkg') },
+      { find: '@deployments', replacement: path.resolve(__dirname, '../deployments') },
+      { find: '@relayer', replacement: path.resolve(__dirname, '../relayer/src') },
+      {
+        find: '@stellar/stellar-sdk',
+        replacement: path.resolve(__dirname, 'node_modules/@stellar/stellar-sdk'),
+      },
+      { find: '@noble/hashes', replacement: path.resolve(__dirname, 'node_modules/@noble/hashes') },
+      { find: 'tweetnacl', replacement: path.resolve(__dirname, 'node_modules/tweetnacl') },
+      { find: /^buffer$/, replacement: path.resolve(__dirname, 'node_modules/buffer/index.js') },
+      {
+        find: /^process\/browser$/,
+        replacement: path.resolve(__dirname, 'node_modules/process/browser.js'),
+      },
+    ],
   },
   server: {
     fs: {

@@ -7,7 +7,11 @@
       "@wasm/*": ["public/pkg/*"],
       "@deployments": ["../deployments/index.ts"],
       "@deployments/*": ["../deployments/*"],
-      "@relayer/*": ["../relayer/src/*"]
+      "@relayer/*": ["../relayer/src/*"],
+      "@stellar/stellar-sdk": ["node_modules/@stellar/stellar-sdk"],
+      "@noble/hashes/*": ["node_modules/@noble/hashes/*"],
+      "tweetnacl": ["node_modules/tweetnacl"],
+      "buffer": ["node_modules/buffer"]
     },
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
