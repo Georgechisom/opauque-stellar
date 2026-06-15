@@ -26,8 +26,9 @@ const MANIFEST_PATH = join(REPO_ROOT, "artifacts", "manifest.json");
 
 function parseArgs(argv) {
   const opts = {
-    // V2 is canonical; V1 is retired from the default run (still runnable via --version v1).
-    versions: ["v2"],
+    // V2 (reputation) is canonical and V3 (privacy pool) ships alongside it; both run by
+    // default. V1 is retired (still runnable via --version v1).
+    versions: ["v2", "v3"],
     compile: false,
     witnessOnly: false,
     full: true,

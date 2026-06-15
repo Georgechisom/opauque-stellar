@@ -99,6 +99,20 @@ async function main() {
       },
     );
   }
+  if (files.v3_zkey) {
+    jobs.push(
+      {
+        url: `${base}/${files.v3_zkey}`,
+        destPath: manifest.circuits.v3.frontend.zkey.path,
+        expectedHash: manifest.circuits.v3.frontend.zkey.sha256,
+      },
+      {
+        url: `${base}/${files.v3_witness_wasm}`,
+        destPath: manifest.circuits.v3.frontend.witnessWasm.path,
+        expectedHash: manifest.circuits.v3.frontend.witnessWasm.sha256,
+      },
+    );
+  }
 
   const missingHashes = jobs.filter((j) => !isSetHash(j.expectedHash));
   if (missingHashes.length > 0) {

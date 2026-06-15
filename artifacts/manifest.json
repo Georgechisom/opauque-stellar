@@ -120,7 +120,9 @@
     "baseUrl": "https://github.com/opaquecash/stellar/releases/download/v1-circuit-artifacts",
     "files": {
       "v2_zkey": "stealth_reputation_final.zkey",
-      "v2_witness_wasm": "stealth_reputation.wasm"
+      "v2_witness_wasm": "stealth_reputation.wasm",
+      "v3_zkey": "privacy_pool_withdraw_final.zkey",
+      "v3_witness_wasm": "privacy_pool_withdraw.wasm"
     }
   }
 }
