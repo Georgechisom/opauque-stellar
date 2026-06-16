@@ -138,7 +138,7 @@ export async function generateReputationProof(
   // Must match circuits/v2/stealth_reputation.circom and contracts/reputation-verifier
   // (verify_proof_v2). The on-chain `nullifier` argument is this nullifier_hash.
   const nullifier = publicSignals[3];
-  const attestationIdFromProof = Number(publicSignals[1]);
+  const attestationIdFromProof = BigInt(publicSignals[1]);
 
   return {
     proof: {
@@ -148,7 +148,7 @@ export async function generateReputationProof(
     },
     publicSignals,
     nullifier,
-    attestationId: Number.isFinite(attestationIdFromProof) ? attestationIdFromProof : trait.attestationId,
+    attestationId: attestationIdFromProof,
   };
 }
 

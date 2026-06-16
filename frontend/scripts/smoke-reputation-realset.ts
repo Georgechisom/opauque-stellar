@@ -118,7 +118,7 @@ async function main() {
   // --- genuine leaf inputs ---
   log("Building a genuine attestation leaf…");
   const stealthPk = fromBE(Keypair.random().rawSecretKey()) % (2n ** 250n); // holder secret scalar
-  const attestationId = 7n; // u64 schema/attestation id (contract carries it as u64)
+  const attestationId = 7n; // schema/attestation id carried as BytesN<32>
   const issuerKp = Keypair.random();
   const issuerPkX = fromBE(issuerKp.rawPublicKey()) % (2n ** 250n); // issuer Ed25519 key as field
   const traitDataHash = hashFields(poseidon, [BigInt("0x" + Buffer.from("KYC:verified").toString("hex"))]);
