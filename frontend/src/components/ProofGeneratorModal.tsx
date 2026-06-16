@@ -9,12 +9,13 @@
 import { useState } from "react";
 import type { V2DiscoveredTrait } from "../store/schemaStore";
 import { useWallet } from "../hooks/useWallet";
-import { invokeVerifyProofV2, hexToBytes, hexPubkeyToBase58 } from "../lib/programs";
+import { hexToBytes, hexPubkeyToBase58 } from "../lib/programs";
 import { useOpaqueWasm } from "../hooks/useOpaqueWasm";
 import { useKeys } from "../context/KeysContext";
 import { getAnnouncementsForCluster } from "../lib/opaqueCache";
 import { getCluster } from "../lib/chain";
-import { fetchLatestValidMerkleRoot } from "../lib/reputationProver";
+import { submitProofOnChain } from "../lib/reputationProver";
+import type { ProofData } from "../lib/reputation";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { getDemoVerifierUrl } from "../lib/featureFlags";
 import { isWasmHtmlFallbackError, publicAssetPath } from "../lib/publicAssets";
@@ -53,16 +54,6 @@ interface GeneratedProof {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function bigIntToBytes32BE(val: bigint): Uint8Array {
-  const bytes = new Uint8Array(32);
-  let n = val;
-  for (let i = 31; i >= 0; i--) {
-    bytes[i] = Number(n & 0xffn);
-    n >>= 8n;
-  }
-  return bytes;
-}
 
 function stringToBigInt(s: string): bigint {
   if (s.startsWith("0x") || s.startsWith("0X")) return BigInt(s);
@@ -303,64 +294,24 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
     setError(null);
 
     try {
-      const piA = proof.proof.pi_a.map((s) => stringToBigInt(s));
-      const piBFlat = proof.proof.pi_b.flatMap((pair) => [
-        stringToBigInt(pair[1]),
-        stringToBigInt(pair[0]),
-      ]);
-      const piC = proof.proof.pi_c.map((s) => stringToBigInt(s));
-
-      const proofA = new Uint8Array(64);
-      proofA.set(bigIntToBytes32BE(piA[0]), 0);
-      proofA.set(bigIntToBytes32BE(piA[1]), 32);
-
-      const proofB = new Uint8Array(128);
-      for (let i = 0; i < 4; i++) {
-        proofB.set(bigIntToBytes32BE(piBFlat[i]), i * 32);
+      if (!signTransaction) {
+        throw new Error("Connect wallet to submit proof on-chain.");
       }
 
-      const proofC = new Uint8Array(64);
-      proofC.set(bigIntToBytes32BE(piC[0]), 0);
-      proofC.set(bigIntToBytes32BE(piC[1]), 32);
+      const proofData: ProofData = {
+        proof: proof.proof,
+        publicSignals: proof.publicSignals,
+        nullifier: proof.nullifierHash,
+        attestationId: stringToBigInt(proof.publicSignals[1]),
+      };
 
-      // Fetch the latest on-chain Merkle root and validate against proof
-      const fetchedRootBytes = await fetchLatestValidMerkleRoot(publicKey);
-      // Convert fetched bytes to bigint for comparison
-      const fetchedRootBigInt = (() => {
-        let v = 0n;
-        for (const b of fetchedRootBytes) {
-          v = (v << 8n) + BigInt(b);
-        }
-        return v;
-      })();
-      const proofRootBigInt = stringToBigInt(proof.publicSignals[0]);
-      if (fetchedRootBigInt !== proofRootBigInt) {
-        setError("Merkle root mismatch: proof does not correspond to current on-chain root.");
-        setStep("error");
-        return;
-      }
-      const merkleRoot = fetchedRootBytes;
-      const attestationId = bigIntToBytes32BE(
-        stringToBigInt(proof.publicSignals[1])
-      );
-      const extNullifier = bigIntToBytes32BE(
-        stringToBigInt(proof.publicSignals[2])
-      );
-      const nullifierHash = bigIntToBytes32BE(
-        stringToBigInt(proof.publicSignals[3])
-      );
-
-      const signature = await invokeVerifyProofV2({
-        caller: publicKey,
-        proofA,
-        proofB,
-        proofC,
-        merkleRoot,
-        attestationId,
-        externalNullifier: extNullifier,
-        nullifierHash,
+      const signature = await submitProofOnChain(
+        proofData,
+        proof.publicSignals[0],
+        proof.publicSignals[2],
         signTransaction,
-      });
+        publicKey,
+      );
 
       setTxSig(signature);
       setStep("verified");
@@ -463,7 +414,7 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
               <span className="h-10 w-10 animate-spin rounded-full border-2 border-ink-600 border-t-white" />
               <p className="text-sm text-mist">Submitting proof on-chain…</p>
               <p className="text-xs text-ink-500 text-center max-w-xs">
-                Calling verify_proof_v2 on the Groth16 Verifier program. Please confirm in your wallet.
+                Calling verify_reputation on the Reputation Verifier program. Please confirm in your wallet.
               </p>
             </div>
           )}

@@ -108,7 +108,7 @@ export interface ProofData {
   };
   publicSignals: string[];
   nullifier: string;
-  attestationId: number;
+  attestationId: number | bigint;
 }
 
 // =============================================================================
