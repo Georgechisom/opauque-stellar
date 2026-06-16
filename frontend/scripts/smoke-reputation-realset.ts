@@ -11,8 +11,8 @@
  * Merkle tree and publishes the root; the holder's witness uses the real inclusion
  * path (proper zero-subtree-hash siblings), so its root equals the published one.
  *
- * The leaf binds the holder's secret stealth_pk + a u64 attestation id (the contract's
- * verify_reputation carries attestation_id as u64), a real issuer Ed25519 key, a nonce,
+ * The leaf binds the holder's secret stealth_pk + schema attestation id, a real
+ * issuer Ed25519 key, a nonce,
  * and trait_data_hash = Poseidon(data). Run:
  *   DEPLOYER_SECRET=$(stellar keys show opaque-deployer) npx tsx scripts/smoke-reputation-realset.ts
  */
@@ -150,7 +150,7 @@ async function main() {
   detail("✓ witness root == published root");
   const verifyArgs = (extNull, nh) => [
     addr(admin.publicKey()), addr(GROTH_ID), bytesScVal(p.proofA), bytesScVal(p.proofB), bytesScVal(p.proofC),
-    bytesScVal(rootBE), u64(attestationId), u64(extNull), bytesScVal(be32(nh)), nativeToScVal(0, { type: "u32" }),
+    bytesScVal(rootBE), bytesScVal(be32(attestationId)), u64(extNull), bytesScVal(be32(nh)), nativeToScVal(0, { type: "u32" }),
   ];
   await verifyReputation(verifyArgs(externalNullifier, p.nullifierHash), "verify_reputation");
   detail("✓ on-chain verification against the indexer-published root succeeded");

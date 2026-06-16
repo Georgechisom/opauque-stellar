@@ -5,8 +5,8 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": 3101499,
-  "deployedAt": "2026-06-15T14:30:19.131Z",
+  "deploymentLedger": 3122092,
+  "deployedAt": "2026-06-16T15:24:31Z",
   "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "multisig": null,
@@ -57,8 +57,8 @@
       "package": "groth16-verifier"
     },
     "reputationVerifier": {
-      "id": "CBHDKX5YVBLFVZUMCM2355Q3R7EM6SIQYMO7PN7TB46QAIT5SDTQZENA",
-      "wasmHash": "78e74e5b7ec8a7e7c8b4da9bb26dfbdba9d1b8e511a10930f3a7c4500807ced9",
+      "id": "CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR",
+      "wasmHash": "bdcc82e743de3bd73567b03438f2f84627158bd1a5832d9de1de718e13a15953",
       "package": "reputation-verifier"
     },
     "schemaRegistry": {

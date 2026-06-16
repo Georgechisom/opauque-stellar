@@ -265,7 +265,7 @@ impl ReputationVerifier {
         proof_b: BytesN<128>,
         proof_c: BytesN<64>,
         root: BytesN<32>,
-        attestation_id: u64,
+        attestation_id: BytesN<32>,
         external_nullifier: u64,
         nullifier: BytesN<32>,
         expiration_ledger: u32,
@@ -302,7 +302,7 @@ impl ReputationVerifier {
         // is the circuit's nullifier_hash = Poseidon(stealth_pk, external_nullifier).
         let public_inputs = VerifyPublicInputsV2 {
             merkle_root: root.clone(),
-            attestation_id: BytesN::from_array(&env, &u64_to_be32(attestation_id)),
+            attestation_id: attestation_id.clone(),
             external_nullifier: BytesN::from_array(&env, &u64_to_be32(external_nullifier)),
             nullifier_hash: nullifier.clone(),
         };
@@ -403,6 +403,10 @@ mod test {
         (env, admin, contract_id, client, mock_id)
     }
 
+    fn attestation_id(env: &Env, val: u64) -> BytesN<32> {
+        BytesN::from_array(env, &u64_to_be32(val))
+    }
+
     #[test]
     fn test_initialize() {
         let (env, admin, _, client) = setup();
@@ -433,7 +437,16 @@ mod test {
         let proof_c = BytesN::from_array(&env, &[0u8; 64]);
 
         client.verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &1u64, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &1u64,
+            &nullifier,
+            &0u32,
         );
     }
 
@@ -489,7 +502,7 @@ mod test {
             &proof_b,
             &proof_c,
             &unknown_root,
-            &1u64,
+            &attestation_id(&env, 1),
             &1u64,
             &nullifier,
             &0u32,
@@ -511,11 +524,29 @@ mod test {
         let proof_c = BytesN::from_array(&env, &[0u8; 64]);
 
         client.verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &1u64, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &1u64,
+            &nullifier,
+            &0u32,
         );
 
         let result = client.try_verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &1u64, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &1u64,
+            &nullifier,
+            &0u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::NullifierUsed)));
     }
@@ -535,7 +566,16 @@ mod test {
 
         env.ledger().set_sequence_number(100);
         let result = client.try_verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &1u64, &nullifier, &50u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &1u64,
+            &nullifier,
+            &50u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::AttestationExpired)));
     }
@@ -561,7 +601,7 @@ mod test {
             &proof_b,
             &proof_c,
             &root,
-            &1u64,
+            &attestation_id(&env, 1),
             &1u64,
             &nullifier,
             &0u32,
@@ -586,12 +626,30 @@ mod test {
         let proof_c = BytesN::from_array(&env, &[0u8; 64]);
 
         client.verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &42u64, &1u64, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 42),
+            &1u64,
+            &nullifier,
+            &0u32,
         );
 
         // 3. Replay with same nullifier — rejected
         let result = client.try_verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &42u64, &1u64, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 42),
+            &1u64,
+            &nullifier,
+            &0u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::NullifierUsed)));
 
@@ -604,7 +662,7 @@ mod test {
             &proof_b,
             &proof_c,
             &root,
-            &42u64,
+            &attestation_id(&env, 42),
             &1u64,
             &nullifier2,
             &0u32,
@@ -677,13 +735,31 @@ mod test {
 
         // First verify with ext1 succeeds
         client.verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &ext1, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &ext1,
+            &nullifier,
+            &0u32,
         );
 
         // Same nullifier hash with different external_nullifier is still rejected —
         // replay protection is per nullifier_hash, not per (ext_nullifier, nullifier_hash) pair.
         let result = client.try_verify_reputation(
-            &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &ext2, &nullifier, &0u32,
+            &user,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &ext2,
+            &nullifier,
+            &0u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::NullifierUsed)));
     }
@@ -710,7 +786,7 @@ mod test {
             &proof_b,
             &proof_c,
             &root,
-            &1u64,
+            &attestation_id(&env, 1),
             &ext,
             &nullifier1,
             &0u32,
@@ -723,7 +799,7 @@ mod test {
             &proof_b,
             &proof_c,
             &root,
-            &1u64,
+            &attestation_id(&env, 1),
             &ext,
             &nullifier2,
             &0u32,
@@ -745,12 +821,30 @@ mod test {
         let ext = compute_external_nullifier(99, 1);
 
         client.verify_reputation(
-            &user1, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &ext, &nullifier, &0u32,
+            &user1,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &ext,
+            &nullifier,
+            &0u32,
         );
 
         // Different user attempting to reuse the same nullifier hash is rejected
         let result = client.try_verify_reputation(
-            &user2, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &ext, &nullifier, &0u32,
+            &user2,
+            &mock_id,
+            &proof_a,
+            &proof_b,
+            &proof_c,
+            &root,
+            &attestation_id(&env, 1),
+            &ext,
+            &nullifier,
+            &0u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::NullifierUsed)));
     }
@@ -800,7 +894,7 @@ mod test {
             &BytesN::from_array(&env, &[0u8; 128]),
             &BytesN::from_array(&env, &[0u8; 64]),
             &root,
-            &1u64,
+            &attestation_id(&env, 1),
             &1u64,
             &nullifier,
             &0u32,

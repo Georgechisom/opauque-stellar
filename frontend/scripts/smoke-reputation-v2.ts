@@ -101,7 +101,7 @@ async function invoke(method, args, label) {
 async function buildProof(poseidon) {
   const F = poseidon.F;
   const stealth_pk = 12345678901234567890n;
-  const schema_id = 42n; // == attestation_id; must fit in u64
+  const schema_id = 42n; // == attestation_id
   const issuer_pk_x = 99n;
   const trait_data_hash = 7n;
   const nonce = 555n;
@@ -185,7 +185,7 @@ async function main() {
     bytesScVal(p.proofB),
     bytesScVal(p.proofC),
     bytesScVal(root),
-    u64(p.attestation_id),
+    bytesScVal(be32(p.attestation_id)),
     u64(p.external_nullifier),
     bytesScVal(be32(p.nullifier_hash)),
     nativeToScVal(0, { type: "u32" }),

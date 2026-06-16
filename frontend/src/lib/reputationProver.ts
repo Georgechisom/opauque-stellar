@@ -231,10 +231,11 @@ export async function submitProofOnChain(
 ): Promise<string> {
   const rootBytes = bigIntToBytes32(BigInt(merkleRoot));
   const nullifierBytes = bigIntToBytes32(BigInt(proofData.nullifier));
-  const attestationId = BigInt(proofData.attestationId);
+  const attestationIdBytes = bigIntToBytes32(
+    BigInt(proofData.publicSignals[1] ?? proofData.attestationId),
+  );
   const externalNullifierValue = BigInt(externalNullifier);
 
-  assertU64(attestationId, "attestation_id");
   assertU64(externalNullifierValue, "external_nullifier");
   assertU32(expirationLedger, "expiration_ledger");
 
@@ -267,7 +268,7 @@ export async function submitProofOnChain(
       bytesToScVal(proofB),
       bytesToScVal(proofC),
       nativeToScVal(Buffer.from(rootBytes), { type: "bytes" }),
-      u64ToScVal(attestationId),
+      nativeToScVal(Buffer.from(attestationIdBytes), { type: "bytes" }),
       u64ToScVal(externalNullifierValue),
       nativeToScVal(Buffer.from(nullifierBytes), { type: "bytes" }),
       nativeToScVal(expirationLedger, { type: "u32" }),
