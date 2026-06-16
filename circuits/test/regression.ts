@@ -23,6 +23,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CIRCUITS_ROOT = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CIRCUITS_ROOT, "..");
 const MANIFEST_PATH = join(REPO_ROOT, "artifacts", "manifest.json");
+const QUIET_SNARKJS_LOGGER = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
 
 function parseArgs(argv) {
   const opts = {
@@ -160,7 +166,7 @@ async function testValidCase(version, paths, fixtureDir) {
     await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath);
 
     if (existsSync(paths.r1csPath)) {
-      const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath);
+      const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath, QUIET_SNARKJS_LOGGER);
       if (!ok) throw new Error(`${version}: valid witness failed r1cs check`);
     }
 
@@ -203,7 +209,7 @@ async function testInvalidCase(version, paths, fixtureDir) {
       const wtnsPath = join(tmpDir, `${version}-invalid.wtns`);
       await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath);
       if (existsSync(paths.r1csPath)) {
-        const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath);
+        const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath, QUIET_SNARKJS_LOGGER);
         if (ok) {
           throw new Error(`${version}: invalid input unexpectedly satisfied constraints`);
         }
