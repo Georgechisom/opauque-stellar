@@ -8,7 +8,7 @@ Private XLM payments, association-set privacy pools, relayed withdrawals, and ZK
 [![GPLv3 License](https://img.shields.io/badge/license-GPLv3-111827?labelColor=0b1020)](LICENSE)
 [![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-14b8a6?labelColor=0b1020)](https://developers.stellar.org/docs/build/smart-contracts)
 
-[Wallet](frontend/) | [Technical overview](docs/technical-overview.md) | [ASP guide](docs/running-asp.md) | [Relayer guide](docs/running-relayer.md) | [Demo video](https://www.youtube.com/watch?v=REPLACE_WITH_DEMO_ID)
+[Wallet](frontend/) | [Technical overview](docs/technical-overview.md) | [ASP guide](docs/running-asp.md) | [Relayer guide](docs/running-relayer.md) | [Demo video](https://youtu.be/LuNLO6xanHg)
 
 </div>
 
