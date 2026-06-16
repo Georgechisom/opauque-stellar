@@ -1,0 +1,29 @@
+{
+  "name": "@opaquecash/reputation-publisher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reputation Merkle-root publisher for Opaque PSR attestations on Stellar/Soroban",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "publisher:once": "tsx scripts/publisher.ts --once",
+    "publisher": "tsx scripts/publisher.ts",
+    "submit:leaf": "tsx scripts/submit-leaf.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0",
+    "circomlibjs": "^0.1.7"
+  },
+  "overrides": {
+    "axios": "1.18.0",
+    "ws": "8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.7"
+  }
+}

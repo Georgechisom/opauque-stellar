@@ -89,11 +89,12 @@ Read more... [Frontend wallet](frontend/)
 
 ## Run The Protocol Services
 
-The privacy pool needs roots, and relayed withdrawals need a public gateway. The repo ships both services.
+The privacy pool and PSR verifier need roots, and relayed withdrawals need a public gateway. The repo ships these services.
 
 | Service | Command | Guide |
 | --- | --- | --- |
 | ASP indexer | `cd asp && npm run indexer` | [Read more...](docs/running-asp.md) |
+| Reputation publisher | `cd publisher && npm run publisher` | [Read more...](publisher/) |
 | Relayer hub | `cd relayer && npm run hub` | [Read more...](docs/running-relayer.md) |
 | Relayer node | `cd relayer && npm run relayer` | [Read more...](docs/running-relayer.md) |
 
@@ -108,6 +109,7 @@ For the MVP demo, a testnet ASP is already running with an approve-all policy, a
 | [scanner/](scanner/) | Rust DKSAP scanner compiled to WASM for browser-side receive detection. |
 | [circuits/](circuits/) | Circom Groth16 circuits, fixtures, and regression tests. |
 | [asp/](asp/) | Association Set Provider and pool state root publisher. |
+| [publisher/](publisher/) | Reputation leaf commitment collector and PSR Merkle-root publisher. |
 | [relayer/](relayer/) | Relayer gateway, shared hub, node engine, registration helper, and market tests. |
 | [deployments/](deployments/) | Versioned on-chain address book and manifest data. |
 | [scripts/](scripts/) | TypeScript deploy, verification, artifact, and manifest tooling. |
