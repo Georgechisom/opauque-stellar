@@ -5,7 +5,8 @@
  * Modes:
  *   default / --full   prove + verify with pinned zkey/wasm (requires release artifacts)
  *   --compile          compile circuits first (requires circom on PATH)
- *   --witness-only     calculate witness and compare public outputs (no zkey)
+ *   --witness-only     calculate witness and compare public outputs (no zkey);
+ *                      prefers build wasm/R1CS so constraint checks use a matched pair
  *
  * Usage:
  *   node circuits/test/regression.mjs
@@ -103,12 +104,13 @@ const CIRCUIT_CONFIG = {
   },
 };
 
-function resolvePaths(version, manifest) {
+function resolvePaths(version, manifest, opts = {}) {
   const circuit = manifest.circuits[version];
   const cfg = CIRCUIT_CONFIG[version];
-  const wasmPath = existsSync(resolve(REPO_ROOT, circuit.frontend.witnessWasm.path))
-    ? resolve(REPO_ROOT, circuit.frontend.witnessWasm.path)
-    : cfg.buildWasm;
+  const frontendWasmPath = resolve(REPO_ROOT, circuit.frontend.witnessWasm.path);
+  const hasBuildWitnessPair = existsSync(cfg.buildWasm) && existsSync(cfg.buildR1cs);
+  const useBuildWasm = opts.witnessOnly && hasBuildWitnessPair;
+  const wasmPath = useBuildWasm || !existsSync(frontendWasmPath) ? cfg.buildWasm : frontendWasmPath;
   const zkeyPath = existsSync(resolve(REPO_ROOT, circuit.frontend.zkey.path))
     ? resolve(REPO_ROOT, circuit.frontend.zkey.path)
     : null;
@@ -257,7 +259,7 @@ async function main() {
   for (const version of opts.versions) {
     try {
       if (opts.compile) runCompile(version);
-      const paths = resolvePaths(version, manifest);
+      const paths = resolvePaths(version, manifest, opts);
       paths.witnessOnly = opts.witnessOnly;
       const fixtureDir = join(CIRCUITS_ROOT, "fixtures", version);
       await testValidCase(version, paths, fixtureDir);
