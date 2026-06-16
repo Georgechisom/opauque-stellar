@@ -166,6 +166,24 @@ function bigIntToBytes32(val: bigint): Uint8Array {
   return bytes;
 }
 
+function bytes32ToBigInt(bytes: Uint8Array): bigint {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) + BigInt(b);
+  return n;
+}
+
+function assertU64(value: bigint, label: string): void {
+  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+    throw new Error(`${label} must fit in u64 for the reputation verifier contract.`);
+  }
+}
+
+function assertU32(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
+    throw new Error(`${label} must fit in u32 for the reputation verifier contract.`);
+  }
+}
+
 /**
  * Fetch the latest valid Merkle root from the on-chain root history
  * by simulating the `get_latest_root` view function on the ReputationVerifier contract.
@@ -209,9 +227,21 @@ export async function submitProofOnChain(
   externalNullifier: string,
   signTransaction: SignTxFn,
   publicKey: string,
+  expirationLedger = 0,
 ): Promise<string> {
   const rootBytes = bigIntToBytes32(BigInt(merkleRoot));
   const nullifierBytes = bigIntToBytes32(BigInt(proofData.nullifier));
+  const attestationId = BigInt(proofData.attestationId);
+  const externalNullifierValue = BigInt(externalNullifier);
+
+  assertU64(attestationId, "attestation_id");
+  assertU64(externalNullifierValue, "external_nullifier");
+  assertU32(expirationLedger, "expiration_ledger");
+
+  const latestRoot = await fetchLatestValidMerkleRoot(publicKey);
+  if (bytes32ToBigInt(latestRoot) !== bytes32ToBigInt(rootBytes)) {
+    throw new Error("Merkle root mismatch: proof does not correspond to current on-chain root.");
+  }
 
   const pi_a = proofData.proof.pi_a.map(BigInt);
   const pi_b_flat = proofData.proof.pi_b.flatMap((pair) => [BigInt(pair[1]), BigInt(pair[0])]);
@@ -237,9 +267,10 @@ export async function submitProofOnChain(
       bytesToScVal(proofB),
       bytesToScVal(proofC),
       nativeToScVal(Buffer.from(rootBytes), { type: "bytes" }),
-      u64ToScVal(proofData.attestationId),
-      u64ToScVal(BigInt(externalNullifier)),
+      u64ToScVal(attestationId),
+      u64ToScVal(externalNullifierValue),
       nativeToScVal(Buffer.from(nullifierBytes), { type: "bytes" }),
+      nativeToScVal(expirationLedger, { type: "u32" }),
     ],
     signTransaction,
   });
