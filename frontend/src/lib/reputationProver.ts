@@ -9,7 +9,7 @@
 import type { OpaqueWasmModule } from "../hooks/useOpaqueWasm";
 import type { ProofData, DiscoveredTrait } from "./reputation";
 import { reputationAddresses } from "../contracts/reputationAddresses";
-import { BASE_FEE, Contract, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
+import { BASE_FEE, Contract, TransactionBuilder, nativeToScVal, rpc } from "@stellar/stellar-sdk";
 import { bytesToScVal, getSorobanServer, invokeContractMethod, u64ToScVal } from "./stellar";
 import type { SignTxFn } from "./stellar";
 import { getNetworkPassphrase } from "./chain";
@@ -22,6 +22,9 @@ const ZKEY_PATH = publicAssetPath("circuits/v2/stealth_reputation_final.zkey");
 const TREE_DEPTH = 20;
 
 const REPUTATION_CONTRACT_ID = reputationAddresses.reputationVerifier;
+export const REPUTATION_ROOT_UNAVAILABLE_MESSAGE =
+  "No current reputation Merkle root is published for this verifier. " +
+  "The root publisher/indexer must publish a root that includes this attestation before on-chain verification can run.";
 
 export type ProofProgressCallback = (stage: string, percent: number) => void;
 
@@ -184,6 +187,14 @@ function assertU32(value: number, label: string): void {
   }
 }
 
+export function isReputationRootUnavailableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    /get_latest_root/i.test(message) &&
+    /Error\(Contract,\s*#2\)|Contract#2|Contract,\s*#2|RootExpired/i.test(message)
+  );
+}
+
 /**
  * Fetch the latest valid Merkle root from the on-chain root history
  * by simulating the `get_latest_root` view function on the ReputationVerifier contract.
@@ -193,17 +204,30 @@ export async function fetchLatestValidMerkleRoot(sourcePublicKey: string): Promi
   const passphrase = getNetworkPassphrase();
   const source = await server.getAccount(sourcePublicKey);
   const contract = new Contract(REPUTATION_CONTRACT_ID);
-  let tx = new TransactionBuilder(source, {
+  const tx = new TransactionBuilder(source, {
     fee: BASE_FEE,
     networkPassphrase: passphrase,
   })
     .addOperation(contract.call("get_latest_root"))
     .setTimeout(30)
     .build();
-  tx = await server.prepareTransaction(tx);
-  const sim = await server.simulateTransaction(tx);
-  if (!("result" in sim) || !sim.result) {
-    throw new Error("No valid Merkle root available. Contract may not be initialized or root has expired.");
+  let sim: rpc.Api.SimulateTransactionResponse;
+  try {
+    sim = await server.simulateTransaction(tx);
+  } catch (err) {
+    if (isReputationRootUnavailableError(err)) {
+      throw new Error(REPUTATION_ROOT_UNAVAILABLE_MESSAGE);
+    }
+    throw err;
+  }
+  if (rpc.Api.isSimulationError(sim)) {
+    if (isReputationRootUnavailableError(sim.error)) {
+      throw new Error(REPUTATION_ROOT_UNAVAILABLE_MESSAGE);
+    }
+    throw new Error(`Could not fetch latest reputation Merkle root: ${sim.error}`);
+  }
+  if (!sim.result?.retval) {
+    throw new Error(REPUTATION_ROOT_UNAVAILABLE_MESSAGE);
   }
   const retval = sim.result.retval;
   const v = retval as { bytes?: () => Buffer };
@@ -241,7 +265,10 @@ export async function submitProofOnChain(
 
   const latestRoot = await fetchLatestValidMerkleRoot(publicKey);
   if (bytes32ToBigInt(latestRoot) !== bytes32ToBigInt(rootBytes)) {
-    throw new Error("Merkle root mismatch: proof does not correspond to current on-chain root.");
+    throw new Error(
+      "Merkle root mismatch: this proof was generated against a local or stale root. " +
+        "Regenerate after the root publisher/indexer has published a root that includes this attestation.",
+    );
   }
 
   const pi_a = proofData.proof.pi_a.map(BigInt);
