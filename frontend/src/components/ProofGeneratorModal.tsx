@@ -15,6 +15,10 @@ import { useKeys } from "../context/KeysContext";
 import { getAnnouncementsForCluster } from "../lib/opaqueCache";
 import { getCluster } from "../lib/chain";
 import { submitProofOnChain } from "../lib/reputationProver";
+import {
+  submitLeafAndFetchInclusion,
+  type ReputationPublisherInclusion,
+} from "../lib/reputationPublisher";
 import type { ProofData } from "../lib/reputation";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { getDemoVerifierUrl } from "../lib/featureFlags";
@@ -60,6 +64,10 @@ function stringToBigInt(s: string): bigint {
   return BigInt(s);
 }
 
+function bigintToHex32(n: bigint): string {
+  return `0x${n.toString(16).padStart(64, "0")}`;
+}
+
 /** Convert 32 raw bytes (big-endian) to a BigInt field element. */
 function bytesToFieldBigInt(bytes: Uint8Array): bigint {
   let val = 0n;
@@ -78,8 +86,7 @@ function bytesToFieldBigInt(bytes: Uint8Array): bigint {
  *
  * Strategy:
  *  - stealth_pk: reconstructed from master spend/view keys + ephemeral pubkey (via WASM)
- *  - Merkle tree: single-leaf Poseidon tree at depth 20 (leaf = the user's attestation)
- *  - trait_data_hash: 0n (data_hex is not decoded in this release; proof is still sound)
+ *  - Merkle path/root: fetched from the reputation publisher after submitting the leaf commitment
  *  - nullifier_hash: Poseidon2(stealth_pk, external_nullifier) in JS
  */
 async function buildCircuitInputs(
@@ -89,8 +96,9 @@ async function buildCircuitInputs(
     reconstruct_signing_key_wasm: (a: Uint8Array, b: Uint8Array, c: Uint8Array) => Uint8Array;
   },
   masterKeys: { viewPrivKey: Uint8Array; spendPrivKey: Uint8Array },
-  ephemeralPubKeyBytes: Uint8Array
-): Promise<Record<string, unknown>> {
+  ephemeralPubKeyBytes: Uint8Array,
+  publishedPath?: ReputationPublisherInclusion,
+): Promise<{ inputs: Record<string, unknown>; leafHex: string; rootHex: string }> {
   // ── 1. Reconstruct the stealth secp256k1 private key ─────────────────────
   const stealthPrivKeyBytes = wasm.reconstruct_signing_key_wasm(
     masterKeys.spendPrivKey,
@@ -104,8 +112,7 @@ async function buildCircuitInputs(
   const schemaId = stringToBigInt(trait.merkleLeafPreimage.schemaIdField);
   const issuerPkX = stringToBigInt(trait.merkleLeafPreimage.issuerPkX);
   const nonce = stringToBigInt(trait.merkleLeafPreimage.nonceField);
-  // trait_data_hash is a placeholder (0) until data decoding is implemented.
-  const traitDataHash = 0n;
+  const traitDataHash = stringToBigInt(trait.merkleLeafPreimage.traitDataHash);
 
   // ── 3. Parse external nullifier (decimal or 0x-hex) ──────────────────────
   const externalNullifier = stringToBigInt(externalNullifierStr.trim());
@@ -121,42 +128,57 @@ async function buildCircuitInputs(
   // ── 5. Compute the leaf: Poseidon5(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
   const leaf: bigint = ph([stealthPk, schemaId, issuerPkX, traitDataHash, nonce]);
 
-  // ── 6. Build a depth-20 single-leaf Poseidon Merkle tree ─────────────────
-  // zero_hashes[i] = hash of an empty subtree at level i.
-  const zeroHashes: bigint[] = [0n];
-  for (let i = 0; i < MERKLE_DEPTH; i++) {
-    zeroHashes.push(ph([zeroHashes[i], zeroHashes[i]]));
+  // ── 6. Use the published Merkle path when available. The no-path branch is only
+  // used to compute the leaf commitment before the publisher has returned inclusion.
+  let merklePath: bigint[] = [];
+  let merklePathIndices: number[] = [];
+  let merkleRoot: bigint;
+  if (publishedPath) {
+    if (publishedPath.leaf.toLowerCase() !== bigintToHex32(leaf).toLowerCase()) {
+      throw new Error("Publisher returned an inclusion path for a different reputation leaf.");
+    }
+    if (publishedPath.pathElements.length !== MERKLE_DEPTH || publishedPath.pathIndices.length !== MERKLE_DEPTH) {
+      throw new Error("Publisher returned an invalid Merkle path length.");
+    }
+    merklePath = publishedPath.pathElements.map(stringToBigInt);
+    merklePathIndices = publishedPath.pathIndices;
+    merkleRoot = stringToBigInt(publishedPath.root);
+  } else {
+    const zeroHashes: bigint[] = [0n];
+    for (let i = 0; i < MERKLE_DEPTH; i++) {
+      zeroHashes.push(ph([zeroHashes[i], zeroHashes[i]]));
+    }
+    let current: bigint = leaf;
+    for (let i = 0; i < MERKLE_DEPTH; i++) {
+      merklePath.push(zeroHashes[i]);
+      merklePathIndices.push(0);
+      current = ph([current, zeroHashes[i]]);
+    }
+    merkleRoot = current;
   }
-
-  // The single leaf is at index 0 (always a left child at every level).
-  const merklePath: bigint[] = [];
-  const merklePathIndices: number[] = [];
-  let current: bigint = leaf;
-  for (let i = 0; i < MERKLE_DEPTH; i++) {
-    merklePath.push(zeroHashes[i]);   // sibling = empty subtree at this level
-    merklePathIndices.push(0);        // 0 = current node is the left child
-    current = ph([current, zeroHashes[i]]);
-  }
-  const merkleRoot: bigint = current;
 
   // ── 7. Compute nullifier_hash = Poseidon2(stealth_pk, external_nullifier) ─
   const nullifierHash: bigint = ph([stealthPk, externalNullifier]);
 
   // ── 8. Assemble all 49 circuit signals ───────────────────────────────────
   return {
-    // Private
-    stealth_pk: stealthPk.toString(),
-    schema_id: schemaId.toString(),
-    issuer_pk_x: issuerPkX.toString(),
-    trait_data_hash: traitDataHash.toString(),
-    nonce: nonce.toString(),
-    merkle_path: merklePath.map((h) => h.toString()),
-    merkle_path_indices: merklePathIndices,
-    // Public
-    merkle_root: merkleRoot.toString(),
-    attestation_id: schemaId.toString(),
-    external_nullifier: externalNullifier.toString(),
-    nullifier_hash: nullifierHash.toString(),
+    leafHex: bigintToHex32(leaf),
+    rootHex: bigintToHex32(merkleRoot),
+    inputs: {
+      // Private
+      stealth_pk: stealthPk.toString(),
+      schema_id: schemaId.toString(),
+      issuer_pk_x: issuerPkX.toString(),
+      trait_data_hash: traitDataHash.toString(),
+      nonce: nonce.toString(),
+      merkle_path: merklePath.map((h) => h.toString()),
+      merkle_path_indices: merklePathIndices,
+      // Public
+      merkle_root: merkleRoot.toString(),
+      attestation_id: schemaId.toString(),
+      external_nullifier: externalNullifier.toString(),
+      nullifier_hash: nullifierHash.toString(),
+    },
   };
 }
 
@@ -224,14 +246,30 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
 
       const masterKeys = getMasterKeys();
 
-      // Build the V2 circuit witness inputs (stealth key reconstruction,
-      // Poseidon Merkle path, nullifier) entirely in-browser.
-      const circuitInputs = await buildCircuitInputs(
+      // Compute the V2 leaf commitment locally, submit it to the root publisher,
+      // then build the proof witness against the publisher's on-chain root/path.
+      const draft = await buildCircuitInputs(
         trait,
         externalNullifier,
         wasm,
         masterKeys,
         ephemeralPubKeyBytes
+      );
+      const inclusion = await submitLeafAndFetchInclusion({
+        id: trait.attestationUid || draft.leafHex,
+        leaf: draft.leafHex,
+        schemaId: bigintToHex32(stringToBigInt(trait.merkleLeafPreimage.schemaIdField)),
+        attestationUid: trait.attestationUid,
+        txHash: trait.txHash,
+        ledger: trait.slot,
+      });
+      const { inputs: circuitInputs } = await buildCircuitInputs(
+        trait,
+        externalNullifier,
+        wasm,
+        masterKeys,
+        ephemeralPubKeyBytes,
+        inclusion,
       );
 
       // Generate the Groth16 proof against the V2 circuit artifacts.

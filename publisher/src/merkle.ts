@@ -52,6 +52,25 @@ export class MerkleTree {
   rootHex(): string {
     return bigintToHex32(this.root());
   }
+
+  private node(index: number, level: number): bigint {
+    return this.rootFrom(index * (1 << level), level);
+  }
+
+  proof(index: number): { root: string; pathElements: string[]; pathIndices: number[] } {
+    if (index < 0 || index >= this.leaves.length) {
+      throw new Error(`leaf index ${index} out of bounds`);
+    }
+    const pathElements: string[] = [];
+    const pathIndices: number[] = [];
+    let cur = index;
+    for (let level = 0; level < this.depth; level += 1) {
+      pathElements.push(bigintToHex32(this.node(cur ^ 1, level)));
+      pathIndices.push(cur & 1);
+      cur >>= 1;
+    }
+    return { root: this.rootHex(), pathElements, pathIndices };
+  }
 }
 
 export async function buildRoot(leaves: string[]): Promise<string> {
@@ -59,4 +78,21 @@ export async function buildRoot(leaves: string[]): Promise<string> {
   const tree = new MerkleTree(poseidon);
   for (const leaf of leaves) tree.insert(BigInt(leaf));
   return tree.rootHex();
+}
+
+export async function buildProof(
+  leaves: string[],
+  leaf: string,
+): Promise<{ root: string; leafIndex: number; pathElements: string[]; pathIndices: number[] }> {
+  const poseidon = await getPoseidon();
+  const tree = new MerkleTree(poseidon);
+  const target = leaf.toLowerCase();
+  let leafIndex = -1;
+  for (const [idx, value] of leaves.entries()) {
+    const normalized = value.toLowerCase();
+    tree.insert(BigInt(normalized));
+    if (normalized === target && leafIndex === -1) leafIndex = idx;
+  }
+  if (leafIndex === -1) throw new Error("leaf not found");
+  return { leafIndex, ...tree.proof(leafIndex) };
 }

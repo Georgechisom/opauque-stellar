@@ -86,6 +86,9 @@ Example:
 PUBLISHER_SECRET=S...current_testnet_admin_secret...
 STELLAR_RPC_URL=https://soroban-testnet.stellar.org
 PUBLISHER_INTERVAL_MS=15000
+PUBLISHER_HTTP_HOST=127.0.0.1
+PUBLISHER_HTTP_PORT=8790
+PUBLISHER_CORS_ORIGIN=http://localhost:5173
 PUBLISHER_DATA_DIR=/var/lib/opaque-reputation-publisher
 ```
 
@@ -98,7 +101,60 @@ Variables:
 | `REPUTATION_VERIFIER_ID` | manifest value | Override verifier contract id. |
 | `STELLAR_RPC_URL` | manifest RPC | Soroban RPC endpoint. |
 | `PUBLISHER_INTERVAL_MS` | `15000` | Loop interval for continuous publishing. |
+| `PUBLISHER_HTTP_HOST` | `127.0.0.1` | HTTP API bind host. |
+| `PUBLISHER_HTTP_PORT` | `8790` | HTTP API port. |
+| `PUBLISHER_CORS_ORIGIN` | `*` | Browser origin allowed to submit leaves/fetch paths. |
 | `PUBLISHER_DATA_DIR` | `publisher/data` | Durable inbox/state/root manifest directory. |
+
+## Run The HTTP API
+
+This is the mode the frontend uses for Option 2. `POST /v1/reputation/leaves`
+queues a holder-computed leaf, immediately reconciles/publishes the root, and returns the
+leaf's inclusion path when available.
+
+```bash
+cd publisher
+set -a
+source ~/.opaque-reputation-publisher.env
+set +a
+npm run serve
+```
+
+Endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/v1/reputation/leaves` | Accept a holder-submitted V2 leaf commitment and run a publish tick. |
+| `GET` | `/v1/reputation/root/:leaf` | Return current root, leaf index, and Merkle path for a leaf. |
+| `GET` | `/health` | Health check with verifier id. |
+
+Submit body:
+
+```json
+{
+  "id": "attestation-uid-or-client-generated-id",
+  "leaf": "0x...",
+  "schemaId": "0x...",
+  "attestationUid": "0x...",
+  "txHash": "...",
+  "ledger": 3123456
+}
+```
+
+Root response:
+
+```json
+{
+  "verifierId": "C...",
+  "leaf": "0x...",
+  "leafIndex": 0,
+  "leafCount": 1,
+  "root": "0x...",
+  "datasetHash": "0x...",
+  "pathElements": ["0x..."],
+  "pathIndices": [0]
+}
+```
 
 ## Submit A Leaf Locally
 
@@ -138,6 +194,9 @@ leaves=1 (+0) root=0x1234abcd... in-sync
 ```
 
 ## Run Continuously
+
+The loop mode is useful when another process writes inbox files. The wallet flow usually
+uses `npm run serve` instead.
 
 ```bash
 cd publisher

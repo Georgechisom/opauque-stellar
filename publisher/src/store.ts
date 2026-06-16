@@ -7,6 +7,7 @@ export interface Store {
   load(verifierId: string): PublisherState | null;
   save(state: PublisherState): void;
   readInbox(now: () => string): LeafCommitment[];
+  writeInbox(commitment: LeafCommitment): void;
   archiveInbox(ids: string[]): void;
 }
 
@@ -65,6 +66,13 @@ export class FileStore implements Store {
     return out;
   }
 
+  writeInbox(commitment: LeafCommitment): void {
+    const safeId = commitment.id.replace(/[^a-z0-9_.-]/gi, "_");
+    const p = join(this.inboxDir(), `${safeId}.json`);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, `${JSON.stringify(commitment, null, 2)}\n`);
+  }
+
   archiveInbox(ids: string[]): void {
     if (ids.length === 0) return;
     const dir = this.inboxDir();
@@ -101,6 +109,10 @@ export class MemoryStore implements Store {
 
   readInbox(): LeafCommitment[] {
     return structuredClone(this.inbox);
+  }
+
+  writeInbox(commitment: LeafCommitment): void {
+    this.inbox.push(structuredClone(commitment));
   }
 
   archiveInbox(ids: string[]): void {

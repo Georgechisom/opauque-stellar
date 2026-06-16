@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRoot, getPoseidon, hashFields, MerkleTree } from "../src/merkle.ts";
+import { buildProof, buildRoot, getPoseidon, hashFields, MerkleTree } from "../src/merkle.ts";
 import { bigintToHex32 } from "../src/bytes.ts";
 import { computeDatasetHash } from "../src/publish.ts";
 import { runPublisherTick } from "../src/engine.ts";
@@ -33,6 +33,17 @@ function commitment(id: string, leaf: bigint, ledger = 1): LeafCommitment {
   };
 }
 
+function recomputeRoot(poseidon: any, leaf: bigint, pathElements: string[], pathIndices: number[]): bigint {
+  let cur = leaf;
+  for (let i = 0; i < pathElements.length; i += 1) {
+    const sibling = BigInt(pathElements[i]);
+    cur = pathIndices[i] === 0
+      ? hashFields(poseidon, [cur, sibling])
+      : hashFields(poseidon, [sibling, cur]);
+  }
+  return cur;
+}
+
 describe("reputation publisher merkle tree", () => {
   it("uses the canonical circomlib Poseidon vector", async () => {
     const p = await getPoseidon();
@@ -51,6 +62,14 @@ describe("reputation publisher merkle tree", () => {
     tree.insert(5n);
     tree.insert(6n);
     expect(await buildRoot([bigintToHex32(5n), bigintToHex32(6n)])).toBe(tree.rootHex());
+  });
+
+  it("returns inclusion paths that recompute to the root", async () => {
+    const p = await getPoseidon();
+    const leaves = [bigintToHex32(5n), bigintToHex32(6n), bigintToHex32(7n)];
+    const proof = await buildProof(leaves, bigintToHex32(6n));
+    expect(proof.leafIndex).toBe(1);
+    expect(bigintToHex32(recomputeRoot(p, 6n, proof.pathElements, proof.pathIndices))).toBe(proof.root);
   });
 });
 

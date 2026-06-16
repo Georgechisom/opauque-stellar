@@ -94,7 +94,7 @@ The privacy pool and PSR verifier need roots, and relayed withdrawals need a pub
 | Service | Command | Guide |
 | --- | --- | --- |
 | ASP indexer | `cd asp && npm run indexer` | [Read more...](docs/running-asp.md) |
-| Reputation publisher | `cd publisher && npm run publisher` | [Read more...](publisher/) |
+| Reputation publisher | `cd publisher && npm run serve` | [Read more...](publisher/) |
 | Relayer hub | `cd relayer && npm run hub` | [Read more...](docs/running-relayer.md) |
 | Relayer node | `cd relayer && npm run relayer` | [Read more...](docs/running-relayer.md) |
 

@@ -6,9 +6,9 @@
  * Usage:
  *   npm run submit:leaf -- --leaf 0x... --id <attestationUid-or-leaf-id>
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FileStore } from "../src/store.ts";
 import { normalizeCommitment } from "../src/store.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -37,10 +37,9 @@ function main() {
     () => new Date().toISOString(),
   );
 
-  const p = join(dataDir, "inbox", `${commitment.id.replace(/[^a-z0-9_.-]/gi, "_")}.json`);
-  if (!existsSync(dirname(p))) mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, `${JSON.stringify(commitment, null, 2)}\n`);
-  console.log(`queued leaf ${commitment.leaf} as ${p}`);
+  const store = new FileStore(dataDir);
+  store.writeInbox(commitment);
+  console.log(`queued leaf ${commitment.leaf} in ${join(dataDir, "inbox")}`);
 }
 
 main();

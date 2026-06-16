@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "publisher:once": "tsx scripts/publisher.ts --once",
     "publisher": "tsx scripts/publisher.ts",
+    "serve": "tsx scripts/server.ts",
     "submit:leaf": "tsx scripts/submit-leaf.ts"
   },
   "dependencies": {
