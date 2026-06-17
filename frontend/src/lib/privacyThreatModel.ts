@@ -14,18 +14,23 @@ export type ThreatMitigation = {
 };
 
 export const PRIVACY_PROVIDED = [
-  "Incoming transfers use one-time stealth addresses (harder to link to a single deposit identity).",
-  "View tags and on-device WASM scanning reduce what infrastructure must infer.",
-  "Reputation proofs can show eligibility without revealing your everyday wallet address.",
-  "Master signing keys stay in memory; ghost ephemeral keys are encrypted at rest.",
+  "Incoming transfers use one-time stealth addresses, so the recipient's main wallet does not appear as the payment destination.",
+  "Browser-side WASM scanning and view tags reduce what hosted infrastructure must learn to find receives.",
+  "Privacy-pool withdrawals can hide which eligible deposit funded a withdrawal when the association set is large enough.",
+  "Relayed pool withdrawals can avoid submitting the final withdrawal from the user's connected wallet.",
+  "Reputation proofs can show eligibility or traits without revealing the holder's everyday wallet address.",
+  "Master signing keys stay in memory; ghost ephemeral keys and pool notes are stored locally and encrypted for backup flows.",
 ] as const;
 
 export const PRIVACY_NOT_HIDDEN = [
-  "On-chain amounts, fees, timing, and fee-payer wallets remain public.",
-  "Your RPC provider sees which contracts and ledgers you query.",
-  "Wallet signatures link registration, sends, and sweeps to your Freighter identity.",
-  "ZK proofs reveal whichever trait fields you choose to disclose.",
-  "Lost local ghost data may make funds permanently inaccessible.",
+  "On-chain amounts, fees, timestamps, contract calls, nullifiers, and fee-payer wallets remain public.",
+  "Your RPC or Horizon provider can see which contracts, ledgers, and account histories you query.",
+  "Wallet signatures can link registration, sends, deposits, sweeps, and some setup actions to your Freighter identity.",
+  "The ASP policy and published roots determine which deposits are eligible for pool withdrawal.",
+  "Relayers and gateways may observe request timing, selected jobs, endpoints, and encrypted payload delivery metadata.",
+  "ZK proofs reveal whichever public inputs and trait fields you choose to disclose.",
+  "Weak anonymity sets, uncommon amounts, or distinctive timing can still create linkage.",
+  "Lost local ghost data, pool notes, or backup passwords may make funds permanently inaccessible.",
 ] as const;
 
 /** Short bullets for mainnet / production modals */
@@ -150,12 +155,38 @@ export const MITIGATIONS: ThreatMitigation[] = [
     mitigation: "Encrypted backups + export",
     implementation: "BackupExport.tsx, SecuritySettings.tsx",
   },
+  {
+    id: "M18",
+    threat: "Pool double spend",
+    mitigation: "On-chain nullifier set and custody invariant checks",
+    implementation: "contracts/privacy-pool/, circuits/v3/",
+  },
+  {
+    id: "M19",
+    threat: "Relayer payload tampering",
+    mitigation: "Withdrawal proof binds recipient, amount, fee, relayer, and pool scope",
+    implementation: "contracts/privacy-pool/, relayer/src/",
+  },
+  {
+    id: "M20",
+    threat: "ASP root mismatch",
+    mitigation: "Wallet rebuilds state and association paths from public events",
+    implementation: "asp/src/, frontend/src/lib/poolProver.ts",
+  },
+  {
+    id: "M21",
+    threat: "Weak anonymity set",
+    mitigation: "User-facing pool warnings and association-set visibility",
+    implementation: "PoolView.tsx, privacyThreatModel.ts",
+  },
 ];
 
 export const ADVERSARY_SUMMARY = [
   { name: "Chain observer", risk: "Timing, amounts, fee-payer linkage" },
   { name: "RPC / Horizon operator", risk: "Query patterns, IP metadata" },
   { name: "Wallet (Freighter)", risk: "Signatures tie actions to your G-address" },
+  { name: "ASP operator", risk: "Association-set eligibility and root publication liveness" },
+  { name: "Relayer / gateway operator", risk: "Withdrawal request timing and delivery metadata" },
   { name: "Browser extension / XSS", risk: "Password and key capture at runtime" },
   { name: "ZK verifier / integrator", risk: "Learns disclosed proof fields" },
 ] as const;

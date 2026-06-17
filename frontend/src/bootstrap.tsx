@@ -9,6 +9,7 @@ import { PrivacyPage } from "./components/PrivacyPage.tsx";
 import { TermsPage } from "./components/TermsPage.tsx";
 import { DisclaimerPage } from "./components/DisclaimerPage.tsx";
 import { AbusePolicyPage } from "./components/AbusePolicyPage.tsx";
+import { ThreatModelPage } from "./components/ThreatModelPage.tsx";
 import { PayPage } from "./components/PayPage.tsx";
 import { PaySuccessPage } from "./components/PaySuccessPage.tsx";
 import { getConfiguredNetwork, getNetworkEnvValue } from "./lib/chain.ts";
@@ -18,6 +19,7 @@ import { BrandingPage } from "./components/BrandingPage.tsx";
 import { StellarWalletProviders } from "./context/StellarWalletProviders.tsx";
 import { MainnetSecurityLayer } from "./components/security/MainnetSecurityLayer.tsx";
 import { logExpectedArtifactHashes } from "./lib/artifactHashes.ts";
+import { THREAT_MODEL_ROUTE } from "./lib/privacyThreatModel.ts";
 
 console.log("[Opaque] App bootstrapping (Stellar)...");
 logExpectedArtifactHashes();
@@ -46,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/disclaimer" element={<DisclaimerPage />} />
           <Route path="/abuse-policy" element={<AbusePolicyPage />} />
+          <Route path={THREAT_MODEL_ROUTE} element={<ThreatModelPage />} />
           <Route path="/pay/success" element={<PaySuccessPage />} />
           <Route
             path="/pay/:identifier"

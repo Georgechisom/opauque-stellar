@@ -15,34 +15,38 @@ export function AbusePolicyPage() {
       <section>
         <h2 className="text-white font-medium text-base mb-2">Purpose</h2>
         <p>
-          Opaque is a non-custodial protocol. This policy explains how we handle abuse
-          reports, what infrastructure we can and cannot block, and what privacy guarantees
-          apply to reporters and users.
+          Opaque is a non-custodial protocol and reference frontend for Stellar privacy
+          payments and reputation proofs. This page explains how to report misuse, how
+          operators can respond on official infrastructure, and where protocol-level
+          limits apply.
         </p>
       </section>
 
       <section>
         <h2 className="text-white font-medium text-base mb-2">Prohibited use</h2>
         <p>
-          Official deployments must not be used for sanctions evasion, fraud, money
-          laundering where prohibited by law, malware distribution, or other unlawful
-          activity. Privacy features do not exempt users from applicable regulations.
+          Official Opaque deployments must not be used for sanctions evasion, fraud,
+          malware, phishing, impersonation, harassment, money laundering where prohibited
+          by law, or any other unlawful activity. Privacy features do not exempt any user
+          from applicable law or platform rules.
         </p>
       </section>
 
       <section>
         <h2 className="text-white font-medium text-base mb-2">How to report</h2>
         <p className="mb-3">
-          Include a description, evidence (transaction hashes, URLs, addresses), timeframe,
-          and optional contact information. We aim to acknowledge reports within{" "}
-          {ABUSE_ACK_SLA_BUSINESS_DAYS} business days.
+          Include a short description, relevant transaction hashes, addresses, URLs,
+          screenshots, timeframe, and optional contact information. We aim to acknowledge
+          reports within {ABUSE_ACK_SLA_BUSINESS_DAYS} business days. Do not post
+          private victim data, seed phrases, credentials, or exploit details in a public
+          GitHub issue.
         </p>
         <ul className="space-y-3">
           {(Object.values(PUBLIC_CONTACTS) as ContactChannel[]).map((contact) => (
-            <li key={contact.label} className="rounded-lg border border-ink-700 bg-ink-900/30 p-3">
+            <li key={contact.label} className="rounded-lg border border-ink-700 bg-ink-900/30 p-4">
               <p className="font-medium text-white">{contact.label}</p>
               <p className="text-mist text-xs mt-1">{contact.description}</p>
-              <p className="mt-2 font-mono text-sm">
+              <p className="mt-3 flex flex-wrap gap-x-3 gap-y-2 font-mono text-sm">
                 {contact.email && (
                   <a
                     href={`mailto:${contact.email}`}
@@ -51,9 +55,6 @@ export function AbusePolicyPage() {
                     {contact.email}
                   </a>
                 )}
-                {contact.email && contact.url && (
-                  <span className="text-mist mx-2">·</span>
-                )}
                 {contact.url && (
                   <a
                     href={contact.url}
@@ -61,9 +62,7 @@ export function AbusePolicyPage() {
                     rel="noopener noreferrer"
                     className="text-white underline hover:text-white"
                   >
-                    {contact.url.includes("security/advisories")
-                      ? "Private security advisory"
-                      : "GitHub Issues"}
+                    {contact.urlLabel ?? "Open report"}
                   </a>
                 )}
               </p>
@@ -73,7 +72,17 @@ export function AbusePolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">What we can block or limit</h2>
+        <h2 className="text-white font-medium text-base mb-2">Response process</h2>
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>We triage whether the report concerns official Opaque infrastructure, protocol code, user safety, or a third-party service.</li>
+          <li>We preserve relevant evidence needed for security review, abuse handling, and legal compliance.</li>
+          <li>We may remove hosted content, rate limit infrastructure, disable official links, coordinate with affected providers, or publish a security advisory.</li>
+          <li>We avoid public attribution until evidence is reviewed and disclosure is appropriate.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2 className="text-white font-medium text-base mb-2">What operators can block or limit</h2>
         <ul className="list-disc pl-5 space-y-2">
           {INFRA_CAN_BLOCK.map((item) => (
             <li key={item}>{item}</li>
@@ -82,7 +91,7 @@ export function AbusePolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">What we cannot block</h2>
+        <h2 className="text-white font-medium text-base mb-2">What operators cannot block</h2>
         <ul className="list-disc pl-5 space-y-2">
           {INFRA_CANNOT_BLOCK.map((item) => (
             <li key={item}>{item}</li>
@@ -98,8 +107,9 @@ export function AbusePolicyPage() {
           ))}
         </ul>
         <p>
-          The reference app does not collect names, emails, or IP addresses during normal
-          use. See also the{" "}
+          The reference app does not ask for names or email addresses during normal use.
+          Support reports may include whatever details a reporter chooses to provide.
+          See also the{" "}
           <Link to="/privacy" className="text-white underline hover:text-white">
             Privacy Policy
           </Link>
@@ -108,17 +118,13 @@ export function AbusePolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">Full policy</h2>
+        <h2 className="text-white font-medium text-base mb-2">Important limits</h2>
         <p>
-          The complete policy and operator runbook are maintained in the repository:{" "}
-          <a
-            href="https://github.com/collinsadi/opaque-stellar/blob/main/docs/ABUSE_AND_SANCTIONS_POLICY.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-white underline hover:text-white"
-          >
-            ABUSE_AND_SANCTIONS_POLICY.md
-          </a>
+          Opaque cannot reverse Stellar transactions, recover lost keys, freeze
+          non-custodial accounts, or guarantee that third-party wallets, RPC providers,
+          exchanges, or forks will take the same actions. Reports about conduct outside
+          official Opaque infrastructure may need to be sent directly to the relevant
+          platform, wallet, exchange, host, or law enforcement authority.
         </p>
       </section>
     </LegalPageLayout>

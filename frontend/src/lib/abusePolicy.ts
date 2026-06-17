@@ -6,11 +6,16 @@
 export const ABUSE_POLICY_ROUTE = "/abuse-policy";
 
 export const ABUSE_POLICY_REPO_PATH = "docs/ABUSE_AND_SANCTIONS_POLICY.md";
+export const OPAQUE_SUPPORT_EMAIL = "support@opaque.cash";
+export const OPAQUE_REPO_ISSUES_URL = "https://github.com/opaquecash/stellar/issues";
+export const OPAQUE_REPO_SECURITY_ADVISORY_URL =
+  "https://github.com/opaquecash/stellar/security/advisories/new";
 
 export type ContactChannel = {
   label: string;
   email?: string;
   url?: string;
+  urlLabel?: string;
   description: string;
 };
 
@@ -18,34 +23,39 @@ export type ContactChannel = {
 export const PUBLIC_CONTACTS = {
   abuse: {
     label: "Abuse reports",
-    email: "abuse@opaqueprotocol.org",
-    description: "Terms violations, sanctions concerns, phishing using official branding",
+    email: OPAQUE_SUPPORT_EMAIL,
+    url: OPAQUE_REPO_ISSUES_URL,
+    urlLabel: "Open a public GitHub issue",
+    description: "Terms violations, sanctions concerns, phishing, impersonation, and misuse of official deployments",
   },
   security: {
     label: "Security incidents",
-    email: "security@opaqueprotocol.org",
-    url: "https://github.com/collinsadi/opaque-stellar/security/advisories/new",
-    description: "Vulnerabilities and active exploitation",
+    email: OPAQUE_SUPPORT_EMAIL,
+    url: OPAQUE_REPO_SECURITY_ADVISORY_URL,
+    urlLabel: "Open a private security advisory",
+    description: "Vulnerabilities, active exploitation, leaked credentials, and safety-critical reports",
   },
   support: {
     label: "General support",
-    url: "https://github.com/collinsadi/opaque-stellar/issues",
-    description: "Bug reports and general questions (no sensitive victim data)",
+    email: OPAQUE_SUPPORT_EMAIL,
+    url: OPAQUE_REPO_ISSUES_URL,
+    urlLabel: "Open a public GitHub issue",
+    description: "Product bugs and general questions that do not include sensitive victim data",
   },
 } as const satisfies Record<string, ContactChannel>;
 
 /** Documented for operators, matches docs/internal/ABUSE_SANCTIONS_RUNBOOK.md */
 export const INCIDENT_CONTACTS = {
-  incidentEmail: "incident@opaqueprotocol.org",
+  incidentEmail: OPAQUE_SUPPORT_EMAIL,
   opsChannel: "#ops-channel (Discord)",
 } as const;
 
 export const INFRA_CAN_BLOCK = [
-  "Hosted frontend or CDN artifacts we publish",
-  "RPC or Horizon endpoints we operate (rate limits, IP blocks)",
-  "Reputation root updates via governance multisig (#85)",
-  "Issuer attestations where we are admin",
-  "Documentation or payment-link pages on our domains",
+  "Hosted frontend, CDN, DNS, and documentation that we publish or operate",
+  "RPC, Horizon, relayer, scanner, or API endpoints we operate, including rate limits and abuse blocks",
+  "Payment-link pages, branded pages, or support content hosted on official domains",
+  "Issuer attestations, reputation lists, and root publishing where we control the issuer or publisher",
+  "Official GitHub issues, advisories, releases, and package distribution channels",
 ] as const;
 
 export const INFRA_CANNOT_BLOCK = [
@@ -61,6 +71,7 @@ export const REPORTER_PRIVACY_GUARANTEES = [
   "Reports are used only for triage, response, and legal compliance.",
   "Reporter identities are not published without consent, except as required by law.",
   "Anonymous reports are accepted.",
+  "Public GitHub issues should not include private victim data, secrets, or doxxing material.",
   "We do not deanonymize blockchain users based on abuse reports alone.",
 ] as const;
 

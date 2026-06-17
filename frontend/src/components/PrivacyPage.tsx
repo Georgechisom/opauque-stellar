@@ -1,46 +1,72 @@
 import { Link } from "react-router-dom";
 import { LegalPageLayout } from "./LegalPageLayout";
+import { ABUSE_POLICY_ROUTE, PUBLIC_CONTACTS } from "../lib/abusePolicy";
 import { PRIVACY_NOT_HIDDEN, THREAT_MODEL_ROUTE } from "../lib/privacyThreatModel";
 
 export function PrivacyPage() {
   return (
     <LegalPageLayout title="Privacy Policy">
       <section>
-        <h2 className="text-white font-medium text-base mb-2">Data Collection</h2>
+        <h2 className="text-white font-medium text-base mb-2">Data collection</h2>
         <p>
-          The Opaque protocol does <strong className="text-neutral-200">not</strong> collect
-          IP addresses, names, or email addresses. No personally identifiable information
-          is gathered or transmitted by the protocol or the application.
+          The Opaque reference app does not require an account, name, email address, or
+          custodial profile to use protocol features. Normal wallet use happens in your
+          browser and through your selected Stellar wallet and network providers.
         </p>
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">Local Storage</h2>
+        <h2 className="text-white font-medium text-base mb-2">Local storage</h2>
         <p>
-          &quot;Manual Ghost Addresses&quot; and &quot;Transaction Logs&quot; are stored
-          locally on your device only. This data never touches a centralized server. You
-          are responsible for backing up your local data; clearing browser storage will
-          remove it.
+          Ghost addresses, pool notes, transaction logs, preferences, and recovery data
+          may be stored locally on your device. This data is needed to discover receives,
+          sweep funds, and restore wallet state. Clearing browser storage, losing a
+          device, or losing a backup password can cause permanent loss of access.
         </p>
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">Blockchain Data</h2>
+        <h2 className="text-white font-medium text-base mb-2">Blockchain and provider data</h2>
         <p>
-          While Opaque provides privacy through stealth addresses and ECDH-derived
-          one-time addresses, the underlying blockchain is public. You are responsible
-          for managing your own &quot;linkability&quot;, for example, how you fund gas,
-          which networks you use, and any off-chain metadata. The protocol does not
-          control or obscure blockchain-level visibility.
+          Stellar ledger data is public. Contract calls, timestamps, amounts, fees,
+          nullifiers, fee-payer accounts, and public proof inputs may be visible to
+          anyone. RPC, Horizon, wallet, relayer, gateway, and indexer providers may also
+          observe request timing, IP metadata, queried contracts, and account lookups
+          depending on how you connect.
         </p>
       </section>
 
       <section>
-        <h2 className="text-white font-medium text-base mb-2">Privacy Threat Model</h2>
+        <h2 className="text-white font-medium text-base mb-2">Support and abuse reports</h2>
+        <p>
+          If you email support or open a GitHub issue, the report may include the contact
+          details, wallet addresses, transaction hashes, screenshots, and other context
+          you choose to provide. Reports are used for support, abuse triage, security
+          review, and legal compliance. Do not put private keys, seed phrases, passwords,
+          or sensitive victim data in public issues. See the{" "}
+          <Link
+            to={ABUSE_POLICY_ROUTE}
+            className="text-white underline hover:text-white font-medium"
+          >
+            Abuse &amp; Sanctions Response Policy
+          </Link>{" "}
+          or email{" "}
+          <a
+            href={`mailto:${PUBLIC_CONTACTS.support.email}`}
+            className="text-white underline hover:text-white font-medium"
+          >
+            {PUBLIC_CONTACTS.support.email}
+          </a>
+          .
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-white font-medium text-base mb-2">Privacy threat model</h2>
         <p className="mb-3">
-          Opaque reduces address linkability but does not provide full anonymity. Before
-          using stealth payments or ZK reputation in production, review what the protocol
-          does and does not hide:
+          Opaque reduces some forms of linkability, but it does not provide full
+          anonymity. Review these limits before using stealth payments, privacy pools,
+          relayers, or ZK reputation:
         </p>
         <ul className="list-disc pl-5 space-y-2 mb-3">
           {PRIVACY_NOT_HIDDEN.slice(0, 4).map((item) => (
@@ -54,7 +80,17 @@ export function PrivacyPage() {
           >
             Read the full privacy threat model
           </Link>{" "}
-          for adversaries, mitigations mapped to issues and code, and residual risks.
+          for adversaries, assumptions, mitigations, and residual risks.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-white font-medium text-base mb-2">Retention and control</h2>
+        <p>
+          Local wallet data remains under your browser profile unless you export it,
+          clear it, or send it to another service. Public ledger data cannot be deleted
+          by Opaque. Support reports are retained only as needed for response, security,
+          compliance, and recordkeeping.
         </p>
       </section>
     </LegalPageLayout>

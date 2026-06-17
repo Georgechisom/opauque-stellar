@@ -11,6 +11,12 @@ export function Footer() {
           Privacy
         </Link>
         <Link
+          to="/threat-model"
+          className="hover:text-white transition-colors"
+        >
+          Threat model
+        </Link>
+        <Link
           to="/terms"
           className="hover:text-white transition-colors"
         >

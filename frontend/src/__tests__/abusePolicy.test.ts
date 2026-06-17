@@ -5,6 +5,9 @@ import {
   INCIDENT_CONTACTS,
   INFRA_CAN_BLOCK,
   INFRA_CANNOT_BLOCK,
+  OPAQUE_REPO_ISSUES_URL,
+  OPAQUE_REPO_SECURITY_ADVISORY_URL,
+  OPAQUE_SUPPORT_EMAIL,
   PUBLIC_CONTACTS,
   REPORTER_PRIVACY_GUARANTEES,
 } from "../lib/abusePolicy";
@@ -15,13 +18,16 @@ describe("abusePolicy", () => {
   });
 
   it("documents public support and reporting contacts", () => {
-    expect(PUBLIC_CONTACTS.abuse.email).toBe("abuse@opaqueprotocol.org");
-    expect(PUBLIC_CONTACTS.security.email).toBe("security@opaqueprotocol.org");
-    expect(PUBLIC_CONTACTS.support.url).toContain("github.com");
+    expect(PUBLIC_CONTACTS.abuse.email).toBe(OPAQUE_SUPPORT_EMAIL);
+    expect(PUBLIC_CONTACTS.security.email).toBe(OPAQUE_SUPPORT_EMAIL);
+    expect(PUBLIC_CONTACTS.support.email).toBe(OPAQUE_SUPPORT_EMAIL);
+    expect(PUBLIC_CONTACTS.abuse.url).toBe(OPAQUE_REPO_ISSUES_URL);
+    expect(PUBLIC_CONTACTS.support.url).toBe(OPAQUE_REPO_ISSUES_URL);
+    expect(PUBLIC_CONTACTS.security.url).toBe(OPAQUE_REPO_SECURITY_ADVISORY_URL);
   });
 
   it("documents incident contacts for operators", () => {
-    expect(INCIDENT_CONTACTS.incidentEmail).toBe("incident@opaqueprotocol.org");
+    expect(INCIDENT_CONTACTS.incidentEmail).toBe(OPAQUE_SUPPORT_EMAIL);
     expect(INCIDENT_CONTACTS.opsChannel).toMatch(/ops/i);
   });
 
