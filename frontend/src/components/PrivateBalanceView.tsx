@@ -7,6 +7,7 @@ import {
 } from "../lib/stealth";
 import { getCluster, type StellarNetwork } from "../lib/chain";
 import { getConfigForCluster } from "../contracts/contract-config";
+import { getPoolConfig } from "../contracts/poolConfig";
 
 function isAddress(a: string): boolean {
   const t = a.trim();
@@ -54,6 +55,8 @@ import {
   useGhostAnnouncementStore,
 } from "../store/ghostAnnouncementStore";
 import { GhostAnnounceModal } from "./GhostAnnounceModal";
+import { PoolSweepModal } from "./PoolSweepModal";
+import type { PoolSweepResult } from "../lib/poolSweep";
 import { ModalShell } from "./ModalShell";
 import { RecoveryDocLink } from "./RecoveryDocLink";
 import { getFeatureFlags } from "../lib/featureFlags";
@@ -355,6 +358,7 @@ export function PrivateBalanceView() {
     error?: string;
   } | null>(null);
   const [ghostTxs, setGhostTxs] = useState<FoundTx[]>([]);
+  const [poolSweepTx, setPoolSweepTx] = useState<FoundTx | null>(null);
   const [syncingPaused, setSyncingPaused] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { wasm, isReady: wasmReady } = useOpaqueWasm();
@@ -363,6 +367,10 @@ export function PrivateBalanceView() {
   const cluster = getCluster();
   const manualGhostEnabled = getFeatureFlags().manualGhostAddresses;
   const currentConfig = getConfigForCluster(cluster);
+  const poolEnabled = useMemo(() => {
+    void cluster;
+    return !!getPoolConfig();
+  }, [cluster]);
   const { push: logPush } = useProtocolLog();
   const pushTx = useTxHistoryStore((s) => s.push);
   const ghostStoreEntries = useGhostAddressStore((s) => s.entries);
@@ -1228,6 +1236,16 @@ export function PrivateBalanceView() {
                             Announce on-chain
                           </button>
                         )}
+                      {poolEnabled && tx.privateKey && (
+                        <button
+                          type="button"
+                          disabled={claimingId !== null}
+                          onClick={() => setPoolSweepTx(tx)}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-glow text-glow bg-transparent disabled:opacity-40 disabled:cursor-not-allowed hover:bg-glow hover:text-ink-950 transition-colors"
+                        >
+                          To privacy pool
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={
@@ -1364,6 +1382,28 @@ export function PrivateBalanceView() {
             }}
           />
         )}
+
+      {poolSweepTx && (
+        <PoolSweepModal
+          tx={poolSweepTx}
+          cluster={cluster}
+          onClose={() => setPoolSweepTx(null)}
+          onSwept={(result: PoolSweepResult) => {
+            setPoolSweepTx(null);
+            if (cluster != null && result.hashes[0]) {
+              showToast(
+                `Moved ${formatXlm(result.totalDepositStroops)} XLM into the privacy pool as ${result.notesAdded} note(s).`,
+                { explorerTx: { cluster, txSig: result.hashes[0] } },
+              );
+            } else {
+              showToast(
+                `Moved ${formatXlm(result.totalDepositStroops)} XLM into the privacy pool.`,
+              );
+            }
+            void handleRefreshBalances();
+          }}
+        />
+      )}
 
       {manualImportOpen && (
         <ModalShell
