@@ -35,6 +35,17 @@ function statusFor(entry: TxHistoryEntry): string {
   return entry.txHash ? "Confirmed" : "-";
 }
 
+/**
+ * Mask long counterparties (e.g. a 66-byte stealth meta-address from older
+ * trait entries) so they don't overflow the card. Short, human-readable labels
+ * like "Manual Ghost" are left untouched.
+ */
+function maskCounterparty(value: string): string {
+  const v = value.trim();
+  if (v.length <= 24 || v.includes("…")) return v;
+  return `${v.slice(0, 10)}…${v.slice(-6)}`;
+}
+
 /** Token symbol badge for list display (icon-style: symbol only). */
 function TokenBadge({ symbol }: { symbol: string }) {
   return (
@@ -177,7 +188,7 @@ export function TransactionHistoryView() {
                     className="text-mist text-xs truncate min-w-0 ml-auto"
                     title={tx.counterparty ?? ""}
                   >
-                    {tx.counterparty ?? "-"}
+                    {maskCounterparty(tx.counterparty ?? "-")}
                   </span>
                 </div>
 
