@@ -153,9 +153,15 @@ async function readPoolEvents(poolId: string): Promise<PoolEvents> {
     [withdrawTopic, false],
   ] as const) {
     let cursor: string | undefined;
-    for (let page = 0; page < 25; page++) {
+    let prevCursor: string | undefined;
+    const filters = [{ type: "contract" as const, contractIds: [poolId], topics: [[topic, "*"]] }];
+    // Soroban getEvents pages through the ledger range ~10k ledgers at a time and
+    // returns many EMPTY pages before the ones that actually hold events. Follow
+    // the cursor until it stops advancing (we have caught up to latestLedger);
+    // breaking on the first short/empty page would miss every deposit that sits
+    // beyond the first page.
+    for (let page = 0; page < 200; page++) {
       let res: rpc.Api.GetEventsResponse;
-      const filters = [{ type: "contract" as const, contractIds: [poolId], topics: [[topic, "*"]] }];
       try {
         const req: rpc.Server.GetEventsRequest = cursor
           ? { cursor, filters, limit: 100 }
@@ -186,7 +192,8 @@ async function readPoolEvents(poolId: string): Promise<PoolEvents> {
         }
       }
       cursor = res.cursor;
-      if (!res.events || res.events.length < 100) break;
+      if (!cursor || cursor === prevCursor) break;
+      prevCursor = cursor;
     }
   }
 

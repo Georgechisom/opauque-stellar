@@ -143,9 +143,14 @@ export class StellarChainAdapter implements ChainAdapter {
 
     const deposits: Deposit[] = [];
     let cursor: string | undefined;
+    let prevCursor: string | undefined;
     // Page through events; the Deposit topic is 2 segments [Symbol, version], so the
     // filter is exactly 2 long (matches Soroban's exact-length topic rule).
-    for (let page = 0; page < 20; page++) {
+    // getEvents scans the ledger range ~10k ledgers per page and returns many EMPTY
+    // pages before the populated ones, so follow the cursor until it stops advancing
+    // (caught up to latestLedger). Breaking on the first short page would miss every
+    // deposit beyond the first page.
+    for (let page = 0; page < 400; page++) {
       const res = cursor
         ? await this.server.getEvents({ cursor, filters, limit: 100 })
         : await this.getEventsFrom(startLedger, filters);
@@ -162,7 +167,8 @@ export class StellarChainAdapter implements ChainAdapter {
         });
       }
       cursor = res.cursor;
-      if (!res.events || res.events.length < 100) break;
+      if (!cursor || cursor === prevCursor) break;
+      prevCursor = cursor;
     }
     deposits.sort((a, b) => a.index - b.index);
     return deposits;
@@ -197,7 +203,11 @@ export class StellarChainAdapter implements ChainAdapter {
     ] as const) {
       const filters = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[topic, "*"]] }];
       let cursor: string | undefined;
-      for (let page = 0; page < 200; page++) {
+      let prevCursor: string | undefined;
+      // Follow the cursor until it stops advancing; getEvents returns many EMPTY
+      // pages before the populated ones, so breaking on a short page would miss
+      // leaves beyond the first page.
+      for (let page = 0; page < 400; page++) {
         const res = cursor
           ? await this.server.getEvents({ cursor, filters, limit: 100 })
           : await this.getEventsFrom(startLedger, filters);
@@ -209,7 +219,8 @@ export class StellarChainAdapter implements ChainAdapter {
           eventCount++;
         }
         cursor = res.cursor;
-        if (!res.events || res.events.length < 100) break;
+        if (!cursor || cursor === prevCursor) break;
+        prevCursor = cursor;
       }
     }
 
