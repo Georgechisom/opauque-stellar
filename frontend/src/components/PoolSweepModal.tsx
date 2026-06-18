@@ -130,7 +130,7 @@ export function PoolSweepModal({ tx, cluster, onClose, onSwept }: PoolSweepModal
         <div className="flex justify-between items-center gap-2">
           <ExplorerLink
             cluster={cluster}
-            value={tx.address}
+            value={stealthStellarAddress ?? tx.address}
             type="address"
             className="text-slate-200"
           />

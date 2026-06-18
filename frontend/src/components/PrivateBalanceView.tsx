@@ -84,6 +84,26 @@ function toHexBytes(hex: string): Uint8Array {
   return hexToBytes(normalized as `0x${string}`);
 }
 
+/**
+ * The Stellar G-address that actually holds a stealth receive, for display.
+ * Prefer the stored address; otherwise derive it from the reconstructed private
+ * key. Falls back to undefined when neither is available (e.g. a watched-only
+ * ghost), so callers can show the raw identifier instead.
+ */
+function stellarAddressForTx(tx: FoundTx): string | undefined {
+  if (tx.stealthStellarAddress) return tx.stealthStellarAddress;
+  if (tx.privateKey) {
+    try {
+      return deriveStealthStellarAddressFromStealthPrivKey(
+        hexToBytes(tx.privateKey as `0x${string}`),
+      );
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function cachedToLogWithArgs(c: CachedAnnouncement): LogWithArgs {
   return {
     args: c.args,
@@ -1082,7 +1102,7 @@ export function PrivateBalanceView() {
                           </span>
                           <ExplorerLink
                             cluster={cluster}
-                            value={tx.address}
+                            value={stellarAddressForTx(tx) ?? tx.address}
                             type="address"
                             className="text-mist text-xs"
                           />
@@ -1142,7 +1162,7 @@ export function PrivateBalanceView() {
                           </span>
                           <ExplorerLink
                             cluster={cluster}
-                            value={tx.address}
+                            value={stellarAddressForTx(tx) ?? tx.address}
                             type="address"
                             className="text-mist text-xs"
                           />
@@ -1186,7 +1206,7 @@ export function PrivateBalanceView() {
                         )}
                         <ExplorerLink
                           cluster={cluster}
-                          value={tx.address}
+                          value={stellarAddressForTx(tx) ?? tx.address}
                           type="address"
                           className="text-mist text-xs"
                         />
