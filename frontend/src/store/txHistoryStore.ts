@@ -31,6 +31,17 @@ export type TxHistoryEntry = {
 
 export type TxHistoryPushInput = Omit<TxHistoryEntry, "id" | "timestamp">;
 
+/**
+ * Mask a long counterparty (e.g. a 66-byte stealth meta-address from older trait
+ * entries) so it doesn't overflow history cards. Short, human-readable labels
+ * like "Manual Ghost" and already-masked values are left untouched.
+ */
+export function maskCounterparty(value: string): string {
+  const v = value.trim();
+  if (v.length <= 24 || v.includes("…")) return v;
+  return `${v.slice(0, 10)}…${v.slice(-6)}`;
+}
+
 type TxHistoryState = {
   byChain: Record<string, TxHistoryEntry[]>;
   push: (entry: TxHistoryPushInput) => void;

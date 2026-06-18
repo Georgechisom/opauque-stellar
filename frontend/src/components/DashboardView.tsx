@@ -6,7 +6,7 @@ import { isClusterSupported } from "../contracts/contract-config";
 import { SwitchNetworkModal } from "./SwitchNetworkModal";
 import { getCluster } from "../lib/chain";
 import type { StellarNetwork } from "../lib/chain";
-import { useTxHistoryStore } from "../store/txHistoryStore";
+import { maskCounterparty, useTxHistoryStore } from "../store/txHistoryStore";
 import type { TxHistoryEntry } from "../store/txHistoryStore";
 import { isTabNavVisible } from "../lib/tabAccess";
 import { getFeatureFlags } from "../lib/featureFlags";
@@ -180,7 +180,12 @@ export function DashboardView({ onNavigate, address, cluster }: DashboardViewPro
                   <span className="rounded-md border border-ink-700 bg-ink-900/40 px-1.5 py-0.5 uppercase text-[10px]">
                     {tx.kind}
                   </span>
-                  <span className="ml-auto font-mono text-mist">{tx.counterparty}</span>
+                  <span
+                    className="ml-auto min-w-0 truncate font-mono text-mist"
+                    title={tx.counterparty ?? ""}
+                  >
+                    {maskCounterparty(tx.counterparty ?? "-")}
+                  </span>
                 </div>
                 <div className="mt-1 text-sm text-white">
                   {tx.kind === "trait" ? tx.amount : `${tx.amount} ${tx.tokenSymbol}`}

@@ -1,6 +1,6 @@
 import { getCluster } from "../lib/chain";
 import { getExplorerTxUrl } from "../lib/explorer";
-import { useTxHistoryStore } from "../store/txHistoryStore";
+import { maskCounterparty, useTxHistoryStore } from "../store/txHistoryStore";
 import type { TxHistoryEntry } from "../store/txHistoryStore";
 import { formatXlm } from "../lib/stealth";
 import { useWallet } from "../hooks/useWallet";
@@ -33,17 +33,6 @@ function typeLabel(kind: TxHistoryEntry["kind"]): string {
 
 function statusFor(entry: TxHistoryEntry): string {
   return entry.txHash ? "Confirmed" : "-";
-}
-
-/**
- * Mask long counterparties (e.g. a 66-byte stealth meta-address from older
- * trait entries) so they don't overflow the card. Short, human-readable labels
- * like "Manual Ghost" are left untouched.
- */
-function maskCounterparty(value: string): string {
-  const v = value.trim();
-  if (v.length <= 24 || v.includes("…")) return v;
-  return `${v.slice(0, 10)}…${v.slice(-6)}`;
 }
 
 /** Token symbol badge for list display (icon-style: symbol only). */
