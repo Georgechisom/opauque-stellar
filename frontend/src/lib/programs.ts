@@ -3,8 +3,13 @@
  */
 
 import { nativeToScVal, StrKey } from "@stellar/stellar-sdk";
+import type { Keypair } from "@stellar/stellar-sdk";
 import { deployedAddresses } from "../contracts/deployedAddresses";
-import { bytesToScVal, invokeContractMethod } from "./stellar";
+import {
+  bytesToScVal,
+  invokeContractMethod,
+  invokeContractWithKeypair,
+} from "./stellar";
 import type { SignTxFn } from "./stellar";
 
 export const SCHEMA_REGISTRY_CONTRACT_ID = deployedAddresses.schemaRegistry;
@@ -225,6 +230,31 @@ export async function invokePoolDeposit(opts: {
       nativeToScVal(BigInt(opts.expectedIndex), { type: "u64" }),
     ],
     signTransaction: opts.signTransaction,
+  });
+}
+
+/**
+ * Deposit `value` stroops from a stealth account, signing locally with its
+ * keypair so the connected wallet is never involved. The stealth account is the
+ * transaction source (fee payer) and the `depositor`; source-account auth covers
+ * both `deposit`'s `require_auth` and the SAC transfer.
+ */
+export async function invokePoolDepositWithKeypair(opts: {
+  keypair: Keypair;
+  value: bigint;
+  commitment: Uint8Array;
+  expectedIndex: number;
+}): Promise<string> {
+  return invokeContractWithKeypair({
+    keypair: opts.keypair,
+    contractId: requirePoolId(),
+    method: "deposit",
+    args: [
+      nativeToScVal(opts.keypair.publicKey(), { type: "address" }),
+      nativeToScVal(opts.value, { type: "i128" }),
+      bytesToScVal(opts.commitment),
+      nativeToScVal(BigInt(opts.expectedIndex), { type: "u64" }),
+    ],
   });
 }
 
