@@ -5,6 +5,7 @@
  */
 import type { ResolvedConfig } from "../config/index";
 import type { OpaqueSigner } from "../signer/index";
+import type { ContractInvoker } from "../rpc/client";
 import type { NoteStore, VaultStore, ScanStore } from "../storage/index";
 import type { ArtifactResolver } from "../artifacts/index";
 import type {
@@ -31,6 +32,7 @@ export interface ContractBindings {
 
 export interface OpaqueClientContext {
   readonly config: ResolvedConfig;
+  readonly rpc: ContractInvoker;
   readonly contracts: ContractBindings;
   readonly notes: NoteStore;
   readonly vault: VaultStore;
