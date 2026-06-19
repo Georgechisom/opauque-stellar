@@ -5,9 +5,11 @@
  * diagnostics. No ambient globals: everything comes from {@link ResolvedConfig}.
  */
 import {
+  Asset,
   BASE_FEE,
   Contract,
   Horizon,
+  Operation,
   TransactionBuilder,
   rpc,
   scValToNative,
@@ -15,6 +17,7 @@ import {
 } from "@stellar/stellar-sdk";
 import type { ResolvedConfig } from "../config/index";
 import type { OpaqueSigner } from "../signer/index";
+import { formatStroopsToXlm } from "../crypto/amount";
 import { silentLogger, type Logger } from "../logger/index";
 import { noopTelemetry, type Telemetry } from "../telemetry/index";
 import {
@@ -29,6 +32,9 @@ const READ_TIMEOUT_MS = 12_000;
 const READ_RETRIES_PER_PROVIDER = 2;
 const TX_POLL_TIMEOUT_MS = 60_000;
 const TX_POLL_INTERVAL_MS = 1_000;
+
+/** Minimum starting balance (stroops) to create a fresh Stellar account (1 XLM). */
+export const NEW_ACCOUNT_MIN_RESERVE_STROOPS = 10_000_000n;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -121,6 +127,60 @@ export class RpcClient {
   /** Horizon server (first configured Horizon URL). */
   horizon(): Horizon.Server {
     return new Horizon.Server(this.config.horizonUrls[0]);
+  }
+
+  /** Whether an account exists on-ledger. */
+  async accountExists(publicKey: string): Promise<boolean> {
+    try {
+      await this.horizon().loadAccount(publicKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Send a native XLM transfer. Uses `createAccount` when the destination does
+   * not exist yet (stealth accounts), otherwise a `payment`. Signs via the
+   * provided signer and submits through Horizon.
+   */
+  async sendNativeTransfer(opts: {
+    destination: string;
+    amountStroops: bigint;
+    signer: OpaqueSigner;
+  }): Promise<string> {
+    const source = await opts.signer.publicKey();
+    const horizon = this.horizon();
+    const sourceAccount = await horizon.loadAccount(source);
+    const destExists = await this.accountExists(opts.destination);
+    const amount = formatStroopsToXlm(opts.amountStroops);
+
+    if (!destExists && opts.amountStroops < NEW_ACCOUNT_MIN_RESERVE_STROOPS) {
+      throw new RpcError(
+        "Destination account does not exist; create-account requires at least 1 XLM.",
+      );
+    }
+
+    const op = destExists
+      ? Operation.payment({ destination: opts.destination, asset: Asset.native(), amount })
+      : Operation.createAccount({ destination: opts.destination, startingBalance: amount });
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.passphrase,
+    })
+      .addOperation(op)
+      .setTimeout(180)
+      .build();
+
+    const signedXdr = await opts.signer.signTransaction(tx.toXDR(), {
+      networkPassphrase: this.config.passphrase,
+    });
+    const signed = TransactionBuilder.fromXDR(signedXdr, this.config.passphrase);
+    const result = await horizon.submitTransaction(
+      signed as Parameters<Horizon.Server["submitTransaction"]>[0],
+    );
+    return result.hash;
   }
 
   /** Run a read across providers with retry + timeout; throws RpcError on exhaustion. */

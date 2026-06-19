@@ -100,6 +100,20 @@ export class ArtifactError extends OpaqueError {
 }
 
 /**
+ * A capability that depends on a layer not yet wired in this build (e.g. the
+ * proving layer, the WASM scanner, or the relayer gateway client). Thrown so the
+ * surface is discoverable and the failure is explicit rather than silent.
+ */
+export class NotWiredError extends OpaqueError {
+  constructor(capability: string, hint?: string) {
+    super(
+      `${capability} is not wired in this build.` + (hint ? ` ${hint}` : ""),
+      "NOT_WIRED",
+    );
+  }
+}
+
+/**
  * Known contract error enums, keyed by contract package name. Populated as the
  * SDK binds each contract; an unknown code still surfaces as a numeric
  * {@link ContractError}. Source of truth is each contract's `#[contracterror]`.

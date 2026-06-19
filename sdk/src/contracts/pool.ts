@@ -7,6 +7,7 @@ import type { ContractInvoker } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
 import {
   addressToScVal,
+  boolToScVal,
   bytesToScVal,
   i128ToScVal,
   u64ToScVal,
@@ -102,5 +103,30 @@ export class PrivacyPool {
       ],
       signer: opts.signer,
     });
+  }
+
+  /** Read the next deposit leaf index (the value `deposit` will assign). */
+  async getDepositCount(source: string): Promise<number> {
+    const count = await this.rpc.readNative<number | bigint>({
+      source,
+      contractId: this.contractId,
+      method: "get_deposit_count",
+      args: [],
+    });
+    return Number(count);
+  }
+
+  /** Read the latest published state (or ASP) root, or null if none. */
+  async getLatestRoot(opts: {
+    source: string;
+    kind: "state" | "asp";
+  }): Promise<Uint8Array | null> {
+    const root = await this.rpc.readNative<Uint8Array | undefined>({
+      source: opts.source,
+      contractId: this.contractId,
+      method: "get_latest_root",
+      args: [boolToScVal(opts.kind === "state")],
+    });
+    return root ? Uint8Array.from(root) : null;
   }
 }
