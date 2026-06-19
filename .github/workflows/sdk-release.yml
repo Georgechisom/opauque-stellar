@@ -52,8 +52,10 @@ jobs:
       - name: Clean-room install (packaged consumer)
         run: npm run smoke:install
 
-      - name: Publish to npm with provenance
-        run: npm publish --provenance --access public
+      - name: Publish to npm
+        # npm provenance (sigstore) only supports PUBLIC source repos. Enable it
+        # automatically when the repo is public; publish without it while private.
+        run: npm publish ${{ !github.event.repository.private && '--provenance' || '' }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

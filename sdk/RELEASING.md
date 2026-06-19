@@ -43,3 +43,6 @@ publish rights to the `@opaquecash` scope. (Provenance also requires the workflo
 
 - The tag version must match `package.json` (the workflow enforces this).
 - To verify the package locally before tagging: `npm run check:exports && npm run smoke:install`.
+- **Provenance** (sigstore attestation) only works on a **public** GitHub repo. The
+  workflow enables `--provenance` automatically when the repo is public and
+  publishes without it while private — no edit needed when visibility changes.
