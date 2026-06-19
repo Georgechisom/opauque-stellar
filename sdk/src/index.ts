@@ -12,3 +12,6 @@
 export const VERSION = "0.0.0";
 
 export * from "./crypto/index";
+export * from "./errors/index";
+export * from "./config/index";
+export * from "./signer/index";
