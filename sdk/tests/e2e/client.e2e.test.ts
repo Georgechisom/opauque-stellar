@@ -5,7 +5,7 @@
  * not-wired capabilities fail explicitly.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { Keypair, xdr } from "@stellar/stellar-sdk";
+import { Keypair, rpc, xdr } from "@stellar/stellar-sdk";
 import {
   OpaqueClient,
   keypairSigner,
@@ -33,6 +33,12 @@ class StubInvoker implements ContractInvoker {
   }
   async simulateRead(): Promise<xdr.ScVal | undefined> {
     return undefined;
+  }
+  async getEvents(): Promise<rpc.Api.GetEventsResponse> {
+    return { events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse;
+  }
+  async getLatestLedger(): Promise<number> {
+    return 0;
   }
 }
 

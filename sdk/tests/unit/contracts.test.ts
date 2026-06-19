@@ -5,7 +5,7 @@
  * This guards the wire format without needing a network.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { Keypair, xdr } from "@stellar/stellar-sdk";
+import { Keypair, rpc, xdr } from "@stellar/stellar-sdk";
 import {
   StealthRegistry,
   StealthAnnouncer,
@@ -31,6 +31,12 @@ class CaptureInvoker implements ContractInvoker {
   }
   async simulateRead(): Promise<xdr.ScVal | undefined> {
     throw new Error("not used");
+  }
+  async getEvents(): Promise<rpc.Api.GetEventsResponse> {
+    return { events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse;
+  }
+  async getLatestLedger(): Promise<number> {
+    return 0;
   }
 }
 

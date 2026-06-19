@@ -114,8 +114,9 @@ export class PoolService {
 
   /**
    * Generate a full-withdrawal proof for a note. Requires an artifact resolver
-   * (`new OpaqueClient({ artifacts })`) and the reconstructed pool leaves
-   * (`stateLeaves` + `depositIndices`) read from on-chain Deposit/Withdraw events.
+   * (`new OpaqueClient({ artifacts })`). The pool leaves are reconstructed from
+   * on-chain Deposit/Withdraw events automatically; pass `stateLeaves` +
+   * `depositIndices` to skip the on-chain read (e.g. in tests).
    */
   async proveWithdraw(opts: {
     note: PoolNote;
@@ -123,8 +124,8 @@ export class PoolService {
     relayer?: string;
     fee?: bigint;
     scope?: number;
-    stateLeaves: bigint[];
-    depositIndices: number[];
+    stateLeaves?: bigint[];
+    depositIndices?: number[];
   }): Promise<PoolWithdrawProof> {
     if (!this.ctx.artifacts) {
       throw new NotWiredError(
@@ -132,14 +133,22 @@ export class PoolService {
         "Construct OpaqueClient with { artifacts } to enable proving, or pass a precomputed bundle to withdraw().",
       );
     }
+    let { stateLeaves, depositIndices } = opts;
+    if (!stateLeaves || !depositIndices) {
+      const state = await this.ctx.contracts.privacyPool.reconstructState({
+        startLedger: this.ctx.config.startLedger,
+      });
+      stateLeaves = state.stateLeaves;
+      depositIndices = state.depositIndices;
+    }
     return provePoolWithdraw({
       note: opts.note,
       recipient: opts.recipient,
       relayer: opts.relayer ?? opts.recipient,
       fee: opts.fee ?? 0n,
       scope: opts.scope ?? this.ctx.config.pool.scope,
-      stateLeaves: opts.stateLeaves,
-      depositIndices: opts.depositIndices,
+      stateLeaves,
+      depositIndices,
       artifacts: this.ctx.artifacts,
     });
   }

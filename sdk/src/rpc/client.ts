@@ -99,6 +99,8 @@ export interface ContractInvoker {
   invoke(opts: InvokeOptions): Promise<string>;
   readNative<T = unknown>(opts: ReadOptions): Promise<T>;
   simulateRead(opts: ReadOptions): Promise<xdr.ScVal | undefined>;
+  getEvents(request: rpc.Server.GetEventsRequest): Promise<rpc.Api.GetEventsResponse>;
+  getLatestLedger(): Promise<number>;
 }
 
 export class RpcClient {
@@ -210,6 +212,19 @@ export class RpcClient {
       await sleep(TX_POLL_INTERVAL_MS);
     }
     throw new RpcError(`Transaction polling timed out for ${txHash}`);
+  }
+
+  /** Fetch contract events (paged) with read fallback. */
+  async getEvents(
+    request: rpc.Server.GetEventsRequest,
+  ): Promise<rpc.Api.GetEventsResponse> {
+    return this.read((s) => s.getEvents(request), "getEvents");
+  }
+
+  /** Latest ledger sequence. */
+  async getLatestLedger(): Promise<number> {
+    const res = await this.read((s) => s.getLatestLedger(), "getLatestLedger");
+    return res.sequence;
   }
 
   /** Read-only contract call via simulation. Returns the decoded return ScVal. */

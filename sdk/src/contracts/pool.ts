@@ -3,6 +3,7 @@
  * and admin root publishing. Deposits and withdrawals are permissionless; the
  * signer's account is the tx source.
  */
+import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import type { ContractInvoker } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
 import {
@@ -12,6 +13,22 @@ import {
   i128ToScVal,
   u64ToScVal,
 } from "../rpc/scval";
+
+const POOL_EVENT_LOOKBACK = 16_000;
+
+/** Parse the "ledger range: X - Y" hint from a getEvents range error. */
+function parseOldestLedgerFromRangeError(err: unknown): number | null {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : typeof (err as { message?: unknown })?.message === "string"
+          ? (err as { message: string }).message
+          : "";
+  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
+}
 
 export interface PoolWithdrawInputs {
   proofA: Uint8Array;
@@ -128,5 +145,80 @@ export class PrivacyPool {
       args: [boolToScVal(opts.kind === "state")],
     });
     return root ? Uint8Array.from(root) : null;
+  }
+
+  /**
+   * Reconstruct the pool's commitment leaves from on-chain events. Returns the
+   * commitment at each state-tree index (`stateLeaves`, deposits + withdrawal
+   * remainders) and the state index of each deposit in event order
+   * (`depositIndices`, == ASP-tree order). Feed these into the withdrawal prover.
+   */
+  async reconstructState(opts?: {
+    startLedger?: number;
+  }): Promise<{ stateLeaves: bigint[]; depositIndices: number[] }> {
+    const latest = await this.rpc.getLatestLedger();
+    let startLedger =
+      opts?.startLedger && opts.startLedger > 0
+        ? opts.startLedger
+        : Math.max(1, latest - POOL_EVENT_LOOKBACK);
+
+    const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
+    const withdrawTopic = xdr.ScVal.scvSymbol("Withdraw").toXDR("base64");
+    const byIndex = new Map<number, bigint>();
+    const depositIndices: number[] = [];
+
+    for (const [topic, isDeposit] of [
+      [depositTopic, true],
+      [withdrawTopic, false],
+    ] as const) {
+      let cursor: string | undefined;
+      let prevCursor: string | undefined;
+      const filters = [
+        { type: "contract" as const, contractIds: [this.contractId], topics: [[topic, "*"]] },
+      ];
+      // getEvents pages ~10k ledgers at a time and returns empty pages before
+      // the ones holding events; follow the cursor until it stops advancing.
+      for (let page = 0; page < 200; page++) {
+        let res;
+        try {
+          res = await this.rpc.getEvents(
+            cursor ? { cursor, filters, limit: 100 } : { startLedger, filters, limit: 100 },
+          );
+        } catch (err) {
+          const oldest = parseOldestLedgerFromRangeError(err);
+          if (!cursor && oldest != null && startLedger < oldest) {
+            startLedger = oldest;
+            res = await this.rpc.getEvents({ startLedger, filters, limit: 100 });
+          } else {
+            throw err;
+          }
+        }
+        for (const ev of res.events ?? []) {
+          const data = scValToNative(ev.value) as unknown[];
+          if (isDeposit) {
+            const commitment = BigInt(
+              "0x" + Buffer.from(data[0] as Uint8Array).toString("hex"),
+            );
+            const index = Number(data[1]);
+            byIndex.set(index, commitment);
+            depositIndices.push(index);
+          } else {
+            const newCommitment = BigInt(
+              "0x" + Buffer.from(data[1] as Uint8Array).toString("hex"),
+            );
+            byIndex.set(Number(data[2]), newCommitment);
+          }
+        }
+        cursor = res.cursor;
+        if (!cursor || cursor === prevCursor) break;
+        prevCursor = cursor;
+      }
+    }
+
+    const max = byIndex.size === 0 ? -1 : Math.max(...byIndex.keys());
+    const stateLeaves: bigint[] = [];
+    for (let i = 0; i <= max; i++) stateLeaves.push(byIndex.get(i) ?? 0n);
+    depositIndices.sort((a, b) => a - b);
+    return { stateLeaves, depositIndices };
   }
 }
