@@ -12,8 +12,6 @@
  *   commitment    = Poseidon(value, label, precommitment)
  *   nullifierHash = Poseidon(nullifier)
  */
-import { buildPoseidon } from "circomlibjs";
-
 export const POOL_TREE_DEPTH = 20;
 export const BN254_R =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -52,6 +50,17 @@ export async function getPoseidon(): Promise<PoseidonFn> {
     if (typeof globalThis !== "undefined" && !("Buffer" in globalThis)) {
       const bufferPkg = await import("buffer/index.js");
       (globalThis as Record<string, unknown>).Buffer = bufferPkg.Buffer;
+    }
+    // Lazy import: circomlibjs is an optional peer dep, only needed for
+    // pool/reputation Poseidon hashing — not for payments-only consumers.
+    let buildPoseidon: () => Promise<unknown>;
+    try {
+      ({ buildPoseidon } = await import("circomlibjs"));
+    } catch (cause) {
+      throw new Error(
+        "circomlibjs is required for pool/reputation hashing; install it as a peer dependency.",
+        { cause },
+      );
     }
     _poseidon = (await buildPoseidon()) as PoseidonFn;
   }
