@@ -1,0 +1,346 @@
+/**
+ * Dual-Key Stealth Address Protocol (DKSAP) — client-side crypto.
+ *
+ * Senders derive a one-time stealth address from a recipient's meta-address
+ * (viewing + spending public keys). Recipients use their viewing key to detect
+ * incoming transfers (view-tag prefilter) and their spending key to reconstruct
+ * the one-time private key and sweep.
+ *
+ * Uses @noble/curves secp256k1 and is byte-compatible with the Rust WASM scanner.
+ *
+ * Stellar adaptation: scanning matches on the 20-byte Keccak "stealth id"; funds
+ * are held on a deterministic Ed25519 Stellar account derived from the stealth
+ * secp256k1 point.
+ */
+
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
+import { hkdf } from "@noble/hashes/hkdf";
+import { sha256 } from "@noble/hashes/sha2";
+import { Keypair } from "@stellar/stellar-sdk";
+import { bigIntToBytes32, bytesToBigInt, bytesToHex, hexToBytes } from "./bytes";
+
+const CURVE = secp256k1;
+const DOMAIN = "opaque-cash-v1";
+const PROTOCOL_VERSION = "1";
+
+/** 0x-prefixed hex string. */
+export type Hex = `0x${string}`;
+
+export type DomainSeparationOpts = {
+  origin: string;
+  networkPassphrase: string;
+  walletPublicKey: string;
+  purpose: string;
+};
+
+/**
+ * Build the human-readable, domain-separated message a wallet signs to derive
+ * its Opaque stealth keys. Signing it is not a transaction and moves no funds.
+ */
+export function buildDomainSeparatedMessage(opts: DomainSeparationOpts): string {
+  return [
+    `--- Opaque Protocol Key Derivation ---`,
+    `App: Opaque Stellar`,
+    `Origin: ${opts.origin}`,
+    `Network: ${opts.networkPassphrase}`,
+    `Wallet: ${opts.walletPublicKey}`,
+    `Version: ${PROTOCOL_VERSION}`,
+    `Purpose: ${opts.purpose}`,
+    ``,
+    `Warning: Signing this message authorizes key derivation for the Opaque protocol.`,
+    `This is not a transaction and does not move funds.`,
+    `Do not sign this message on untrusted sites or applications.`,
+  ].join("\n");
+}
+
+export const LEGACY_SETUP_MESSAGE =
+  "Sign this message to derive your Opaque Cash stealth keys on Stellar. This is not a transaction and does not move funds.";
+
+// -----------------------------------------------------------------------------
+// Key derivation from wallet signature (entropy)
+// -----------------------------------------------------------------------------
+
+/**
+ * Derive viewing key (v) and spending key (s) from a wallet signature used as
+ * entropy. Expands the signature into 64 bytes via HKDF-SHA256, then splits into
+ * two 32-byte private keys. Domain string is "opaque-cash-v1".
+ */
+export function deriveKeysFromSignature(signatureHex: Hex | string): {
+  viewingKey: Uint8Array;
+  spendingKey: Uint8Array;
+} {
+  const sigBytes =
+    typeof signatureHex === "string"
+      ? signatureHex.startsWith("0x")
+        ? signatureHex.slice(2)
+        : signatureHex
+      : signatureHex;
+  const sig = typeof sigBytes === "string" ? hexToBytes(sigBytes) : sigBytes;
+  const okm = hkdf(sha256, sig, undefined, DOMAIN, 64);
+  return { viewingKey: okm.slice(0, 32), spendingKey: okm.slice(32, 64) };
+}
+
+/**
+ * Build the stealth meta-address from viewing and spending private keys.
+ * Meta-address = compressed(V) || compressed(S) (66 bytes).
+ */
+export function keysToStealthMetaAddress(
+  viewingKey: Uint8Array,
+  spendingKey: Uint8Array,
+): { V: Uint8Array; S: Uint8Array; metaAddress: Uint8Array } {
+  const V = CURVE.getPublicKey(viewingKey, true);
+  const S = CURVE.getPublicKey(spendingKey, true);
+  const metaAddress = new Uint8Array(V.length + S.length);
+  metaAddress.set(V, 0);
+  metaAddress.set(S, V.length);
+  return { V, S, metaAddress };
+}
+
+/** Encode the 66-byte stealth meta-address as 0x-prefixed hex. */
+export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
+  return ("0x" + bytesToHex(metaAddress)) as Hex;
+}
+
+/**
+ * Parse a recipient stealth meta-address into viewing and spending public keys.
+ * Format: first 33 bytes = compressed viewing key V, next 33 = compressed S.
+ */
+export function parseStealthMetaAddress(metaHex: Hex | string): {
+  viewPubKey: Uint8Array;
+  spendPubKey: Uint8Array;
+} {
+  const raw =
+    typeof metaHex === "string" && metaHex.startsWith("0x")
+      ? metaHex.slice(2)
+      : metaHex;
+  const bytes = hexToBytes(raw as string);
+  if (bytes.length < 66) {
+    throw new Error("Invalid stealth meta-address: expected 66 bytes");
+  }
+  return { viewPubKey: bytes.slice(0, 33), spendPubKey: bytes.slice(33, 66) };
+}
+
+// -----------------------------------------------------------------------------
+// Shared secret + stealth point (DKSAP core)
+// -----------------------------------------------------------------------------
+
+function sharedSecretFromScalarAndPoint(
+  privScalar: Uint8Array,
+  pointBytes: Uint8Array,
+): Uint8Array {
+  const P = CURVE.ProjectivePoint.fromHex(pointBytes);
+  const scalar = bytesToBigInt(privScalar) % CURVE.CURVE.n;
+  if (scalar === 0n) throw new Error("Invalid scalar");
+  return P.multiply(scalar).toRawBytes(true);
+}
+
+function hashSharedSecret(sharedSecret: Uint8Array): {
+  sH: Uint8Array;
+  viewTag: number;
+} {
+  const sH = keccak_256(sharedSecret);
+  return { sH, viewTag: sH[0] };
+}
+
+function stealthPointAndAddress(
+  spendPubKey: Uint8Array,
+  sH: Uint8Array,
+): { stealthAddress: string; stealthPubKeyUncompressed: Uint8Array } {
+  const n = CURVE.CURVE.n;
+  const sHMod = bytesToBigInt(sH) % n;
+  if (sHMod === 0n) throw new Error("Invalid scalar from hash");
+  const S_h = CURVE.ProjectivePoint.BASE.multiply(sHMod);
+  const P_spend = CURVE.ProjectivePoint.fromHex(spendPubKey);
+  const P_stealth = P_spend.add(S_h);
+  const uncompressed = P_stealth.toRawBytes(false);
+  const hash = keccak_256(uncompressed.slice(1));
+  const addr = "0x" + bytesToHex(hash.slice(12));
+  return { stealthAddress: addr, stealthPubKeyUncompressed: uncompressed };
+}
+
+/**
+ * Sender-side: compute a one-time stealth address and view tag for a recipient
+ * meta-address. Generates a fresh ephemeral key per call.
+ */
+export function computeStealthAddressAndViewTag(
+  recipientMetaAddressHex: Hex | string,
+): {
+  ephemeralPriv: Uint8Array;
+  ephemeralPubKey: Uint8Array;
+  stealthAddress: string;
+  stealthStellarAddress: string;
+  viewTag: number;
+  metadata: Uint8Array;
+} {
+  const { viewPubKey, spendPubKey } = parseStealthMetaAddress(
+    recipientMetaAddressHex as Hex,
+  );
+  const ephemeralPriv = CURVE.utils.randomPrivateKey();
+  const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
+
+  const shared = sharedSecretFromScalarAndPoint(ephemeralPriv, viewPubKey);
+  const { sH, viewTag } = hashSharedSecret(shared);
+  const { stealthAddress, stealthPubKeyUncompressed } = stealthPointAndAddress(
+    spendPubKey,
+    sH,
+  );
+  const stealthStellarAddress = deriveStealthStellarAddress(
+    stealthPubKeyUncompressed,
+  );
+
+  return {
+    ephemeralPriv,
+    ephemeralPubKey,
+    stealthAddress,
+    stealthStellarAddress,
+    viewTag,
+    metadata: new Uint8Array([viewTag]),
+  };
+}
+
+/**
+ * Rebuild announce() parameters for a manual ghost receive using a stored
+ * ephemeral private key (deterministic re-derivation of a prior send).
+ */
+export function buildGhostAnnouncementPayload(
+  recipientMetaAddressHex: Hex | string,
+  ephemeralPrivKeyHex: Hex | string,
+): {
+  stealthAddress: string;
+  ephemeralPubKey: Uint8Array;
+  metadata: Uint8Array;
+  viewTag: number;
+} {
+  const { viewPubKey, spendPubKey } = parseStealthMetaAddress(
+    recipientMetaAddressHex as Hex,
+  );
+  const h = (ephemeralPrivKeyHex as string).startsWith("0x")
+    ? (ephemeralPrivKeyHex as string).slice(2)
+    : ephemeralPrivKeyHex;
+  const ephemeralPriv = hexToBytes(h as string);
+  if (ephemeralPriv.length !== 32) {
+    throw new Error("Ephemeral private key must be 32 bytes.");
+  }
+  const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
+  const shared = sharedSecretFromScalarAndPoint(ephemeralPriv, viewPubKey);
+  const { sH, viewTag } = hashSharedSecret(shared);
+  const { stealthAddress } = stealthPointAndAddress(spendPubKey, sH);
+  return {
+    stealthAddress,
+    ephemeralPubKey,
+    metadata: new Uint8Array([viewTag]),
+    viewTag,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Recipient-side detection + reconstruction (pure-TS reference for the scanner)
+// -----------------------------------------------------------------------------
+
+/**
+ * Recipient-side: recompute the DKSAP shared-secret hash and view tag from the
+ * sender's ephemeral public key and the recipient's viewing key. Mirrors the
+ * sender computation via ECDH symmetry (viewPriv·EphPub == ephPriv·ViewPub).
+ */
+export function recipientSharedSecretHash(
+  viewingKey: Uint8Array,
+  ephemeralPubKey: Uint8Array,
+): { sH: Uint8Array; viewTag: number } {
+  const shared = sharedSecretFromScalarAndPoint(viewingKey, ephemeralPubKey);
+  return hashSharedSecret(shared);
+}
+
+/**
+ * Cheap recipient-side prefilter: does this announcement's view tag match?
+ * Lets a recipient skip the expensive point math for non-matching transfers.
+ */
+export function checkViewTagMatch(opts: {
+  viewingKey: Uint8Array;
+  ephemeralPubKey: Uint8Array;
+  viewTag: number;
+}): boolean {
+  return (
+    recipientSharedSecretHash(opts.viewingKey, opts.ephemeralPubKey).viewTag ===
+    opts.viewTag
+  );
+}
+
+/**
+ * Recipient-side: reconstruct the one-time stealth private key for a transfer.
+ * stealthPriv = (spendingKey + sH) mod n, where sH = keccak(viewPriv·EphPub).
+ * The returned key controls the same secp256k1 point the sender derived, hence
+ * the same deterministic Stellar account.
+ */
+export function reconstructStealthPrivateKey(opts: {
+  viewingKey: Uint8Array;
+  spendingKey: Uint8Array;
+  ephemeralPubKey: Uint8Array;
+}): Uint8Array {
+  const n = CURVE.CURVE.n;
+  const { sH } = recipientSharedSecretHash(opts.viewingKey, opts.ephemeralPubKey);
+  const sHMod = bytesToBigInt(sH) % n;
+  const spend = bytesToBigInt(opts.spendingKey) % n;
+  const stealth = (spend + sHMod) % n;
+  if (stealth === 0n) throw new Error("Reconstructed stealth key is zero");
+  return bigIntToBytes32(stealth);
+}
+
+// -----------------------------------------------------------------------------
+// Deterministic ephemeral key for the "Announcer" stealth signer
+// -----------------------------------------------------------------------------
+
+const ANNOUNCER_SALT = "opaque-announcer-v1";
+
+/** Deterministic ephemeral scalar for the "Announcer" stealth signer. */
+export function deriveAnnouncerEphemeralKey(
+  metaAddressHex: Hex | string,
+): Uint8Array {
+  const raw =
+    typeof metaAddressHex === "string" && metaAddressHex.startsWith("0x")
+      ? metaAddressHex.slice(2)
+      : metaAddressHex;
+  const seed = new TextEncoder().encode(raw + ANNOUNCER_SALT);
+  const okm = hkdf(sha256, seed, undefined, "opaque-announcer-ephemeral", 32);
+  const n = CURVE.CURVE.n;
+  let scalar = bytesToBigInt(okm) % n;
+  if (scalar === 0n) scalar = 1n;
+  return bigIntToBytes32(scalar);
+}
+
+// -----------------------------------------------------------------------------
+// Deterministic Stellar account from a stealth point
+// -----------------------------------------------------------------------------
+
+/** Derive the deterministic Ed25519 Stellar keypair from a stealth secp256k1 point. */
+export function deriveStealthStellarKeypair(
+  stealthPubKeyUncompressed: Uint8Array,
+): Keypair {
+  const domain = new TextEncoder().encode("opaque-stellar-stealth-v1");
+  const input = new Uint8Array(domain.length + stealthPubKeyUncompressed.length);
+  input.set(domain, 0);
+  input.set(stealthPubKeyUncompressed, domain.length);
+  const seed = sha256(input);
+  return Keypair.fromRawEd25519Seed(Buffer.from(seed.slice(0, 32)));
+}
+
+/** Derive the deterministic Stellar G-address from a stealth secp256k1 point. */
+export function deriveStealthStellarAddress(
+  stealthPubKeyUncompressed: Uint8Array,
+): string {
+  return deriveStealthStellarKeypair(stealthPubKeyUncompressed).publicKey();
+}
+
+/** Derive the deterministic Stellar G-address from a stealth private key. */
+export function deriveStealthStellarAddressFromStealthPrivKey(
+  stealthPrivKey: Uint8Array,
+): string {
+  return deriveStealthStellarAddress(CURVE.getPublicKey(stealthPrivKey, false));
+}
+
+/** Derive the deterministic Stellar keypair from a stealth private key. */
+export function deriveStealthStellarKeypairFromStealthPrivKey(
+  stealthPrivKey: Uint8Array,
+): Keypair {
+  return deriveStealthStellarKeypair(CURVE.getPublicKey(stealthPrivKey, false));
+}

@@ -1,0 +1,14 @@
+/**
+ * `@opaquecash/stellar` — stealth private payments, privacy pools, relayer-market
+ * submission, and on-chain ZK reputation for Stellar / Soroban.
+ *
+ * The high-level `OpaqueClient` and chain services are layered on top of the
+ * isomorphic crypto primitives re-exported here. Until the chain layer lands,
+ * the crypto surface is the stable, published entry point. Import a narrower
+ * surface via subpaths (e.g. `@opaquecash/stellar/crypto`) for the smallest
+ * bundle.
+ */
+
+export const VERSION = "0.0.0";
+
+export * from "./crypto/index";
