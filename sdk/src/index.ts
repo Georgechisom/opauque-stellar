@@ -23,5 +23,6 @@ export * from "./storage/index";
 export * from "./artifacts/index";
 export * from "./scanner/index";
 export * from "./prove/index";
+export * from "./relayer-protocol/index";
 export * from "./services/index";
 export * from "./client/index";
