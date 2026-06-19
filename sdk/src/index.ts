@@ -19,3 +19,6 @@ export * from "./logger/index";
 export * from "./telemetry/index";
 export * from "./rpc/index";
 export * from "./contracts/index";
+export * from "./storage/index";
+export * from "./artifacts/index";
+export * from "./scanner/index";
