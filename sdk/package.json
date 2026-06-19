@@ -4,12 +4,37 @@
   "description": "Stealth private payments, privacy pools, relayer-market submission, and on-chain ZK reputation for Stellar/Soroban.",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "zk",
+    "zero-knowledge",
+    "groth16",
+    "privacy",
+    "stealth-addresses",
+    "privacy-pool",
+    "reputation"
+  ],
+  "homepage": "https://github.com/opaquecash/stellar/tree/main/sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/stellar.git",
+    "directory": "sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/opaquecash/stellar/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=18"
   },
   "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "exports": {
     ".": {
@@ -29,7 +54,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run tests/e2e"
+    "test:e2e": "vitest run tests/e2e",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
     "@noble/curves": "^1.9.7",
