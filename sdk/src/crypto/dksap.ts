@@ -331,6 +331,16 @@ export function deriveStealthStellarAddress(
   return deriveStealthStellarKeypair(stealthPubKeyUncompressed).publicKey();
 }
 
+/**
+ * Recompute the 20-byte EVM-style stealth id (`0x` + 40 hex) from a stealth
+ * private key. Used to confirm a view-tag match against an announcement.
+ */
+export function stealthIdFromPrivateKey(stealthPrivKey: Uint8Array): string {
+  const uncompressed = CURVE.getPublicKey(stealthPrivKey, false);
+  const hash = keccak_256(uncompressed.slice(1));
+  return "0x" + bytesToHex(hash.slice(12));
+}
+
 /** Derive the deterministic Stellar G-address from a stealth private key. */
 export function deriveStealthStellarAddressFromStealthPrivKey(
   stealthPrivKey: Uint8Array,

@@ -7,6 +7,7 @@
 export * from "./bytes";
 export * from "./amount";
 export * from "./dksap";
+export * from "./scan";
 export * from "./notes";
 export * from "./schema-types";
 export * from "./schema-codec";
