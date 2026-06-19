@@ -1,0 +1,46 @@
+/**
+ * The capability surface the services depend on. {@link OpaqueClient} implements
+ * it; services depend on this interface (not the client class) so they stay
+ * decoupled and unit-testable with a lightweight stub context.
+ */
+import type { ResolvedConfig } from "../config/index";
+import type { OpaqueSigner } from "../signer/index";
+import type { NoteStore, VaultStore, ScanStore } from "../storage/index";
+import type {
+  AttestationEngine,
+  Groth16Verifier,
+  PrivacyPool,
+  RelayerRegistry,
+  ReputationVerifier,
+  SchemaRegistry,
+  StealthAnnouncer,
+  StealthRegistry,
+} from "../contracts/index";
+
+export interface ContractBindings {
+  stealthRegistry: StealthRegistry;
+  stealthAnnouncer: StealthAnnouncer;
+  schemaRegistry: SchemaRegistry;
+  attestationEngine: AttestationEngine;
+  groth16Verifier: Groth16Verifier;
+  reputationVerifier: ReputationVerifier;
+  privacyPool: PrivacyPool;
+  relayerRegistry: RelayerRegistry;
+}
+
+export interface OpaqueClientContext {
+  readonly config: ResolvedConfig;
+  readonly contracts: ContractBindings;
+  readonly notes: NoteStore;
+  readonly vault: VaultStore;
+  readonly scanStore: ScanStore;
+  readonly signer?: OpaqueSigner;
+  /** Returns the configured signer or throws if none is set. */
+  requireSigner(): OpaqueSigner;
+  /** Send a native XLM transfer (create-account or payment) via Horizon. */
+  sendNativeTransfer(opts: {
+    destination: string;
+    amountStroops: bigint;
+    signer: OpaqueSigner;
+  }): Promise<string>;
+}
