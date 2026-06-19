@@ -1,5 +1,14 @@
 # @opaquecash/stellar
 
+## 0.2.0
+
+### Minor Changes
+
+- Require Node.js >= 20 (Node 18 is end-of-life; the toolchain and Web Crypto
+  globals need 20+).
+- Release tooling: tag-driven publish workflow with npm provenance, a clean-room
+  install gate, Changesets, and build-time version injection.
+
 ## 0.1.1
 
 ### Patch Changes
