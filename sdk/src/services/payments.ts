@@ -12,11 +12,13 @@ import {
   hexToBytes,
   keysToStealthMetaAddress,
   parseXlmToStroops,
+  scanAnnouncements,
   stealthMetaAddressToHex,
   type Hex,
+  type ScanMatch,
+  type StealthAnnouncement,
 } from "../crypto/index";
 import { keypairSigner } from "../signer/index";
-import { NotWiredError } from "../errors/index";
 import type { OpaqueClientContext } from "./context";
 
 export interface StealthIdentity {
@@ -109,11 +111,19 @@ export class PaymentsService {
     });
   }
 
-  /** Announcement scanning (WASM scanner) is not wired in this build. */
-  scan(): never {
-    throw new NotWiredError(
-      "Announcement scanning",
-      "Load the WASM scanner, or use crypto checkViewTagMatch()/reconstructStealthPrivateKey() with your own announcement feed.",
-    );
+  /**
+   * Scan announcements for transfers addressed to `identity`, returning each
+   * match with its reconstructed one-time key and Stellar account. The caller
+   * supplies the announcements (read from the stealth-announcer contract events).
+   */
+  scan(opts: {
+    announcements: StealthAnnouncement[];
+    identity: Pick<StealthIdentity, "viewingKey" | "spendingKey">;
+  }): ScanMatch[] {
+    return scanAnnouncements({
+      announcements: opts.announcements,
+      viewingKey: opts.identity.viewingKey,
+      spendingKey: opts.identity.spendingKey,
+    });
   }
 }
