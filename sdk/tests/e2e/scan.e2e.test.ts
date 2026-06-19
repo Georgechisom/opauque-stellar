@@ -9,7 +9,6 @@ import {
   keysToStealthMetaAddress,
   stealthMetaAddressToHex,
   computeStealthAddressAndViewTag,
-  hexToBytes,
   scanAnnouncements,
   type StealthAnnouncement,
 } from "../../src/crypto/index";

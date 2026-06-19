@@ -36,21 +36,21 @@
     "dist",
     "README.md"
   ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
     },
     "./crypto": {
-      "types": "./dist/crypto/index.d.ts",
-      "import": "./dist/crypto/index.js",
-      "require": "./dist/crypto/index.cjs"
+      "import": { "types": "./dist/crypto/index.d.ts", "default": "./dist/crypto/index.js" },
+      "require": { "types": "./dist/crypto/index.d.cts", "default": "./dist/crypto/index.cjs" }
     },
     "./relayer-protocol": {
-      "types": "./dist/relayer-protocol/index.d.ts",
-      "import": "./dist/relayer-protocol/index.js",
-      "require": "./dist/relayer-protocol/index.cjs"
+      "import": { "types": "./dist/relayer-protocol/index.d.ts", "default": "./dist/relayer-protocol/index.js" },
+      "require": { "types": "./dist/relayer-protocol/index.d.cts", "default": "./dist/relayer-protocol/index.cjs" }
     }
   },
   "scripts": {
@@ -60,6 +60,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vitest run tests/e2e",
+    "lint": "eslint src tests",
+    "check:exports": "publint --strict && attw --pack . --profile node16",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
@@ -85,15 +87,20 @@
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.3",
+    "@eslint/js": "^9.39.4",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "@types/node": "^22.15.0",
     "circomlibjs": "^0.1.7",
+    "eslint": "^9.39.4",
+    "publint": "^0.3.21",
     "snarkjs": "^0.7.6",
     "tsup": "^8.3.5",
     "tweetnacl": "^1.0.3",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.61.1",
     "vitepress": "^1.6.4",
     "vitest": "^4.1.7"
   }
