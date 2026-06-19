@@ -126,8 +126,14 @@ describe("reputation service", () => {
     expect(fromScVal(inv.last!.args[7])).toBe(42n); // external nullifier u64
   });
 
-  it("prove() is not wired", () => {
-    expect(() => client.reputation.prove()).toThrow(NotWiredError);
+  it("prove() rejects when no artifact resolver is configured", async () => {
+    await expect(
+      client.reputation.prove({
+        attestationId: 1,
+        stealthPrivKey: bytes(32),
+        externalNullifier: 1n,
+      }),
+    ).rejects.toBeInstanceOf(NotWiredError);
   });
 });
 
