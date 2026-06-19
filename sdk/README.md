@@ -21,7 +21,8 @@ npm install @opaquecash/stellar
 Peer dependencies (install the ones your usage needs):
 
 ```sh
-npm install @stellar/stellar-sdk @noble/curves @noble/hashes
+# @noble/* must be v1 (the SDK targets the v1 API; v2 is a breaking change)
+npm install @stellar/stellar-sdk "@noble/curves@^1" "@noble/hashes@^1"
 # pool / reputation proving:
 npm install circomlibjs snarkjs
 # relayer market:
