@@ -30,13 +30,31 @@ address unrelated to your main identity.
 
 ## SDK support
 
-The on-chain job lifecycle is available today:
+The full flow is available — build the blind payload, escrow the job, advertise,
+pick a verified relayer, and deliver the encrypted payload:
 
 ```ts
-await opaque.relayer.createJob({ jobId, payloadHash, deadlineLedger, fee });
-await opaque.relayer.cancelJob({ jobId }); // after deadline, if never accepted
-await opaque.relayer.slashJob({ jobId });  // after deadline, if accepted but unsubmitted
+// 1. build the blind payload from a withdrawal proof
+const payload = opaque.relayer.buildWithdrawPayload({ proof, recipient });
+const deadlineLedger = await opaque.relayer.deadlineLedger();
+const draft = opaque.relayer.buildJobDraft({ payload, fee, deadlineLedger });
+
+// 2. escrow the job on-chain (connected wallet) and advertise it
+await opaque.relayer.createJobForDraft(draft);
+await opaque.relayer.advertise(draft);
+
+// 3. collect verified bids (signature + on-chain registry state), pick one
+const bids = await opaque.relayer.fetchBids(draft.jobIdHex);
+const bid = opaque.relayer.pickBid(bids);
+
+// 4. encrypt the payload to the relayer and deliver it
+await opaque.relayer.deliverPayload({ draft, bid: bid! });
+
+// recovery
+await opaque.relayer.cancelJob({ jobId: draft.jobId }); // after deadline, if unaccepted
+await opaque.relayer.slashJob({ jobId: draft.jobId });   // after deadline, if accepted but unsubmitted
 ```
 
-The gateway message flow (advert / bid / encrypted-payload delivery) is not yet
-bundled in the SDK and throws `NotWiredError` from `relayer.useGateway()`.
+Payload encryption uses NaCl `crypto_box` (the optional `tweetnacl` peer
+dependency). The wire format and gateway client are also exported standalone from
+[`@opaquecash/stellar/relayer-protocol`](/reference/client) for relayer operators.

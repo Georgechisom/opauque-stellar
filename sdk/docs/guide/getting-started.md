@@ -85,5 +85,4 @@ await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment }
   artifacts via an [`ArtifactResolver`](/reference/client). Without one
   these throw `NotWiredError`; you can always pass a precomputed proof to
   `verifyOnChain` / `withdraw`.
-- **Relayer gateway** message flow (advert/bid/payload) is not yet bundled; the
-  on-chain job lifecycle (`createJob`/`cancelJob`/`slashJob`) is.
+- **Relayer payload encryption** needs the optional `tweetnacl` peer dependency.

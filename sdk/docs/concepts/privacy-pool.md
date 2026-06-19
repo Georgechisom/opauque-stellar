@@ -38,16 +38,15 @@ for the current testnet deployment.
 ```ts
 const { note } = await opaque.pool.deposit({ amountXlm: "5" });
 
-// generate a full-withdrawal proof from the reconstructed pool leaves
-const proof = await opaque.pool.proveWithdraw({
-  note,
-  recipient,
-  stateLeaves,      // commitment per state index (from Deposit/Withdraw events)
-  depositIndices,   // state index of each deposit, in ASP order
-});
+// generate a full-withdrawal proof — the pool leaves are reconstructed from
+// on-chain Deposit/Withdraw events automatically
+const proof = await opaque.pool.proveWithdraw({ note, recipient });
 
 await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment });
 ```
+
+Pass `stateLeaves` + `depositIndices` to `proveWithdraw` to skip the on-chain
+read (e.g. in tests, or when you already have the reconstructed tree).
 
 v1 supports **full withdrawals** (the change commitment is a throwaway
 zero-value leaf); partial withdrawals are a planned follow-up. The withdrawal

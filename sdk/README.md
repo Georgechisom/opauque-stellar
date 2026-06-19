@@ -4,12 +4,13 @@ Stealth private payments, privacy pools, relayer-market submission, and on-chain
 zero-knowledge reputation for [Stellar](https://stellar.org) / Soroban — in one
 framework-free, typed, isomorphic (browser + Node) package.
 
-> Status: pre-release (`0.x`). Crypto, config, signer, RPC, contract bindings,
-> domain services, the high-level `OpaqueClient`, and Groth16 proof generation
-> (reputation + pool) are implemented and tested — proving requires circuit
-> artifacts via an `ArtifactResolver`. Announcement scanning works in pure TS.
-> Not yet wired (throw `NotWiredError`): the relayer **gateway** message flow.
-> Pool withdrawal currently takes the reconstructed pool leaves from the caller.
+> Status: pre-release (`0.x`). All layers are implemented and tested: crypto,
+> config, signer, RPC, contract bindings, domain services, the high-level
+> `OpaqueClient`, Groth16 proof generation (reputation + pool), pure-TS
+> announcement scanning, on-chain pool-state reconstruction, and the
+> relayer-market gateway. Proving requires circuit artifacts via an
+> `ArtifactResolver`; relayer payload encryption requires the optional `tweetnacl`
+> peer dependency.
 
 ## Install
 
@@ -35,6 +36,7 @@ The package is tree-shakeable; import the narrowest surface you need.
 |--------|----------|
 | `@opaquecash/stellar` | umbrella: `OpaqueClient`, services, bindings, config, signer |
 | `@opaquecash/stellar/crypto` | isomorphic primitives, **no chain dependency** |
+| `@opaquecash/stellar/relayer-protocol` | relayer wire format, payload hashing, box crypto, gateway client |
 
 ## High-level client
 

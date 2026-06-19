@@ -43,8 +43,9 @@ Mainnet requires explicit `rpcUrls`, `horizonUrls`, and `contracts`.
 ### `pool`
 - `deposit({ amountXlm })` — reads index, derives commitment, persists note
 - `withdraw({ proof, recipient, fee?, relayer?, noteCommitment? })`
-- `proveWithdraw({ note, recipient, stateLeaves, depositIndices, … })` *(needs `artifacts`)*
+- `proveWithdraw({ note, recipient })` — reconstructs leaves from chain *(needs `artifacts`)*
 - `getDepositCount()`, `getRoots()`
+- `contracts.privacyPool.reconstructState({ startLedger })` — raw leaf reconstruction
 
 ### `reputation`
 - `attest({ schemaId, stealthAddressHash, fieldValues, fieldDefinitions, … })`
@@ -59,8 +60,13 @@ Mainnet requires explicit `rpcUrls`, `horizonUrls`, and `contracts`.
 - `addDelegate(…)`, `removeDelegate(…)`
 
 ### `relayer`
-- `createJob({ jobId, payloadHash, deadlineLedger, fee })`
-- `cancelJob({ jobId })`, `slashJob({ jobId })`
+- `buildWithdrawPayload({ proof, recipient })`, `buildJobDraft({ payload, fee, deadlineLedger })`
+- `deadlineLedger(ledgers?)`, `createJobForDraft(draft)` / `createJob({ … })`
+- `advertise(draft)`, `fetchBids(jobIdHex)`, `pickBid(bids)`, `deliverPayload({ draft, bid })`
+- `jobStatus(jobIdHex)`, `cancelJob({ jobId })`, `slashJob({ jobId })`
+
+The wire format + gateway client are also exported from
+`@opaquecash/stellar/relayer-protocol`.
 
 ## Escape hatches
 
