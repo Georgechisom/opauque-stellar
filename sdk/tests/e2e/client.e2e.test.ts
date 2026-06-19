@@ -102,8 +102,9 @@ describe("payments service", () => {
     expect(inv.last!.method).toBe("register_keys");
   });
 
-  it("scan() is not wired", () => {
-    expect(() => client.payments.scan()).toThrow(NotWiredError);
+  it("scan returns no matches for empty announcements", () => {
+    const identity = client.payments.deriveIdentity("0x" + "ab".repeat(64));
+    expect(client.payments.scan({ announcements: [], identity })).toEqual([]);
   });
 });
 
