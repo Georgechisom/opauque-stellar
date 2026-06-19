@@ -40,6 +40,21 @@ export function symbolToScVal(s: string): xdr.ScVal {
   return nativeToScVal(s, { type: "symbol" });
 }
 
+/** String -> ScVal string. */
+export function stringToScVal(s: string): xdr.ScVal {
+  return nativeToScVal(s, { type: "string" });
+}
+
+/** Boolean -> ScVal bool. */
+export function boolToScVal(b: boolean): xdr.ScVal {
+  return nativeToScVal(b, { type: "bool" });
+}
+
+/** Optional address -> ScVal address, or a void ScVal when null/undefined. */
+export function optionAddressToScVal(addr: string | null | undefined): xdr.ScVal {
+  return addr ? addressToScVal(addr) : nativeToScVal(null, { type: "address" });
+}
+
 /** Decode an ScVal into its native JS representation. */
 export function fromScVal(v: xdr.ScVal): unknown {
   return scValToNative(v);

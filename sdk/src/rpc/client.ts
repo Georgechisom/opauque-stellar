@@ -84,6 +84,17 @@ export interface ReadOptions {
   args: xdr.ScVal[];
 }
 
+/**
+ * The subset of {@link RpcClient} the contract bindings depend on. Bindings are
+ * written against this interface so they can be unit-tested with a stub invoker
+ * (no network) and dogfooded with the real client in production.
+ */
+export interface ContractInvoker {
+  invoke(opts: InvokeOptions): Promise<string>;
+  readNative<T = unknown>(opts: ReadOptions): Promise<T>;
+  simulateRead(opts: ReadOptions): Promise<xdr.ScVal | undefined>;
+}
+
 export class RpcClient {
   readonly config: ResolvedConfig;
   private readonly logger: Logger;

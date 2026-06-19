@@ -18,3 +18,4 @@ export * from "./signer/index";
 export * from "./logger/index";
 export * from "./telemetry/index";
 export * from "./rpc/index";
+export * from "./contracts/index";
