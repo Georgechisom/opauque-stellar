@@ -14,19 +14,11 @@ import {
   type PoolNote,
 } from "../crypto/index";
 import { NotWiredError } from "../errors/index";
+import { provePoolWithdraw, type PoolWithdrawProof } from "../prove/pool";
 import type { OpaqueClientContext } from "./context";
 
 /** A withdrawal proof bundle (everything except the public recipient/fee/relayer). */
-export interface WithdrawProofBundle {
-  proofA: Uint8Array;
-  proofB: Uint8Array;
-  proofC: Uint8Array;
-  withdrawnValue: bigint;
-  stateRoot: Uint8Array;
-  aspRoot: Uint8Array;
-  nullifierHash: Uint8Array;
-  newCommitment: Uint8Array;
-}
+export type WithdrawProofBundle = PoolWithdrawProof;
 
 export class PoolService {
   constructor(private readonly ctx: OpaqueClientContext) {}
@@ -120,11 +112,35 @@ export class PoolService {
     return { state, asp };
   }
 
-  /** Withdrawal proof generation is not wired in this build. */
-  proveWithdraw(): never {
-    throw new NotWiredError(
-      "Pool withdrawal proof generation",
-      "Provide a precomputed proof bundle to withdraw(), or use a build with the proving layer.",
-    );
+  /**
+   * Generate a full-withdrawal proof for a note. Requires an artifact resolver
+   * (`new OpaqueClient({ artifacts })`) and the reconstructed pool leaves
+   * (`stateLeaves` + `depositIndices`) read from on-chain Deposit/Withdraw events.
+   */
+  async proveWithdraw(opts: {
+    note: PoolNote;
+    recipient: string;
+    relayer?: string;
+    fee?: bigint;
+    scope?: number;
+    stateLeaves: bigint[];
+    depositIndices: number[];
+  }): Promise<PoolWithdrawProof> {
+    if (!this.ctx.artifacts) {
+      throw new NotWiredError(
+        "Pool withdrawal proof generation",
+        "Construct OpaqueClient with { artifacts } to enable proving, or pass a precomputed bundle to withdraw().",
+      );
+    }
+    return provePoolWithdraw({
+      note: opts.note,
+      recipient: opts.recipient,
+      relayer: opts.relayer ?? opts.recipient,
+      fee: opts.fee ?? 0n,
+      scope: opts.scope ?? this.ctx.config.pool.scope,
+      stateLeaves: opts.stateLeaves,
+      depositIndices: opts.depositIndices,
+      artifacts: this.ctx.artifacts,
+    });
   }
 }
