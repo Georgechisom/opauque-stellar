@@ -4,8 +4,11 @@ Stealth private payments, privacy pools, relayer-market submission, and on-chain
 zero-knowledge reputation for [Stellar](https://stellar.org) / Soroban — in one
 framework-free, typed, isomorphic (browser + Node) package.
 
-> Status: pre-release (`0.x`). The crypto layer is implemented and tested; the
-> chain, proving, and high-level client layers are landing incrementally.
+> Status: pre-release (`0.x`). Crypto, config, signer, RPC, contract bindings,
+> domain services, and the high-level `OpaqueClient` are implemented and tested.
+> Proof generation (snarkjs + circuit artifacts), the WASM scanner loader, and the
+> relayer gateway client are not yet wired and throw a clear `NotWiredError`;
+> bring a precomputed proof to `verifyOnChain` / `withdraw` in the meantime.
 
 ## Install
 
@@ -29,8 +32,45 @@ The package is tree-shakeable; import the narrowest surface you need.
 
 | Import | Contents |
 |--------|----------|
-| `@opaquecash/stellar` | umbrella (high-level client + everything, as layers land) |
+| `@opaquecash/stellar` | umbrella: `OpaqueClient`, services, bindings, config, signer |
 | `@opaquecash/stellar/crypto` | isomorphic primitives, **no chain dependency** |
+
+## High-level client
+
+```ts
+import { OpaqueClient, keypairSigner } from "@opaquecash/stellar";
+
+// Server-side with a raw keypair (browser apps pass a Freighter-backed signer).
+const opaque = new OpaqueClient({
+  network: "testnet",                       // testnet addresses are baked in
+  signer: keypairSigner(process.env.SECRET!),
+});
+
+// Stealth payments
+const id = opaque.payments.deriveIdentity(walletSignatureHex);
+await opaque.payments.register({ metaAddress: id.metaAddress });
+await opaque.payments.send({ to: recipientMetaHex, amountXlm: "10" });
+
+// On-chain ZK reputation (bring a precomputed proof until the prover lands)
+await opaque.reputation.verifyOnChain(proofBundle);
+
+// Privacy pool
+const { note } = await opaque.pool.deposit({ amountXlm: "5" });
+await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment });
+
+// Schema administration
+const { schemaId } = await opaque.schemas.register({
+  name: "credit", fieldDefinitions: "u64 score, bool verified",
+  revocable: true, schemaExpiryLedger: 5_000_000,
+});
+
+// Escape hatches
+opaque.contracts.privacyPool;  // typed contract bindings
+opaque.soroban;                // built-in RpcClient (Soroban + Horizon)
+```
+
+Override any default (RPC URLs, contract addresses, gateways) via the constructor;
+plug your own `NoteStore`/`VaultStore`/`ScanStore`, `Logger`, and `Telemetry`.
 
 ## Crypto layer (available now)
 
