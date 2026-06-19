@@ -1,0 +1,63 @@
+name: SDK Release
+
+# Publishes @opaquecash/stellar when an `sdk-v*` tag is pushed (e.g. sdk-v0.1.2).
+# The full quality gate — including the clean-room install — must pass before the
+# package is published, so a broken package can never ship.
+on:
+  push:
+    tags:
+      - "sdk-v*"
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # npm provenance (OIDC)
+
+defaults:
+  run:
+    working-directory: sdk
+
+jobs:
+  release:
+    name: Gate and publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+
+      - run: npm ci
+
+      - name: Verify tag matches package version
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME#sdk-v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME ($TAG) does not match package.json ($PKG)"
+            exit 1
+          fi
+          echo "Releasing @opaquecash/stellar@$PKG"
+
+      # Full quality gate before anything is published.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run check:exports
+      - run: npm test
+      - name: Clean-room install (packaged consumer)
+        run: npm run smoke:install
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "@opaquecash/stellar $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
