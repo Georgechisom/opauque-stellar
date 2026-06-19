@@ -52,3 +52,23 @@ export function urlArtifactResolver(opts: {
     },
   };
 }
+
+/**
+ * Build a resolver that maps artifacts to local filesystem paths under a base
+ * directory. The returned path strings are consumed directly by snarkjs in Node.
+ */
+export function fileArtifactResolver(opts: {
+  baseDir: string;
+  paths?: Partial<Record<ArtifactId, Partial<Record<ArtifactKind, string>>>>;
+}): ArtifactResolver {
+  const base = opts.baseDir.replace(/\/+$/, "");
+  return {
+    async resolve(id, kind) {
+      const path = opts.paths?.[id]?.[kind] ?? DEFAULT_ARTIFACT_PATHS[id]?.[kind];
+      if (!path) {
+        throw new ArtifactError(`No artifact path for ${id}/${kind}`);
+      }
+      return `${base}/${path.replace(/^\/+/, "")}`;
+    },
+  };
+}
