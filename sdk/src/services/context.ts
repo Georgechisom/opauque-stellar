@@ -6,6 +6,7 @@
 import type { ResolvedConfig } from "../config/index";
 import type { OpaqueSigner } from "../signer/index";
 import type { NoteStore, VaultStore, ScanStore } from "../storage/index";
+import type { ArtifactResolver } from "../artifacts/index";
 import type {
   AttestationEngine,
   Groth16Verifier,
@@ -35,6 +36,8 @@ export interface OpaqueClientContext {
   readonly vault: VaultStore;
   readonly scanStore: ScanStore;
   readonly signer?: OpaqueSigner;
+  /** Circuit artifact resolver, when proof generation is enabled. */
+  readonly artifacts?: ArtifactResolver;
   /** Returns the configured signer or throws if none is set. */
   requireSigner(): OpaqueSigner;
   /** Send a native XLM transfer (create-account or payment) via Horizon. */

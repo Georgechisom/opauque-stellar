@@ -9,6 +9,7 @@ import { RpcClient, type ContractInvoker } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
 import type { Logger } from "../logger/index";
 import type { Telemetry } from "../telemetry/index";
+import type { ArtifactResolver } from "../artifacts/index";
 import {
   MemoryNoteStore,
   MemoryScanStore,
@@ -43,6 +44,8 @@ export interface OpaqueClientOptions extends OpaqueConfig {
   storage?: { notes?: NoteStore; vault?: VaultStore; scan?: ScanStore };
   logger?: Logger;
   telemetry?: Telemetry;
+  /** Circuit artifact resolver; enables proof generation when provided. */
+  artifacts?: ArtifactResolver;
   /** Advanced / testing: inject a custom invoker instead of the built-in RpcClient. */
   invoker?: ContractInvoker;
 }
@@ -55,6 +58,7 @@ export class OpaqueClient implements OpaqueClientContext {
   readonly vault: VaultStore;
   readonly scanStore: ScanStore;
   readonly signer?: OpaqueSigner;
+  readonly artifacts?: ArtifactResolver;
 
   readonly payments: PaymentsService;
   readonly pool: PoolService;
@@ -75,6 +79,7 @@ export class OpaqueClient implements OpaqueClientContext {
         });
     this.rpc = opts.invoker ?? (this.rpcClient as RpcClient);
     this.signer = opts.signer;
+    this.artifacts = opts.artifacts;
     this.notes = opts.storage?.notes ?? new MemoryNoteStore();
     this.vault = opts.storage?.vault ?? new MemoryVaultStore();
     this.scanStore = opts.storage?.scan ?? new MemoryScanStore();

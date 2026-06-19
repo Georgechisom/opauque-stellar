@@ -22,5 +22,6 @@ export * from "./contracts/index";
 export * from "./storage/index";
 export * from "./artifacts/index";
 export * from "./scanner/index";
+export * from "./prove/index";
 export * from "./services/index";
 export * from "./client/index";

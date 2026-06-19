@@ -7,6 +7,11 @@
  */
 import { NotWiredError } from "../errors/index";
 import type { VerifyReputationInputs } from "../contracts/verifier";
+import {
+  proveReputationV2,
+  type ReputationProof,
+  type ReputationProveInput,
+} from "../prove/reputation";
 import type { OpaqueClientContext } from "./context";
 import type { SchemasService } from "./schemas";
 
@@ -37,11 +42,22 @@ export class ReputationService {
     return this.ctx.contracts.reputationVerifier.getLatestRoot(source);
   }
 
-  /** Proof generation is not wired in this build. */
-  prove(): never {
-    throw new NotWiredError(
-      "Reputation proof generation",
-      "Provide a precomputed proof to verifyOnChain(), or use a build with the proving layer.",
-    );
+  /**
+   * Generate a V2 reputation proof. Requires an artifact resolver
+   * (`new OpaqueClient({ artifacts })`); otherwise throws {@link NotWiredError}.
+   */
+  async prove(input: ReputationProveInput): Promise<ReputationProof> {
+    if (!this.ctx.artifacts) {
+      throw new NotWiredError(
+        "Reputation proof generation",
+        "Construct OpaqueClient with { artifacts } (a circuit ArtifactResolver) to enable proving.",
+      );
+    }
+    return proveReputationV2({ input, artifacts: this.ctx.artifacts });
+  }
+
+  /** Generate a proof and submit it on-chain in one call. Returns the tx hash. */
+  async proveAndVerify(input: ReputationProveInput): Promise<string> {
+    return this.verifyOnChain(await this.prove(input));
   }
 }
