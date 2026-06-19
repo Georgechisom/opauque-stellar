@@ -9,6 +9,7 @@
   "excludeInternal": true,
   "excludeExternals": true,
   "excludePrivate": true,
+  "intentionallyNotExported": ["PoseidonFn", "SnarkjsLike"],
   "sort": ["source-order"],
   "hideGenerator": true,
   "useCodeBlocks": true,
