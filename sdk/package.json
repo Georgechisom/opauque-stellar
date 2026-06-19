@@ -61,6 +61,7 @@
     "test:e2e": "vitest run tests/e2e",
     "lint": "eslint src tests",
     "check:exports": "publint --strict && attw --pack . --profile node16",
+    "smoke:install": "node scripts/clean-room-install.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
