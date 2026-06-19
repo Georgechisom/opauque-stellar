@@ -6,3 +6,4 @@
  */
 export * from "./serialize";
 export * from "./reputation";
+export * from "./pool";
