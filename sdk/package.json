@@ -40,16 +40,34 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./crypto": {
-      "import": { "types": "./dist/crypto/index.d.ts", "default": "./dist/crypto/index.js" },
-      "require": { "types": "./dist/crypto/index.d.cts", "default": "./dist/crypto/index.cjs" }
+      "import": {
+        "types": "./dist/crypto/index.d.ts",
+        "default": "./dist/crypto/index.js"
+      },
+      "require": {
+        "types": "./dist/crypto/index.d.cts",
+        "default": "./dist/crypto/index.cjs"
+      }
     },
     "./relayer-protocol": {
-      "import": { "types": "./dist/relayer-protocol/index.d.ts", "default": "./dist/relayer-protocol/index.js" },
-      "require": { "types": "./dist/relayer-protocol/index.d.cts", "default": "./dist/relayer-protocol/index.cjs" }
+      "import": {
+        "types": "./dist/relayer-protocol/index.d.ts",
+        "default": "./dist/relayer-protocol/index.js"
+      },
+      "require": {
+        "types": "./dist/relayer-protocol/index.d.cts",
+        "default": "./dist/relayer-protocol/index.cjs"
+      }
     }
   },
   "scripts": {
@@ -62,6 +80,8 @@
     "lint": "eslint src tests",
     "check:exports": "publint --strict && attw --pack . --profile node16",
     "smoke:install": "node scripts/clean-room-install.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
@@ -88,6 +108,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
+    "@changesets/cli": "^2.31.0",
     "@eslint/js": "^9.39.4",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
