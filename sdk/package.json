@@ -55,6 +55,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vitest run tests/e2e",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
@@ -85,6 +88,7 @@
     "snarkjs": "^0.7.6",
     "tsup": "^8.3.5",
     "typescript": "^5.8.3",
+    "vitepress": "^1.6.4",
     "vitest": "^4.1.7"
   }
 }
