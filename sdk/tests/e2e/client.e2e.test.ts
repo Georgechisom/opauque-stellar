@@ -223,7 +223,33 @@ describe("relayer service", () => {
     expect(inv.last!.method).toBe("create_job");
   });
 
-  it("useGateway() is not wired", () => {
-    expect(() => client.relayer.useGateway()).toThrow(NotWiredError);
+  it("builds a blind withdrawal payload and job draft", () => {
+    const proof = {
+      proofA: bytes(64),
+      proofB: bytes(128),
+      proofC: bytes(64),
+      withdrawnValue: 1_000_000n,
+      stateRoot: bytes(32),
+      aspRoot: bytes(32),
+      nullifierHash: bytes(32),
+      newCommitment: bytes(32),
+    };
+    const payload = client.relayer.buildWithdrawPayload({
+      proof,
+      recipient: "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+    });
+    expect(payload.poolId).toBe(client.config.contracts.privacyPool);
+    expect(payload.poolFee).toBe(0n);
+    expect(payload.poolRelayer).toBe(client.config.contracts.relayerRegistry);
+
+    const draft = client.relayer.buildJobDraft({
+      payload,
+      fee: 1_000_000n,
+      deadlineLedger: 3_200_000,
+    });
+    expect(draft.jobId.length).toBe(32);
+    expect(draft.payloadHash.length).toBe(32);
+    expect(draft.advert.t).toBe("advert");
+    expect(draft.advert.payloadHash).toBe(draft.payloadHashHex);
   });
 });
