@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+const { version } = JSON.parse(readFileSync("./package.json", "utf8")) as {
+  version: string;
+};
 
 export default defineConfig({
   entry: {
@@ -13,4 +18,9 @@ export default defineConfig({
   treeshake: true,
   splitting: false,
   target: "es2022",
+  // Inject the package version so `VERSION` always matches package.json (single
+  // source of truth; Changesets bumps only package.json).
+  define: {
+    __SDK_VERSION__: JSON.stringify(version),
+  },
 });
