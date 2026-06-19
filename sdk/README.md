@@ -5,10 +5,11 @@ zero-knowledge reputation for [Stellar](https://stellar.org) / Soroban — in on
 framework-free, typed, isomorphic (browser + Node) package.
 
 > Status: pre-release (`0.x`). Crypto, config, signer, RPC, contract bindings,
-> domain services, and the high-level `OpaqueClient` are implemented and tested.
-> Proof generation (snarkjs + circuit artifacts), the WASM scanner loader, and the
-> relayer gateway client are not yet wired and throw a clear `NotWiredError`;
-> bring a precomputed proof to `verifyOnChain` / `withdraw` in the meantime.
+> domain services, the high-level `OpaqueClient`, and Groth16 proof generation
+> (reputation + pool) are implemented and tested — proving requires circuit
+> artifacts via an `ArtifactResolver`. Announcement scanning works in pure TS.
+> Not yet wired (throw `NotWiredError`): the relayer **gateway** message flow.
+> Pool withdrawal currently takes the reconstructed pool leaves from the caller.
 
 ## Install
 
