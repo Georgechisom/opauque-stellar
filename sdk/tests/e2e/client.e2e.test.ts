@@ -183,8 +183,25 @@ describe("pool service", () => {
     expect(spent?.spent).toBe(true);
   });
 
-  it("proveWithdraw() is not wired", () => {
-    expect(() => client.pool.proveWithdraw()).toThrow(NotWiredError);
+  it("proveWithdraw() rejects when no artifact resolver is configured", async () => {
+    await expect(
+      client.pool.proveWithdraw({
+        note: {
+          cluster: "testnet",
+          value: "1000000",
+          scope: 1,
+          leafIndex: 0,
+          nullifier: "1",
+          secret: "2",
+          commitment: "0x00",
+          spent: false,
+          createdAt: 0,
+        },
+        recipient: "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+        stateLeaves: [],
+        depositIndices: [],
+      }),
+    ).rejects.toBeInstanceOf(NotWiredError);
   });
 });
 
