@@ -9,7 +9,7 @@
  * bundle.
  */
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export * from "./crypto/index";
 export * from "./errors/index";
