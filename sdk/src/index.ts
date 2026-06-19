@@ -15,3 +15,6 @@ export * from "./crypto/index";
 export * from "./errors/index";
 export * from "./config/index";
 export * from "./signer/index";
+export * from "./logger/index";
+export * from "./telemetry/index";
+export * from "./rpc/index";
