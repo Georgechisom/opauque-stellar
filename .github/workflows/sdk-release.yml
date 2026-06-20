@@ -52,14 +52,27 @@ jobs:
       - name: Clean-room install (packaged consumer)
         run: npm run smoke:install
 
+      - name: Check if this version is already published
+        id: published
+        run: |
+          V="$(node -p "require('./package.json').version")"
+          if npm view "@opaquecash/stellar@$V" version > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::@opaquecash/stellar@$V is already on npm; skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
         # npm provenance (sigstore) only supports PUBLIC source repos. Enable it
         # automatically when the repo is public; publish without it while private.
+        if: steps.published.outputs.exists == 'false'
         run: npm publish ${{ !github.event.repository.private && '--provenance' || '' }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" --title "@opaquecash/stellar $GITHUB_REF_NAME" --generate-notes
+        # Tolerate an existing release so re-running a tag stays green.
+        run: gh release create "$GITHUB_REF_NAME" --title "@opaquecash/stellar $GITHUB_REF_NAME" --generate-notes || echo "release already exists"
         env:
           GH_TOKEN: ${{ github.token }}
