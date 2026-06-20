@@ -2,9 +2,10 @@ name: Mainnet Release
 
 on:
   push:
-    branches: [release/*, main]
+    branches: [release/*]
   pull_request:
-    branches: [release/*, main]
+    branches: [release/*]
+  workflow_dispatch:
 
 env:
   NODE_VERSION: "20"
