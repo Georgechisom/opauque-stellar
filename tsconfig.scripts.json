@@ -1,4 +1,6 @@
 {
+  // Type-check config for the repo's tsx automation scripts (deploy, verify,
+  // artifact/manifest tooling) and the circuit test/script helpers.
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
