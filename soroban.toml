@@ -1,3 +1,4 @@
+# Soroban workspace manifest: contract members, target networks, and per-contract metadata.
 [workspace]
 members = [
     "contracts/stealth-registry",
