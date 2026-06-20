@@ -1,8 +1,6 @@
 //! # Opaque Cash — WASM Bindings
 //!
 //! WebAssembly bindings for the stealth address scanner engine (EIP-5564 / DKSAP).
-//! Exposes stealth-address derivation, announcement scanning (V1 and schema-bound
-//! V2), and ZK-circuit witness generation to the browser frontend.
 
 use wasm_bindgen::prelude::*;
 use js_sys;
@@ -26,8 +24,7 @@ use scanner::{
     check_announcement_view_tag, ViewTagCheck,
 };
 
-// Wire up the panic hook (readable traces in the browser console) and the
-// logger. Runs automatically once when the WASM module is instantiated.
+// Initialize panic hook for better error messages in browser console
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
