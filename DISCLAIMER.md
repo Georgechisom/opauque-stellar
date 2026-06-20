@@ -29,6 +29,10 @@ Soroban contracts deployed on Stellar testnet have **not been formally verified*
 
 Nothing here is financial, legal, or tax advice. Comply with applicable laws in your jurisdiction.
 
+## Regulatory and Sanctions Compliance
+
+Opaque is a privacy tool, **not** a tool for evading the law. It is not intended to facilitate money laundering, sanctions evasion, or any other illicit activity, and the maintainers do not operate a custodial or money-transmission service. You are solely responsible for ensuring your use complies with the laws and sanctions regimes that apply to you. Suspected abuse can be reported through the channel described in [SECURITY.md](SECURITY.md).
+
 ## Testnet Default
 
 Default configuration targets **Stellar testnet**. Test XLM has no monetary value. Do not send mainnet funds.
@@ -40,3 +44,5 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ---
 
 By using this software, you acknowledge that you have read, understood, and accepted the risks described above.
+
+_Last reviewed: 2026-06-20._
