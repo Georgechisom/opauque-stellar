@@ -19,6 +19,9 @@ test-ledger/
 # Logs
 *.log
 
+# Brand palette preview (generated artifact from brand-design skill)
+.brand-preview/
+
 # Rust/Cargo build outputs
 target/**
 # Nested workspace build dirs (e.g. contracts/target) — the root-anchored
