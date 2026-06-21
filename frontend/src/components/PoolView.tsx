@@ -38,6 +38,7 @@ import {
   type RelayerJobDraft,
   type VerifiedBid,
 } from "../lib/relayerMarket";
+import { WithdrawFlowModal, type WithdrawStep, type WithdrawStepStatus } from "./WithdrawFlowModal";
 
 const STROOPS_PER_XLM = 10_000_000n;
 const RELAYER_SUBMISSION_POLL_MS = 2_000;
@@ -72,6 +73,89 @@ function be32(v: bigint): Uint8Array {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const PROOF_STEPS: WithdrawStep[] = [
+  {
+    id: "read-chain",
+    title: "Rebuild the pool's Merkle trees",
+    detail:
+      "Replaying every on-chain Deposit and Withdraw to reconstruct the commitment tree and the ASP approval tree locally, in your browser.",
+    status: "pending",
+  },
+  {
+    id: "check-roots",
+    title: "Match the published roots",
+    detail:
+      "Confirming the locally rebuilt roots equal the roots the contract published, so it will accept the proof.",
+    status: "pending",
+  },
+];
+
+function walletSteps(): WithdrawStep[] {
+  return [
+    ...PROOF_STEPS.map((s) => ({ ...s })),
+    {
+      id: "prove",
+      title: "Generate the zero-knowledge proof",
+      detail:
+        "Proving in your browser that you own one ASP-approved deposit — without revealing which deposit, the amount link, or your identity.",
+      status: "pending",
+    },
+    {
+      id: "submit",
+      title: "Submit & verify on-chain",
+      detail:
+        "Your wallet sends the Groth16 proof; the pool contract verifies it on-chain and releases the funds to the recipient.",
+      status: "pending",
+    },
+  ];
+}
+
+function relayerSteps(): WithdrawStep[] {
+  return [
+    ...PROOF_STEPS.map((s) => ({ ...s })),
+    {
+      id: "prove",
+      title: "Generate the zero-knowledge proof",
+      detail:
+        "Proving in your browser that you own one ASP-approved deposit. The proof is bound to the relayer registry, not to your wallet.",
+      status: "pending",
+    },
+    {
+      id: "create-job",
+      title: "Escrow the relayer fee",
+      detail:
+        "Posting a job to the relayer registry and locking the fee in escrow. This transaction is public but reveals nothing about the recipient or amount.",
+      status: "pending",
+    },
+    {
+      id: "advert",
+      title: "Advertise to the relayer market",
+      detail: "Broadcasting the job so staked relayers can compete to submit it for you.",
+      status: "pending",
+    },
+    {
+      id: "bids",
+      title: "Collect relayer bids",
+      detail: "Fetching signed bids and verifying each relayer's stake and key on-chain.",
+      status: "pending",
+    },
+    {
+      id: "pick",
+      title: "Pick a relayer",
+      detail:
+        "Choose who submits your withdrawal. They only ever receive an encrypted payload and cannot change the recipient, amount, or proof.",
+      status: "pending",
+    },
+    {
+      id: "deliver",
+      title: "Hand off & submit",
+      detail:
+        "The payload is sealed to the relayer's key. They submit it on-chain, so your wallet is never linked to the withdrawal.",
+      status: "pending",
+    },
+  ];
 }
 
 const card = "rounded-2xl border border-ink-700 bg-ink-900/60 p-5";
@@ -115,7 +199,16 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [relayerDraft, setRelayerDraft] = useState<RelayerJobDraft | null>(null);
   const [relayerBids, setRelayerBids] = useState<VerifiedBid[]>([]);
   const [selectedRelayer, setSelectedRelayer] = useState<string | null>(null);
-  const [relayerStatus, setRelayerStatus] = useState<string | null>(null);
+
+  // Step-by-step withdrawal modal (wallet + relayer flows).
+  const [flowOpen, setFlowOpen] = useState(false);
+  const [flowMode, setFlowMode] = useState<"wallet" | "relayer">("wallet");
+  const [flowSteps, setFlowSteps] = useState<WithdrawStep[]>([]);
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [flowDone, setFlowDone] = useState(false);
+  const [flowSuccessHash, setFlowSuccessHash] = useState<string | null>(null);
+  const [flowSuccessText, setFlowSuccessText] = useState<string | null>(null);
+  const [awaitingPick, setAwaitingPick] = useState(false);
 
   const clusterNotes = notes.filter((n) => n.cluster === cluster && (!n.poolId || n.poolId === cfg?.poolId));
   const unspent = clusterNotes.filter((n) => !n.spent);
@@ -144,8 +237,62 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     setRelayerDraft(null);
     setRelayerBids([]);
     setSelectedRelayer(null);
-    setRelayerStatus(null);
+    setAwaitingPick(false);
   }, [recipient, selected]);
+
+  const updateStep = useCallback(
+    (id: string, status: WithdrawStepStatus, note?: string) => {
+      setFlowSteps((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, status, ...(note !== undefined ? { note } : {}) } : s,
+        ),
+      );
+    },
+    [],
+  );
+
+  // Map the prover's progress callbacks onto the shared first three steps.
+  const onProveProgress = useCallback(
+    (stage: string) => {
+      if (stage === "reading-chain") {
+        updateStep("read-chain", "active");
+      } else if (stage === "checking-roots") {
+        updateStep("read-chain", "done");
+        updateStep("check-roots", "active");
+      } else if (stage === "proving") {
+        updateStep("check-roots", "done");
+        updateStep("prove", "active");
+      }
+    },
+    [updateStep],
+  );
+
+  const failActiveStep = useCallback((message: string) => {
+    setFlowError(message);
+    setFlowSteps((prev) =>
+      prev.map((s) => (s.status === "active" ? { ...s, status: "error" } : s)),
+    );
+  }, []);
+
+  const closeFlow = useCallback(() => {
+    if (busy) return;
+    setFlowOpen(false);
+    // Fully reset once the flow is finished, or when no relayer job is left
+    // escrowed on-chain. An unresolved relayer draft is kept so it can be resumed.
+    if (flowDone || !relayerDraft) {
+      setFlowSteps([]);
+      setFlowError(null);
+      setFlowDone(false);
+      setFlowSuccessHash(null);
+      setFlowSuccessText(null);
+      setAwaitingPick(false);
+      if (flowDone) {
+        setRelayerDraft(null);
+        setRelayerBids([]);
+        setSelectedRelayer(null);
+      }
+    }
+  }, [busy, flowDone, relayerDraft]);
 
   const closeBackupDialog = useCallback(() => {
     if (backupBusy) return;
@@ -234,17 +381,27 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     if (!cfg || !publicKey || !signTransaction) return;
     const note = validateWithdrawInputs();
     if (!note) return;
+    setFlowMode("wallet");
+    setFlowSteps(walletSteps());
+    setFlowError(null);
+    setFlowDone(false);
+    setFlowSuccessHash(null);
+    setFlowSuccessText(null);
+    setAwaitingPick(false);
+    setFlowOpen(true);
+    setBusy("withdraw");
     try {
-      setBusy("Generating proof…");
+      updateStep("read-chain", "active");
       const proof = await generateWithdrawProof({
         note,
         recipient,
         fee: 0n,
         relayer: publicKey,
         caller: publicKey,
-        onProgress: (stage) => setBusy(`Proving (${stage})…`),
+        onProgress: onProveProgress,
       });
-      setBusy("Submitting withdrawal…");
+      updateStep("prove", "done");
+      updateStep("submit", "active");
       const hash = await invokePoolWithdraw({
         caller: publicKey,
         proofA: proof.proofA,
@@ -260,43 +417,58 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         relayer: publicKey,
         signTransaction,
       });
+      updateStep("submit", "done", `tx ${hash.slice(0, 10)}…`);
       markSpent(cluster, note.poolId, note.leafIndex);
       setSelected(null);
+      setFlowDone(true);
+      setFlowSuccessHash(hash);
+      setFlowSuccessText(`Withdrew ${formatXlm(proof.withdrawnValue)} XLM to ${recipient.slice(0, 6)}…`);
       showToast(`Withdrew ${formatXlm(proof.withdrawnValue)} XLM to ${recipient.slice(0, 6)}…`, {
         explorerTx: { txSig: hash },
       });
       void refreshChain();
     } catch (e) {
-      showToast(`Withdraw failed: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      failActiveStep(message);
+      showToast(`Withdraw failed: ${message}`);
     } finally {
       setBusy(null);
     }
-  }, [cfg, publicKey, signTransaction, recipient, cluster, markSpent, showToast, refreshChain, validateWithdrawInputs]);
+  }, [
+    cfg,
+    publicKey,
+    signTransaction,
+    recipient,
+    cluster,
+    markSpent,
+    showToast,
+    refreshChain,
+    validateWithdrawInputs,
+    updateStep,
+    onProveProgress,
+    failActiveStep,
+  ]);
 
   const refreshRelayerBids = useCallback(async () => {
-    if (!relayerDraft) {
-      showToast("Create a relayer job first.");
-      return;
-    }
+    if (!relayerDraft) return;
+    setBusy("refresh");
+    updateStep("bids", "active");
     try {
-      setBusy("Fetching relayer bids…");
       const bids = await fetchRelayerBids(relayerDraft.jobIdHex, gateway);
       setRelayerBids(bids);
       const picked = pickStakeWeightedBid(bids);
       setSelectedRelayer((prev) => prev ?? picked?.operator ?? null);
-      setRelayerStatus(
-        bids.length > 0
-          ? `${bids.length} valid on-chain relayer bid(s) found.`
-          : "No valid bids yet.",
-      );
+      updateStep("bids", "done", bids.length > 0 ? `${bids.length} verified bid(s)` : "no bids yet");
+      updateStep("pick", "active");
+      setAwaitingPick(true);
     } catch (e) {
       showToast(`Bid refresh failed: ${(e as Error).message}`);
     } finally {
       setBusy(null);
     }
-  }, [gateway, relayerDraft, showToast]);
+  }, [gateway, relayerDraft, showToast, updateStep]);
 
-  const prepareRelayerWithdrawal = useCallback(async () => {
+  const startRelayerWithdraw = useCallback(async () => {
     if (!cfg || !relayerCfg || !publicKey || !signTransaction) return;
     const note = validateWithdrawInputs();
     if (!note) return;
@@ -305,21 +477,30 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       showToast("Enter a valid relayer fee.");
       return;
     }
+    setFlowMode("relayer");
+    setFlowSteps(relayerSteps());
+    setFlowError(null);
+    setFlowDone(false);
+    setFlowSuccessHash(null);
+    setFlowSuccessText(null);
+    setAwaitingPick(false);
+    setRelayerDraft(null);
+    setRelayerBids([]);
+    setSelectedRelayer(null);
+    setFlowOpen(true);
+    setBusy("relayer");
     try {
-      setRelayerDraft(null);
-      setRelayerBids([]);
-      setSelectedRelayer(null);
-      setRelayerStatus(null);
-      setBusy("Generating relayer proof…");
+      updateStep("read-chain", "active");
       const proof = await generateWithdrawProof({
         note,
         recipient,
         fee: 0n,
         relayer: relayerCfg.registryId,
         caller: publicKey,
-        onProgress: (stage) => setBusy(`Proving (${stage})…`),
+        onProgress: onProveProgress,
       });
-      setBusy("Creating relayer job…");
+      updateStep("prove", "done");
+      updateStep("create-job", "active");
       const deadlineLedger = await defaultDeadlineLedger(
         Math.min(relayerCfg.maxDeadlineLedgers, 720),
       );
@@ -338,21 +519,22 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         fee,
         signTransaction,
       });
-      setBusy("Publishing job advert…");
-      await publishAdvert(draft.advert, gateway);
       setRelayerDraft(draft);
-      setRelayerStatus(`Relayer job created (${tx.slice(0, 10)}…). Fetching bids…`);
+      updateStep("create-job", "done", `escrow tx ${tx.slice(0, 10)}…`);
+      updateStep("advert", "active");
+      await publishAdvert(draft.advert, gateway);
+      updateStep("advert", "done");
+      updateStep("bids", "active");
       const bids = await fetchRelayerBids(draft.jobIdHex, gateway);
       setRelayerBids(bids);
-      const picked = pickStakeWeightedBid(bids);
-      setSelectedRelayer(picked?.operator ?? null);
-      setRelayerStatus(
-        bids.length > 0
-          ? `Relayer job is ready. Pick one of ${bids.length} valid on-chain bid(s).`
-          : "Relayer job is advertised. No valid bids yet; retry shortly.",
-      );
+      setSelectedRelayer(pickStakeWeightedBid(bids)?.operator ?? null);
+      updateStep("bids", "done", bids.length > 0 ? `${bids.length} verified bid(s)` : "no bids yet");
+      updateStep("pick", "active");
+      setAwaitingPick(true);
     } catch (e) {
-      showToast(`Relayer setup failed: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      failActiveStep(message);
+      showToast(`Relayer setup failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -366,7 +548,31 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     signTransaction,
     showToast,
     validateWithdrawInputs,
+    updateStep,
+    onProveProgress,
+    failActiveStep,
   ]);
+
+  const finishRelayer = useCallback(
+    (note: PoolNote, submittedTx: string | null) => {
+      markSpent(cluster, note.poolId, note.leafIndex);
+      setSelected(null);
+      updateStep("deliver", "done", submittedTx ? `tx ${submittedTx.slice(0, 10)}…` : "submitted on-chain");
+      setRelayerDraft(null);
+      setRelayerBids([]);
+      setSelectedRelayer(null);
+      setAwaitingPick(false);
+      setFlowDone(true);
+      setFlowSuccessHash(submittedTx);
+      setFlowSuccessText(`A relayer submitted your withdrawal to ${recipient.slice(0, 6)}… — never linked to your wallet.`);
+      showToast(
+        `Relayer submitted withdrawal to ${recipient.slice(0, 6)}…`,
+        submittedTx ? { explorerTx: { txSig: submittedTx } } : undefined,
+      );
+      void refreshChain();
+    },
+    [cluster, markSpent, recipient, refreshChain, showToast, updateStep],
+  );
 
   const assignRelayer = useCallback(async () => {
     if (!relayerDraft || !selectedRelayerBid) {
@@ -378,76 +584,73 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       showToast("Select a note to withdraw.");
       return;
     }
+    setBusy("assign");
+    setAwaitingPick(false);
+    setFlowError(null);
+    updateStep("pick", "done", `relayer ${selectedRelayerBid.operator.slice(0, 8)}…`);
+    updateStep("deliver", "active");
     try {
-      setBusy("Assigning relayer…");
       const result = await deliverPayloadToRelayer({
         draft: relayerDraft,
         bid: selectedRelayerBid,
         gateway,
       });
       if (result?.submittedTx) {
-        markSpent(cluster, note.poolId, note.leafIndex);
-        setSelected(null);
-        setRelayerDraft(null);
-        setRelayerBids([]);
-        setSelectedRelayer(null);
-        showToast(`Relayer submitted withdrawal to ${recipient.slice(0, 6)}…`, {
-          explorerTx: { txSig: result.submittedTx },
-        });
-        void refreshChain();
-      } else {
-        setRelayerStatus("Payload delivered. Waiting for relayer submission.");
-        const started = Date.now();
-        while (Date.now() - started < RELAYER_SUBMISSION_TIMEOUT_MS) {
-          await sleep(RELAYER_SUBMISSION_POLL_MS);
-          const status = await fetchRelayerJobStatus(relayerDraft.jobIdHex, publicKey ?? selectedRelayerBid.operator);
-          if (status === "submitted") {
-            markSpent(cluster, note.poolId, note.leafIndex);
-            setSelected(null);
-            setRelayerDraft(null);
-            setRelayerBids([]);
-            setSelectedRelayer(null);
-            setRelayerStatus(null);
-            showToast(`Relayer submitted withdrawal to ${recipient.slice(0, 6)}…`);
-            void refreshChain();
-            return;
-          }
-          if (status === "accepted") {
-            setRelayerStatus("Relayer accepted the job. Waiting for on-chain submission.");
-          } else if (status === "open") {
-            setRelayerStatus("Payload delivered. Waiting for relayer acceptance.");
-          } else if (status === "slashed" || status === "canceled") {
-            throw new Error(`Relayer job was ${status}.`);
-          }
-        }
-        setRelayerStatus("Payload delivered. Submission is still pending; refresh chain status shortly.");
+        finishRelayer(note, result.submittedTx);
+        return;
       }
+      updateStep("deliver", "active", "payload delivered — waiting for the relayer to submit");
+      const started = Date.now();
+      while (Date.now() - started < RELAYER_SUBMISSION_TIMEOUT_MS) {
+        await sleep(RELAYER_SUBMISSION_POLL_MS);
+        const status = await fetchRelayerJobStatus(
+          relayerDraft.jobIdHex,
+          publicKey ?? selectedRelayerBid.operator,
+        );
+        if (status === "submitted") {
+          finishRelayer(note, null);
+          return;
+        }
+        if (status === "accepted") {
+          updateStep("deliver", "active", "relayer accepted — waiting for on-chain submission");
+        } else if (status === "open") {
+          updateStep("deliver", "active", "waiting for the relayer to accept");
+        } else if (status === "slashed" || status === "canceled") {
+          throw new Error(`Relayer job was ${status}.`);
+        }
+      }
+      // Timed out: the escrow is still recoverable. Re-expose the pick stage so
+      // the user can wait, re-assign, or recover via the modal's controls.
+      failActiveStep("Submission is still pending. Wait and refresh, or recover the escrow below.");
+      setAwaitingPick(true);
     } catch (e) {
-      showToast(`Relayer assignment failed: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      failActiveStep(message);
+      setAwaitingPick(true);
+      showToast(`Relayer assignment failed: ${message}`);
     } finally {
       setBusy(null);
     }
   }, [
-    cluster,
     gateway,
-    markSpent,
-    recipient,
     publicKey,
-    refreshChain,
     relayerDraft,
     selectedNote,
     selectedRelayerBid,
     showToast,
+    updateStep,
+    failActiveStep,
+    finishRelayer,
   ]);
 
   const recoverRelayerJob = useCallback(
     async (kind: "cancel" | "slash") => {
       if (!publicKey || !signTransaction || !relayerDraft) {
-        showToast("Create a relayer job first.");
+        showToast("No relayer job to recover.");
         return;
       }
+      setBusy(kind === "cancel" ? "cancel" : "slash");
       try {
-        setBusy(kind === "cancel" ? "Canceling relayer job…" : "Slashing relayer job…");
         const hash =
           kind === "cancel"
             ? await invokeRelayerCancelJob({
@@ -463,10 +666,14 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         setRelayerDraft(null);
         setRelayerBids([]);
         setSelectedRelayer(null);
-        setRelayerStatus(
+        setAwaitingPick(false);
+        setFlowError(null);
+        setFlowDone(true);
+        setFlowSuccessHash(hash);
+        setFlowSuccessText(
           kind === "cancel"
-            ? "Expired unaccepted job canceled and refunded."
-            : "Expired accepted job slashed and refunded.",
+            ? "Expired job canceled — your escrow was refunded."
+            : "Failed relayer slashed — your escrow was refunded.",
         );
         showToast(kind === "cancel" ? "Relayer job canceled." : "Relayer job slashed.", {
           explorerTx: { txSig: hash },
@@ -684,7 +891,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
                 disabled={readOnly || !connected || !!busy || selected == null}
                 className="w-full rounded-xl bg-glow px-5 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy && busy !== "Depositing…" ? busy : "Withdraw with connected wallet"}
+                Withdraw with connected wallet
               </button>
             ) : (
               <div className="space-y-3 rounded-xl border border-ink-700 bg-ink-950 p-3">
@@ -711,97 +918,23 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
                       The job-funding transaction is public. The selected relayer cannot alter the
                       recipient, amount, or proof; it only learns the payload when it submits.
                     </p>
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={startRelayerWithdraw}
+                      disabled={readOnly || !connected || !!busy || selected == null}
+                      className="min-h-10 w-full rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Withdraw via relayer
+                    </button>
+                    {relayerDraft && !flowOpen && (
                       <button
                         type="button"
-                        onClick={prepareRelayerWithdrawal}
-                        disabled={readOnly || !connected || !!busy || selected == null}
-                        className="min-h-10 flex-1 rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => setFlowOpen(true)}
+                        disabled={readOnly || !!busy}
+                        className="min-h-10 w-full rounded-xl border border-glow/40 px-4 py-2 text-sm font-medium text-glow transition-colors hover:bg-glow/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {busy && busy !== "Depositing…" ? busy : "Create relayer job"}
+                        Resume pending relayer job
                       </button>
-                      <button
-                        type="button"
-                        onClick={refreshRelayerBids}
-                        disabled={readOnly || !!busy || !relayerDraft}
-                        className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Refresh bids
-                      </button>
-                    </div>
-                    {relayerStatus && (
-                      <p className="rounded-xl border border-ink-700 bg-ink-900 p-3 text-xs text-mist">
-                        {relayerStatus}
-                      </p>
-                    )}
-                    {relayerDraft && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => void recoverRelayerJob("cancel")}
-                          disabled={readOnly || !!busy}
-                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Cancel expired job
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void recoverRelayerJob("slash")}
-                          disabled={readOnly || !!busy}
-                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Slash failed relayer
-                        </button>
-                      </div>
-                    )}
-                    {relayerBids.length > 0 && (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const picked = pickStakeWeightedBid(relayerBids);
-                            if (picked) setSelectedRelayer(picked.operator);
-                          }}
-                          disabled={readOnly || !!busy}
-                          className="min-h-10 rounded-xl border border-ink-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Pick for me
-                        </button>
-                        {relayerBids.map((bid) => (
-                          <label
-                            key={bid.operator}
-                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition-colors ${
-                              selectedRelayer === bid.operator
-                                ? "border-glow bg-black/30 text-white"
-                                : "border-ink-700 text-mist hover:border-white/30"
-                            }`}
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <input
-                                type="radio"
-                                name="relayer-bid"
-                                checked={selectedRelayer === bid.operator}
-                                onChange={() => setSelectedRelayer(bid.operator)}
-                                className="accent-glow"
-                              />
-                              <span className="truncate font-mono text-xs">
-                                {bid.operator.slice(0, 8)}…{bid.operator.slice(-6)}
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-xs text-mist/60">
-                              free {formatXlm(bid.freeStakeValue)} XLM
-                            </span>
-                          </label>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={assignRelayer}
-                          disabled={readOnly || !!busy || !selectedRelayerBid}
-                          className="min-h-10 w-full rounded-xl bg-glow px-4 py-2 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {busy === "Assigning relayer…" ? "Assigning…" : "Assign selected relayer"}
-                        </button>
-                      </div>
                     )}
                   </>
                 )}
@@ -814,6 +947,32 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
           </div>
         )}
       </div>
+
+      <WithdrawFlowModal
+        open={flowOpen}
+        mode={flowMode}
+        steps={flowSteps}
+        busy={!!busy}
+        error={flowError}
+        done={flowDone}
+        successHash={flowSuccessHash}
+        successText={flowSuccessText}
+        cluster={cluster}
+        awaitingRelayerPick={awaitingPick}
+        bids={relayerBids}
+        selectedRelayer={selectedRelayer}
+        onSelectRelayer={setSelectedRelayer}
+        onPickForMe={() => {
+          const picked = pickStakeWeightedBid(relayerBids);
+          if (picked) setSelectedRelayer(picked.operator);
+        }}
+        onRefreshBids={() => void refreshRelayerBids()}
+        onAssign={() => void assignRelayer()}
+        draftActive={!!relayerDraft}
+        onCancelJob={() => void recoverRelayerJob("cancel")}
+        onSlashJob={() => void recoverRelayerJob("slash")}
+        onClose={closeFlow}
+      />
 
       {backupOpen && (
         <div
