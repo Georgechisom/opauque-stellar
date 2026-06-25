@@ -9,7 +9,7 @@
 [![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-14b8a6?labelColor=0b1020)](https://developers.stellar.org/docs/build/smart-contracts)
 [![Live on testnet](https://img.shields.io/badge/Stellar%20testnet-live-22c55e?labelColor=0b1020)](https://stellar.opaque.cash)
 
-[Live app](https://stellar.opaque.cash) · [Demo video](https://youtu.be/LuNLO6xanHg) · [Docs](https://soroban.opaque.cash) · [SDK on npm](https://www.npmjs.com/package/@opaquecash/stellar) · [Contracts on-chain](#on-chain-contracts-stellar-testnet)
+[Live app](https://stellar.opaque.cash) · [Demo video](https://youtu.be/-465hu6sjO4) · [Docs](https://soroban.opaque.cash) · [SDK on npm](https://www.npmjs.com/package/@opaquecash/stellar) · [Contracts on-chain](#on-chain-contracts-stellar-testnet)
 
 </div>
 
@@ -18,7 +18,7 @@ Every payment on a public ledger is also a permanent, searchable record of who p
 Receive without exposing your wallet. Pool and withdraw unlinkably. Prove a credential without revealing your identity. It is live on Stellar testnet today, and it ships as both a working wallet and an installable developer SDK.
 
 > [!TIP]
-> The fastest way to understand Opaque is to watch the [3-minute demo](https://youtu.be/LuNLO6xanHg) or open the [live app](https://stellar.opaque.cash) with Freighter on Stellar testnet.
+> The fastest way to understand Opaque is to watch the [3-minute demo](https://youtu.be/-465hu6sjO4) or open the [live app](https://stellar.opaque.cash) with Freighter on Stellar testnet.
 
 ## What to believe in three minutes
 
@@ -38,11 +38,25 @@ This is the heart of the project. Two independent Groth16 circuits (BN254 / alt_
 
 | What is proven | On-chain verifier (Stellar testnet) |
 | --- | --- |
-| Unlinkable pool withdrawal | [Groth16 verifier `CD2S…MS7Q`](https://stellar.expert/explorer/testnet/contract/CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q), gated by the [privacy pool](https://stellar.expert/explorer/testnet/contract/CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE) |
+| Unlinkable pool withdrawal | [Groth16 verifier `CBWH…IDFC`](https://stellar.expert/explorer/testnet/contract/CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC), gated by the [privacy pool](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J) |
 | Private credential / trait | [Groth16 verifier `CAWX…BS2T`](https://stellar.expert/explorer/testnet/contract/CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T), gated by the [reputation verifier](https://stellar.expert/explorer/testnet/contract/CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR) |
 
 > [!IMPORTANT]
 > If a judge remembers one frame from the demo, make it the proof being verified on-chain. That contract invocation succeeding on testnet is the whole thesis: privacy enforced by math, checked by Stellar.
+
+## Live demo: verify it on-chain
+
+Every step below is a real transaction from the demo, on the deployed [privacy pool `CCXN…7J3J`](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J). Open any hash on stellar.expert, this is the whole rail, end to end, on Stellar testnet.
+
+| # | What happened | Transaction |
+| --- | --- | --- |
+| 1 | A sender announces a one-time **stealth address** (DKSAP, scheme 1) — the recipient's main wallet is never named | [`6718…a6ed`](https://stellar.expert/explorer/testnet/tx/6718b44b50be25d6e9ca5445b6a668f6e40bcf01f16144818010f5ebecfda6ed) |
+| 2 | XLM **deposited** into the privacy pool's commitment set | [`569c…f902`](https://stellar.expert/explorer/testnet/tx/569c01962a7e4cc97748bd8810abc5a362c37e954f17d1322d64d8b1b708f902) |
+| 3 | The **ASP publishes** the approved-set root that withdrawal proofs are checked against | [`4104…80fd`](https://stellar.expert/explorer/testnet/tx/410424931b836802052d1e7a020668f5369906ba21f616f17117e3eac87880fd) |
+| 4 | The pool **state-tree root** is published for proof verification | [`10af…55e9`](https://stellar.expert/explorer/testnet/tx/10af4d60e9608844e760e398bd44ae2931261137e9499629fdf23f76228455e9) |
+| 5 | **Unlinkable withdrawal**: a Groth16 proof is verified on-chain and paid out, **signed by the staked relayer (`GC3A…P3OH`), not the recipient's wallet** | [`6cbf…9421`](https://stellar.expert/explorer/testnet/tx/6cbf55053d77f0d689568c890b5ca3f0512bc4dd57b777e45a293f9368c59421) |
+
+Step 5 is the unlinkability claim made concrete: the withdrawal transaction is signed and fee-paid by the relayer's account, so the recipient never appears in the path. Reproduce the same flow yourself in the [live app](https://stellar.opaque.cash), these hashes are testnet history, not a fixture.
 
 ## What Opaque does
 
@@ -181,15 +195,15 @@ The canonical address book is [deployments/v1/testnet.json](deployments/v1/testn
 
 | Contract | Explorer |
 | --- | --- |
-| Privacy pool | [`CAYX…7BLE`](https://stellar.expert/explorer/testnet/contract/CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE) |
-| Pool Groth16 verifier | [`CD2S…MS7Q`](https://stellar.expert/explorer/testnet/contract/CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q) |
+| Privacy pool | [`CCXN…7J3J`](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J) |
+| Pool Groth16 verifier | [`CBWH…IDFC`](https://stellar.expert/explorer/testnet/contract/CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC) |
 | Reputation verifier | [`CAFV…BSVR`](https://stellar.expert/explorer/testnet/contract/CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR) |
 | Reputation Groth16 verifier | [`CAWX…BS2T`](https://stellar.expert/explorer/testnet/contract/CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T) |
 | Attestation engine (V2) | [`CB6K…SDPX`](https://stellar.expert/explorer/testnet/contract/CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX) |
 | Schema registry | [`CA5X…7QCP`](https://stellar.expert/explorer/testnet/contract/CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP) |
 | Stealth registry | [`CAIX…5VXW`](https://stellar.expert/explorer/testnet/contract/CAIXWMGYZR3YAQ3CPCXOU42WG62E3ARUSG4GDHHDMNRXUD44YSGE5VXW) |
 | Stealth announcer | [`CB2Y…QGCS`](https://stellar.expert/explorer/testnet/contract/CB2Y3GJMPY5BUSZLXG3DSIMERCNCTUM63IIEQ2GUNYEJ3DBKPFIZQGCS) |
-| Relayer registry | [`CCQJ…IAMO`](https://stellar.expert/explorer/testnet/contract/CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO) |
+| Relayer registry | [`CBTH…Q3ND`](https://stellar.expert/explorer/testnet/contract/CBTHQFGGDJMEML267U5EGQPYFLARO6TO4QYSK6CVKXWY2TR4DJ7GQ3ND) |
 
 ## Security
 
