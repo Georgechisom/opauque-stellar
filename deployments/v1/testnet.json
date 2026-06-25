@@ -5,8 +5,8 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deploymentLedger": 3101000,
-  "deployedAt": "2026-06-16T15:24:31Z",
+  "deploymentLedger": 3264903,
+  "deployedAt": "2026-06-24T22:01:25.002Z",
   "deployer": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
   "multisig": null,
@@ -23,14 +23,14 @@
     },
     "privacyPool": {
       "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
-      "groth16Verifier": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
+      "groth16Verifier": "CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC",
       "nativeSac": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
       "scope": 1
     },
     "relayerRegistry": {
       "admin": "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
       "nativeSac": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-      "privacyPool": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+      "privacyPool": "CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J",
       "gatewayUrls": [
         "https://g-stelar-relayer.opaque.cash"
       ],
@@ -72,17 +72,17 @@
       "package": "attestation-engine-v2"
     },
     "poolVerifier": {
-      "id": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
+      "id": "CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC",
       "wasmHash": "bf1c8d1d2cccf6eba4e531aaf2ea259a69323663a787c2f4d561204e84c07d36",
       "package": "groth16-verifier"
     },
     "privacyPool": {
-      "id": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+      "id": "CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J",
       "wasmHash": "be56375a242860d67143d19536c5404f7ddf29537ec16e7bfef4b624a21322db",
       "package": "privacy-pool"
     },
     "relayerRegistry": {
-      "id": "CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO",
+      "id": "CBTHQFGGDJMEML267U5EGQPYFLARO6TO4QYSK6CVKXWY2TR4DJ7GQ3ND",
       "wasmHash": "109fa72e37fd7b5c2a2dd85ac534632d459473e6e5be5a97f251fda8f8642b13",
       "package": "relayer-registry"
     }
