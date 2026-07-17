@@ -1,3 +1,8 @@
+> [!WARNING]
+> **This repository has been archived and is no longer maintained.**
+>
+> Development of the Stellar Implementation of the Opaque Protocol has been paused. Maintenance will resume once a partnership and the necessary support are in place.
+
 <div align="center">
 
 # Opaque
@@ -128,9 +133,6 @@ Privacy systems live or die by their assumptions, so here are Opaque's, stated p
 
 What is **always enforced on-chain**: proof verification, nullifier-replay protection, and the custody invariant.
 
-## Built during the hackathon
-
-Opaque was built for the **Stellar Hacks: Real-World ZK** submission window. The only pre-existing material was a static, non-functional UI scaffold of the stealth-payment screen, with no working keys, scanning, contracts, proofs, or services behind it. During the submission period that scaffold was made fully functional, and everything else in this repository was designed and built from scratch: the Soroban contracts, the Groth16 circuits and on-chain verifiers, the WASM scanner, the privacy pool, the Association Set Provider, the reputation publisher, the relayer market, and the published SDK.
 
 ## Use cases
 
@@ -215,8 +217,6 @@ The canonical address book is [deployments/v1/testnet.json](deployments/v1/testn
 Opaque is licensed under [GPLv3](LICENSE).
 
 <div align="center">
-
-Built by [Collins Adi](https://github.com/collinsadi), creator of Auraroom, an anonymous group-chat system, and Safemind, an anonymous therapy system.
 
 Every transaction deserves the right to be private.
 
