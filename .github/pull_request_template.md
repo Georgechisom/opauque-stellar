@@ -9,7 +9,7 @@
 - [ ] refactor — no behavior change
 - [ ] docs
 - [ ] test
-- [ ] chore / ci
+- [ ] chore
 - [ ] contracts (touches Soroban bytecode, events, or storage layout)
 
 ## Required checks (all must pass — see CONTRIBUTING.md §4)

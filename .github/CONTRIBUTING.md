@@ -3,9 +3,8 @@
 Thanks for contributing. Opaque handles **private payments**, **on-chain ZK
 reputation**, and a **shielded privacy pool**, so correctness and reproducibility
 are not optional. This guide describes the exact bar every change must clear, how
-the repository is laid out, and the workflow we expect. CI enforces all of it, and
-running the same checks locally before you push is the fastest way to keep your PR
-green.
+the repository is laid out, and the workflow we expect. Running the checks below
+locally before you push is the fastest way to keep your PR mergeable.
 
 > **Golden rule:** no change may break `main`. Every commit on `main` must build,
 > pass all tests, lint clean, and keep the deployment and artifact manifests
@@ -66,9 +65,9 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
   rustup component add rustfmt clippy
   ```
 - [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup).
-  CI installs a pinned version via `scripts/install-stellar-cli.sh`; you can use the
-  same script locally for a matching toolchain.
-- [Node.js](https://nodejs.org/) 20 or newer (CI runs on Node 20).
+  You can install a pinned version via `scripts/install-stellar-cli.sh` for a
+  matching toolchain.
+- [Node.js](https://nodejs.org/) 20 or newer.
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) for the scanner.
 - `cargo-audit` and `cargo-deny` for supply-chain checks:
   ```bash
@@ -82,11 +81,11 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 ## 4. First-time setup
 
 Each Node workspace pins its dependencies with a lockfile and must be installed with
-`npm ci` (not `npm install`) so you match CI exactly.
+`npm ci` (not `npm install`) so you match the lockfile exactly.
 
 ```bash
-git clone https://github.com/opaquecash/stellar.git
-cd stellar
+git clone https://github.com/collinsadi/opauque-stellar.git
+cd opauque-stellar
 
 npm ci                       # root tooling (tsx, typescript)
 ( cd frontend && npm ci )
@@ -113,9 +112,9 @@ npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 ## 5. Branching and commits
 
 - Branch from `main`: `feat/<short-name>`, `fix/<short-name>`, `docs/<short-name>`,
-  `chore/<short-name>`, or `ci/<short-name>`.
+  or `chore/<short-name>`.
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for PR commits:
-  `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`. Example:
+  `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`. Example:
   `fix(scanner): reject non-compressed ephemeral keys`.
 - Keep PRs focused and small. One logical change per PR makes review and rollback
   easy.
@@ -134,8 +133,7 @@ npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 
 ## 6. The required checks (must pass before pushing)
 
-These mirror `.github/workflows/ci.yml`, which runs nine jobs ending in the
-`CI success gate`. Run the relevant ones locally before you push.
+Run the checks relevant to your change locally before you push.
 
 ### 6a. Contracts (Rust workspace)
 
@@ -150,10 +148,10 @@ stellar contract build                                  # release WASM builds
 - If you must silence a lint, do it narrowly (`#[allow(...)]` on the item) with a
   comment explaining why. Never broaden it to the crate unless a macro expansion
   genuinely forces it (for example `#[contractimpl]` argument counts).
-- **Do not delete or weaken a test to make CI pass.** If a test encodes an
+- **Do not delete or weaken a test to make the checks pass.** If a test encodes an
   expectation that no longer matches intended behavior, either fix the code or mark
   the test `#[ignore = "<reason + tracking note>"]` and call it out in the PR
-  description. Ignored tests are visible in CI output and must be justified.
+  description. Ignored tests must be justified.
 
 ### 6b. Scanner (WASM)
 
@@ -188,7 +186,7 @@ npx vitest run            # unit tests
 
 ### 6e. SDK
 
-The SDK has its own workflow (`.github/workflows/sdk-ci.yml`). Run from `sdk/`:
+Run from `sdk/`:
 
 ```bash
 cd sdk
@@ -266,8 +264,7 @@ manifest, rebuild the scanner first so the frontend picks up the new artifact.
 
 The SDK is published to npm as `@opaquecash/stellar`. Public API changes need a
 changeset (`npm run changeset`) and must keep `npm run check:exports` green so the
-published types and entry points stay correct. Release mechanics live in
-`sdk/RELEASING.md`.
+published types and entry points stay correct.
 
 ### 7.6 Services
 
@@ -300,13 +297,9 @@ npm run deploy:testnet -- --dry-run # preview (no broadcast)
 
 1. Open a PR against `main` and fill in the template (`.github/pull_request_template.md`).
 2. Confirm the checklist below.
-3. CI must be fully green. The `CI success gate` job is the single required status,
-   and it depends on every other job passing.
-4. `@collinsadi` is the default code owner and a required reviewer for everything;
-   the consensus-critical paths (`contracts/`, `scanner/`, `circuits/`,
-   `deployments/`, `scripts/`, `.github/`) call for extra care. See
-   `.github/CODEOWNERS`.
-5. PRs are squash-merged to keep `main` history linear.
+3. `@collinsadi` reviews everything; the consensus-critical paths (`contracts/`,
+   `scanner/`, `circuits/`, `deployments/`, `scripts/`) call for extra care.
+4. PRs are squash-merged to keep `main` history linear.
 
 ### Checklist
 

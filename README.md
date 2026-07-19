@@ -1,8 +1,3 @@
-> [!WARNING]
-> **This repository has been archived and is no longer maintained.**
->
-> Development of the Stellar Implementation of the Opaque Protocol has been paused. Maintenance will resume once a partnership and the necessary support are in place.
-
 <div align="center">
 
 # Opaque
@@ -25,13 +20,11 @@ Receive without exposing your wallet. Pool and withdraw unlinkably. Prove a cred
 > [!TIP]
 > The fastest way to understand Opaque is to watch the [3-minute demo](https://youtu.be/-465hu6sjO4) or open the [live app](https://stellar.opaque.cash) with Freighter on Stellar testnet.
 
-## What to believe in three minutes
+## The three things that matter
 
-If you only take three things from this project, take these:
-
-1. **It works.** Real Soroban contracts on Stellar testnet, a real browser wallet, real Groth16 proofs. Not a slideshow. Verify any flow on [stellar.expert](#on-chain-contracts-stellar-testnet).
+1. **It works.** Real Soroban contracts on Stellar testnet, a real browser wallet, real Groth16 proofs. Verify any flow on [stellar.expert](#on-chain-contracts-stellar-testnet).
 2. **The ZK is load-bearing.** A zero-knowledge proof is the gate that releases funds and answers credential checks. Remove the proof and the action does not happen, because the contract reverts.
-3. **It is honest.** Every trust assumption in this MVP is written down in plain language below, not hidden.
+3. **It is honest.** Every trust assumption is written down in plain language below, not hidden.
 
 ## Where the zero knowledge does the work
 
@@ -46,12 +39,11 @@ This is the heart of the project. Two independent Groth16 circuits (BN254 / alt_
 | Unlinkable pool withdrawal | [Groth16 verifier `CBWH…IDFC`](https://stellar.expert/explorer/testnet/contract/CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC), gated by the [privacy pool](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J) |
 | Private credential / trait | [Groth16 verifier `CAWX…BS2T`](https://stellar.expert/explorer/testnet/contract/CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T), gated by the [reputation verifier](https://stellar.expert/explorer/testnet/contract/CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR) |
 
-> [!IMPORTANT]
-> If a judge remembers one frame from the demo, make it the proof being verified on-chain. That contract invocation succeeding on testnet is the whole thesis: privacy enforced by math, checked by Stellar.
+The proof being verified on-chain is the whole thesis: privacy enforced by math, checked by Stellar.
 
-## Live demo: verify it on-chain
+## Verify it on-chain
 
-Every step below is a real transaction from the demo, on the deployed [privacy pool `CCXN…7J3J`](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J). Open any hash on stellar.expert, this is the whole rail, end to end, on Stellar testnet.
+Every step below is a real transaction on the deployed [privacy pool `CCXN…7J3J`](https://stellar.expert/explorer/testnet/contract/CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J). Open any hash on stellar.expert, this is the whole rail, end to end, on Stellar testnet.
 
 | # | What happened | Transaction |
 | --- | --- | --- |
@@ -61,7 +53,7 @@ Every step below is a real transaction from the demo, on the deployed [privacy p
 | 4 | The pool **state-tree root** is published for proof verification | [`10af…55e9`](https://stellar.expert/explorer/testnet/tx/10af4d60e9608844e760e398bd44ae2931261137e9499629fdf23f76228455e9) |
 | 5 | **Unlinkable withdrawal**: a Groth16 proof is verified on-chain and paid out, **signed by the staked relayer (`GC3A…P3OH`), not the recipient's wallet** | [`6cbf…9421`](https://stellar.expert/explorer/testnet/tx/6cbf55053d77f0d689568c890b5ca3f0512bc4dd57b777e45a293f9368c59421) |
 
-Step 5 is the unlinkability claim made concrete: the withdrawal transaction is signed and fee-paid by the relayer's account, so the recipient never appears in the path. Reproduce the same flow yourself in the [live app](https://stellar.opaque.cash), these hashes are testnet history, not a fixture.
+Step 5 is the unlinkability claim made concrete: the withdrawal transaction is signed and fee-paid by the relayer's account, so the recipient never appears in the path. You can reproduce the same flow yourself in the [live app](https://stellar.opaque.cash).
 
 ## What Opaque does
 
@@ -104,7 +96,7 @@ await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment }
 await opaque.reputation.proveAndVerify({ attestationId, stealthPrivKey, externalNullifier: 42n });
 ```
 
-ESM and CommonJS, full type declarations, tree-shakeable subpaths, and a clean-room install gate in CI so a broken package can never ship. Full guides and a generated API reference for every method live at **[soroban.opaque.cash](https://soroban.opaque.cash)**.
+ESM and CommonJS, full type declarations, and tree-shakeable subpaths. Full guides and a generated API reference for every method live at **[soroban.opaque.cash](https://soroban.opaque.cash)**.
 
 ## What works today
 
@@ -116,7 +108,7 @@ Opaque is live on Stellar testnet for the MVP path.
 | Privacy pool | Deposit, root publication, in-browser proof generation, withdrawal, and nullifier-replay rejection are implemented. |
 | Relayer market | A staked relayer registry plus a live gateway submit blind withdrawals on the user's behalf. |
 | ZK reputation | Groth16 reputation proofs verify through Soroban contracts. |
-| Developer SDK | Published to npm with docs, examples, a Node matrix CI, and a tag-driven release pipeline. |
+| Developer SDK | Published to npm with docs and examples. |
 
 > [!WARNING]
 > This is experimental software on Stellar testnet. Do not use real funds. Mainnet is blocked until the security register is signed off. Read [DISCLAIMER.md](DISCLAIMER.md) first.
@@ -153,8 +145,8 @@ What is **always enforced on-chain**: proof verification, nullifier-replay prote
 To run the wallet locally:
 
 ```bash
-git clone https://github.com/opaquecash/stellar.git
-cd stellar
+git clone https://github.com/collinsadi/opauque-stellar.git
+cd opauque-stellar
 npm ci
 npm run build:scanner
 npm run fetch:circuits

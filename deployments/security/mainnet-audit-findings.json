@@ -97,7 +97,7 @@
       "status": "remediated",
       "description": "Undetected artifact substitution could ship malicious scanner or circuit builds.",
       "mitigation": "SHA-256 pins in artifacts/manifest.json; CI verify-artifact-manifest and deployment manifest checks.",
-      "tracking": "artifacts/manifest.json, .github/workflows/ci.yml"
+      "tracking": "artifacts/manifest.json"
     },
     {
       "id": "SEC-104",

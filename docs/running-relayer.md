@@ -53,8 +53,8 @@ The relayer fee must be less than or equal to the relayer's free stake. A relaye
 ## Install
 
 ```bash
-git clone https://github.com/opaquecash/stellar.git
-cd stellar/relayer
+git clone https://github.com/collinsadi/opauque-stellar.git
+cd opauque-stellar/relayer
 npm ci
 ```
 
