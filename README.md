@@ -5,7 +5,7 @@
 ### Private money and verifiable trust on Stellar, enforced by zero-knowledge proofs, not by promises.
 
 [![npm](https://img.shields.io/npm/v/@opaquecash/stellar?color=14b8a6&labelColor=0b1020&label=%40opaquecash%2Fstellar)](https://www.npmjs.com/package/@opaquecash/stellar)
-[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-111827?labelColor=0b1020)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-111827?labelColor=0b1020)](LICENSE)
 [![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-14b8a6?labelColor=0b1020)](https://developers.stellar.org/docs/build/smart-contracts)
 [![Live on testnet](https://img.shields.io/badge/Stellar%20testnet-live-22c55e?labelColor=0b1020)](https://stellar.opaque.cash)
 
@@ -206,7 +206,7 @@ The canonical address book is [deployments/v1/testnet.json](deployments/v1/testn
 
 ## License
 
-Opaque is licensed under [GPLv3](LICENSE).
+Opaque is licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
