@@ -774,7 +774,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
             Download backup
           </button>
         </div>
-        <div className={card}>
+        <div className={card} data-tour="pool-balance">
           <div className="text-xs uppercase tracking-wide text-mist/70">Pool TVL (on-chain)</div>
           <div className="mt-1 text-2xl font-bold text-white">
             {poolBalance == null ? "…" : `${formatXlm(poolBalance)} XLM`}
@@ -792,7 +792,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       </div>
 
       {/* Deposit */}
-      <div className={card}>
+      <div className={card} data-tour="pool-deposit">
         <h2 className="text-sm font-semibold text-white">Deposit</h2>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row">
           <input
@@ -820,7 +820,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       </div>
 
       {/* Withdraw */}
-      <div className={card}>
+      <div className={card} data-tour="pool-withdraw">
         <h2 className="text-sm font-semibold text-white">Withdraw</h2>
         {unspent.length === 0 ? (
           <p className="mt-3 text-sm text-mist/60">No unspent notes. Deposit first.</p>
