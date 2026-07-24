@@ -395,3 +395,310 @@ fn withdraw_bad_amount_rejected() {
     );
     assert_eq!(res, Err(Ok(PoolError::BadAmount)));
 }
+
+#[test]
+fn deposit_exact_zero_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    let res = h
+        .pool
+        .try_deposit(&depositor, &0i128, &b32(&h.env, 0xC3), &0u64);
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn deposit_negative_value_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    let res = h
+        .pool
+        .try_deposit(&depositor, &(-1i128), &b32(&h.env, 0xC4), &0u64);
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn withdraw_zero_amount_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &0i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x07),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn withdraw_negative_amount_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &(-100i128),
+        &sr,
+        &ar,
+        &b32(&h.env, 0x08),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn withdraw_fee_exceeds_amount_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &100i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x09),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &200i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn withdraw_negative_fee_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &100i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x0A),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &(-1i128),
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::BadAmount)));
+}
+
+#[test]
+fn custody_counter_updates_after_withdraw() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 500);
+    h.pool
+        .deposit(&depositor, &500i128, &b32(&h.env, 0xC1), &0u64);
+    assert_eq!(h.pool.get_custody(), (500, 0));
+    let (sr, ar) = publish_roots(&h);
+
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &200i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x9B),
+        &b32(&h.env, 0xCF),
+        &recipient,
+        &50i128,
+        &relayer,
+    );
+    assert_eq!(h.pool.get_custody(), (500, 200));
+    assert_eq!(bal(&h, &recipient), 150);
+    assert_eq!(bal(&h, &relayer), 50);
+}
+
+#[test]
+fn root_history_capped_at_100() {
+    let h = setup();
+    for i in 0..105u8 {
+        let root = BytesN::from_array(&h.env, &[i; 32]);
+        let ds = BytesN::from_array(&h.env, &[i.wrapping_add(0x10); 32]);
+        h.pool.update_state_root(&h.admin, &root, &ds);
+    }
+    let hist: soroban_sdk::Vec<BytesN<32>> = h
+        .env
+        .storage()
+        .instance()
+        .get(&Symbol::new(&h.env, "state_hist"))
+        .unwrap();
+    assert_eq!(hist.len(), 100);
+}
+
+#[test]
+fn root_expiry_boundary_exactly_at_limit_is_expired() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    h.pool.set_root_expiry(&h.admin, &10u32);
+    h.env.ledger().set_sequence_number(50 + 10);
+
+    let (pa, pb, pc) = proof(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &100i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x10),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::RootExpired)));
+}
+
+#[test]
+fn root_expiry_one_before_limit_is_valid() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    h.pool.set_root_expiry(&h.admin, &10u32);
+    h.env.ledger().set_sequence_number(50 + 9);
+
+    let (pa, pb, pc) = proof(&h.env);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &100i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x11),
+        &b32(&h.env, 0xCE),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+    assert!(res.is_ok());
+}
+
+#[test]
+fn set_root_expiry_unauthorized() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let res = h.pool.try_set_root_expiry(&stranger, &500u32);
+    assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
+}
+
+#[test]
+fn deposit_increments_count() {
+    let h = setup();
+    let d1 = Address::generate(&h.env);
+    let d2 = Address::generate(&h.env);
+    fund(&h, &d1, 500);
+    fund(&h, &d2, 300);
+    let i1 = h.pool.deposit(&d1, &200i128, &b32(&h.env, 0xC1), &0u64);
+    let i2 = h.pool.deposit(&d2, &300i128, &b32(&h.env, 0xC2), &1u64);
+    assert_eq!(i1, 0);
+    assert_eq!(i2, 1);
+    assert_eq!(h.pool.get_deposit_count(), 2);
+    assert_eq!(h.pool.get_custody(), (500, 0));
+}
+
+#[test]
+fn withdraw_zero_fee_full_amount_to_recipient() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &1000i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x9C),
+        &b32(&h.env, 0xCF),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+    assert_eq!(bal(&h, &recipient), 1000);
+    assert_eq!(bal(&h, &relayer), 0);
+    assert_eq!(bal(&h, &h.pool_addr), 0);
+}
+
+#[test]
+fn withdraw_equal_fee_and_amount_zero_to_recipient() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x9D),
+        &b32(&h.env, 0xCF),
+        &recipient,
+        &500i128,
+        &relayer,
+    );
+    assert_eq!(bal(&h, &recipient), 0);
+    assert_eq!(bal(&h, &relayer), 500);
+    assert_eq!(h.pool.get_custody(), (1000, 500));
+}

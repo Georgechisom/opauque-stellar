@@ -799,4 +799,122 @@ mod test {
         );
         assert!(!ok, "tampered public input must not verify");
     }
+
+    #[test]
+    fn is_valid_scalar_rejects_zero() {
+        assert!(!is_valid_scalar(&[0u8; 32]));
+    }
+
+    #[test]
+    fn is_valid_scalar_rejects_field_order() {
+        assert!(!is_valid_scalar(&SCALAR_FIELD));
+    }
+
+    #[test]
+    fn is_valid_scalar_rejects_one_above_field_order() {
+        let mut val = SCALAR_FIELD;
+        val[31] = val[31].wrapping_add(1);
+        assert!(!is_valid_scalar(&val));
+    }
+
+    #[test]
+    fn is_valid_scalar_accepts_one() {
+        let mut val = [0u8; 32];
+        val[31] = 1;
+        assert!(is_valid_scalar(&val));
+    }
+
+    #[test]
+    fn is_valid_scalar_accepts_max_valid() {
+        let mut val = SCALAR_FIELD;
+        val[31] = val[31].wrapping_sub(1);
+        assert!(is_valid_scalar(&val));
+    }
+
+    #[test]
+    fn is_valid_scalar_rejects_all_ff() {
+        assert!(!is_valid_scalar(&[0xffu8; 32]));
+    }
+
+    #[test]
+    fn field_negate_zero_returns_zero() {
+        let result = field_negate(&[0u8; 32]);
+        assert_eq!(result, [0u8; 32]);
+    }
+
+    #[test]
+    fn field_negate_base_field_returns_zero() {
+        let result = field_negate(&BASE_FIELD);
+        assert_eq!(result, [0u8; 32]);
+    }
+
+    #[test]
+    fn field_negate_one_returns_base_field_minus_one() {
+        let result = field_negate(&[0u8; 32]);
+        assert_eq!(result, [0u8; 32]);
+
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        let neg = field_negate(&one);
+        let mut expected = BASE_FIELD;
+        expected[31] = expected[31].wrapping_sub(1);
+        assert_eq!(neg, expected);
+    }
+
+    #[test]
+    fn field_negate_self_roundtrip() {
+        let val = [
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+            0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78,
+            0x9a, 0xbc, 0xde, 0x01,
+        ];
+        let neg = field_negate(&val);
+        let double_neg = field_negate(&neg);
+        assert_eq!(double_neg, val);
+    }
+
+    #[test]
+    fn verify_proof_v2_rejects_wrong_signal_count() {
+        let env = Env::default();
+        let client = client(&env);
+        let inputs = VerifyPublicInputsV2 {
+            merkle_root: BytesN::from_array(&env, &[0u8; 32]),
+            attestation_id: BytesN::from_array(&env, &[0u8; 32]),
+            external_nullifier: BytesN::from_array(&env, &[0u8; 32]),
+            nullifier_hash: BytesN::from_array(&env, &[0u8; 32]),
+        };
+        let res = client.try_verify_proof_v2(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &inputs,
+        );
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn verify_proof_v3_rejects_out_of_field_signal() {
+        let env = Env::default();
+        let client = client(&env);
+        let inputs = VerifyPublicInputsV3 {
+            withdrawn_value: BytesN::from_array(&env, &[0xffu8; 32]),
+            state_root: BytesN::from_array(&env, &[0u8; 32]),
+            asp_root: BytesN::from_array(&env, &[0u8; 32]),
+            nullifier_hash: BytesN::from_array(&env, &[0u8; 32]),
+            new_commitment: BytesN::from_array(&env, &[0u8; 32]),
+            context: BytesN::from_array(&env, &[0u8; 32]),
+        };
+        let res = client.try_verify_proof_v3(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &inputs,
+        );
+        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
+    }
+
+    #[test]
+    fn field_constants_base_exceeds_scalar() {
+        assert!(BASE_FIELD > SCALAR_FIELD);
+    }
 }
