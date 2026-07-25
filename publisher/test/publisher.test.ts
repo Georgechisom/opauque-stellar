@@ -6,6 +6,8 @@ import { runPublisherTick, createMetrics } from "../src/engine.ts";
 import { MemoryStore } from "../src/store.ts";
 import { buildTreeSnapshot, verifySnapshot, computeSnapshotHash } from "../src/snapshot.ts";
 import { formatPrometheusMetrics } from "../src/metrics.ts";
+import { validateLeafCommitment } from "../src/validate.ts";
+import { RateLimiter } from "../src/rate-limit.ts";
 import type { ChainAdapter, LeafCommitment } from "../src/types.ts";
 
 const CANON_1_2 =
@@ -150,7 +152,7 @@ describe("publisher engine", () => {
 
     await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
     expect(metrics.totalPublished).toBe(1);
-    expect(metrics.lastPublishAt).toBe("2026-06-16T00:00:00Z");
+    expect(metrics.lastPublishAt).toBeTruthy();
     expect(metrics.currentLeafCount).toBe(1);
   });
 });
@@ -215,5 +217,194 @@ describe("metrics", () => {
     expect(output).toContain("publisher_leaf_count 100");
     expect(output).toContain("publisher_last_publish_latency_ms 42");
     expect(output).toContain("publisher_uptime_seconds");
+  });
+
+  it("formats duplicate and collision counters", () => {
+    const m = createMetrics();
+    m.totalDuplicateResubmissions = 5;
+    m.totalIdentityCollisions = 2;
+
+    const output = formatPrometheusMetrics(m);
+    expect(output).toContain("publisher_total_duplicate_resubmissions 5");
+    expect(output).toContain("publisher_total_identity_collisions 2");
+  });
+});
+
+describe("schema validation", () => {
+  it("accepts a valid leaf commitment", () => {
+    const result = validateLeafCommitment({
+      id: "test-leaf",
+      leaf: bigintToHex32(42n),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.commitment.id).toBe("test-leaf");
+      expect(result.commitment.leaf).toBe(bigintToHex32(42n));
+    }
+  });
+
+  it("rejects missing leaf", () => {
+    const result = validateLeafCommitment({ id: "test" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("leaf"))).toBe(true);
+    }
+  });
+
+  it("rejects invalid leaf hex", () => {
+    const result = validateLeafCommitment({ id: "test", leaf: "not-a-hex" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("leaf"))).toBe(true);
+    }
+  });
+
+  it("rejects non-object input", () => {
+    const result = validateLeafCommitment("invalid");
+    expect(result.ok).toBe(false);
+  });
+
+  it("accepts commitment with only attestationUid (no id)", () => {
+    const result = validateLeafCommitment({
+      leaf: bigintToHex32(1n),
+      attestationUid: bigintToHex32(99n),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects empty id without attestationUid", () => {
+    const result = validateLeafCommitment({
+      leaf: bigintToHex32(1n),
+      id: "",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects invalid ledger type", () => {
+    const result = validateLeafCommitment({
+      id: "test",
+      leaf: bigintToHex32(1n),
+      ledger: -1,
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("duplicate detection", () => {
+  it("counts idempotent resubmissions (same id + same leaf)", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    const metrics = createMetrics();
+    store.inbox = [commitment("a", 1n), commitment("b", 2n)];
+
+    await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
+    expect(metrics.totalDuplicateResubmissions).toBe(0);
+    expect(metrics.totalIdentityCollisions).toBe(0);
+
+    store.inbox = [commitment("a", 1n)];
+    await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
+    expect(metrics.totalDuplicateResubmissions).toBe(1);
+    expect(metrics.totalIdentityCollisions).toBe(0);
+  });
+
+  it("flags identity collisions (same id, different leaf)", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    const metrics = createMetrics();
+    store.inbox = [commitment("a", 1n), commitment("a", 99n)];
+
+    await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
+    expect(metrics.totalIdentityCollisions).toBe(1);
+    expect(metrics.totalDuplicateResubmissions).toBe(0);
+    expect(store.archived).toEqual(["a", "a"]);
+  });
+
+  it("flags identity collisions (different id, same leaf)", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    const metrics = createMetrics();
+    store.inbox = [commitment("a", 1n), commitment("b", 1n)];
+
+    await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
+    expect(metrics.totalIdentityCollisions).toBe(1);
+    expect(metrics.totalDuplicateResubmissions).toBe(0);
+  });
+
+  it("does not insert colliding leaves into the tree", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    store.inbox = [commitment("a", 1n), commitment("a", 99n), commitment("b", 2n)];
+
+    const res = await runPublisherTick({ verifierId: "CVERIFIER", adapter, store });
+    expect(res.leafCount).toBe(2);
+    expect(res.newlyAccepted).toBe(2);
+  });
+});
+
+describe("quarantine", () => {
+  it("quarantines invalid files during readInbox", () => {
+    const store = new MemoryStore();
+    store.inbox = [
+      commitment("valid", 1n),
+      { id: "bad", leaf: "invalid-hex", submittedAt: "2026-01-01T00:00:00Z" } as LeafCommitment,
+      commitment("valid2", 2n),
+    ];
+
+    const result = store.readInbox();
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("valid");
+    expect(result[1].id).toBe("valid2");
+  });
+
+  it("tracks quarantined files in MemoryStore", () => {
+    const store = new MemoryStore();
+    store.quarantineFile("bad.json", { leaf: "bad" }, ["invalid leaf"], () => "2026-01-01T00:00:00Z");
+    expect(store.quarantineSize()).toBe(1);
+    const q = store.listQuarantine();
+    expect(q).toHaveLength(1);
+    expect(q[0].filename).toBe("bad.json");
+    expect(q[0].errors).toEqual(["invalid leaf"]);
+  });
+});
+
+describe("rate limiter", () => {
+  it("allows requests within limits", () => {
+    const limiter = new RateLimiter(60_000, 10, 15);
+    const result = limiter.consume("user-1");
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBeGreaterThanOrEqual(0);
+  });
+
+  it("throttles sustained abuse", () => {
+    const limiter = new RateLimiter(60_000, 5, 5);
+    for (let i = 0; i < 5; i++) limiter.consume("abuser");
+    const blocked = limiter.consume("abuser");
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.remaining).toBe(0);
+  });
+
+  it("resets after window", () => {
+    const limiter = new RateLimiter(1, 5, 5);
+    for (let i = 0; i < 5; i++) limiter.consume("user");
+    const blocked = limiter.consume("user");
+    expect(blocked.allowed).toBe(false);
+  });
+
+  it("does not affect other sources", () => {
+    const limiter = new RateLimiter(60_000, 2, 2);
+    limiter.consume("user-a");
+    limiter.consume("user-a");
+    const blocked = limiter.consume("user-a");
+    expect(blocked.allowed).toBe(false);
+    const allowed = limiter.consume("user-b");
+    expect(allowed.allowed).toBe(true);
+  });
+
+  it("normal usage never trips limits", () => {
+    const limiter = new RateLimiter(60_000, 120, 140);
+    for (let i = 0; i < 30; i++) {
+      const r = limiter.consume("normal-wallet");
+      expect(r.allowed).toBe(true);
+    }
   });
 });

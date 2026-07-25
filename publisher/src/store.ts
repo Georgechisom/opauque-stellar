@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { normalizeHex32 } from "./bytes.ts";
-import type { LeafCommitment, PublisherState } from "./types.ts";
+import { validateLeafCommitment } from "./validate.ts";
+import type { LeafCommitment, PublisherState, QuarantinedFile } from "./types.ts";
 
 const DEFAULT_MAX_INBOX_SIZE = 10_000;
 
@@ -12,22 +13,24 @@ export interface Store {
   writeInbox(commitment: LeafCommitment): boolean;
   archiveInbox(ids: string[]): void;
   inboxSize(): number;
+  quarantineFile(filename: string, raw: unknown, errors: string[], now: () => string): void;
+  listQuarantine(): QuarantinedFile[];
+  quarantineSize(): number;
 }
 
 export function normalizeCommitment(raw: unknown, now: () => string): LeafCommitment {
-  const obj = raw as Partial<LeafCommitment>;
-  const leaf = normalizeHex32(String(obj.leaf ?? ""), "leaf");
-  const id = String(obj.id ?? obj.attestationUid ?? leaf).trim().toLowerCase();
-  if (!id) throw new Error("commitment id is required");
-  return {
-    id,
-    leaf,
-    schemaId: obj.schemaId ? normalizeHex32(obj.schemaId, "schemaId") : undefined,
-    attestationUid: obj.attestationUid ? normalizeHex32(obj.attestationUid, "attestationUid") : undefined,
-    txHash: obj.txHash,
-    ledger: obj.ledger,
-    submittedAt: obj.submittedAt ?? now(),
-  };
+  const result = validateLeafCommitment(raw);
+  if (!result.ok) {
+    throw new Error(`invalid commitment: ${result.errors.join("; ")}`);
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.submittedAt === "string") {
+      result.commitment.submittedAt = obj.submittedAt;
+    }
+  }
+  result.commitment.submittedAt = result.commitment.submittedAt || now();
+  return result.commitment;
 }
 
 export class FileStore implements Store {
@@ -47,6 +50,10 @@ export class FileStore implements Store {
 
   private archiveDir(): string {
     return join(this.dataDir, "archive");
+  }
+
+  private quarantineDir(): string {
+    return join(this.dataDir, "quarantine");
   }
 
   load(verifierId: string): PublisherState | null {
@@ -73,8 +80,22 @@ export class FileStore implements Store {
     const out: LeafCommitment[] = [];
     for (const name of readdirSync(dir).filter((x) => x.endsWith(".json")).sort()) {
       const p = join(dir, name);
-      const raw = JSON.parse(readFileSync(p, "utf8"));
-      out.push(normalizeCommitment(raw, now));
+      try {
+        const raw = JSON.parse(readFileSync(p, "utf8"));
+        const result = validateLeafCommitment(raw);
+        if (result.ok) {
+          out.push(result.commitment);
+        } else {
+          this.quarantineFile(name, raw, result.errors, now);
+          unlinkSync(p);
+          console.warn(`quarantined invalid inbox file ${name}: ${result.errors.join("; ")}`);
+        }
+      } catch (err) {
+        const raw = { parseError: true };
+        this.quarantineFile(name, raw, [`parse error: ${err instanceof Error ? err.message : String(err)}`], now);
+        unlinkSync(p);
+        console.warn(`quarantined unparseable inbox file ${name}`);
+      }
     }
     return out;
   }
@@ -109,6 +130,39 @@ export class FileStore implements Store {
       }
     }
   }
+
+  quarantineFile(filename: string, raw: unknown, errors: string[], now: () => string): void {
+    const dir = this.quarantineDir();
+    mkdirSync(dir, { recursive: true });
+    const entry: QuarantinedFile = {
+      filename,
+      originalContent: raw,
+      errors,
+      quarantinedAt: now(),
+    };
+    const safeName = filename.replace(/[^a-z0-9_.-]/gi, "_");
+    writeFileSync(join(dir, `${safeName}.json`), `${JSON.stringify(entry, null, 2)}\n`);
+  }
+
+  listQuarantine(): QuarantinedFile[] {
+    const dir = this.quarantineDir();
+    if (!existsSync(dir)) return [];
+    const out: QuarantinedFile[] = [];
+    for (const name of readdirSync(dir).filter((x) => x.endsWith(".json")).sort()) {
+      try {
+        out.push(JSON.parse(readFileSync(join(dir, name), "utf8")) as QuarantinedFile);
+      } catch {
+        // skip corrupt quarantine entries
+      }
+    }
+    return out;
+  }
+
+  quarantineSize(): number {
+    const dir = this.quarantineDir();
+    if (!existsSync(dir)) return 0;
+    return readdirSync(dir).filter((x) => x.endsWith(".json")).length;
+  }
 }
 
 export class MemoryStore implements Store {
@@ -116,6 +170,7 @@ export class MemoryStore implements Store {
   private readonly maxInboxSize: number;
   inbox: LeafCommitment[] = [];
   archived: string[] = [];
+  quarantined: QuarantinedFile[] = [];
 
   constructor(maxInboxSize?: number) {
     this.maxInboxSize = maxInboxSize ?? DEFAULT_MAX_INBOX_SIZE;
@@ -133,8 +188,20 @@ export class MemoryStore implements Store {
     return this.inbox.length;
   }
 
-  readInbox(): LeafCommitment[] {
-    return structuredClone(this.inbox);
+  readInbox(now?: () => string): LeafCommitment[] {
+    const effectiveNow = now ?? (() => new Date().toISOString());
+    const valid: LeafCommitment[] = [];
+    for (const item of this.inbox) {
+      const result = validateLeafCommitment(item as unknown);
+      if (result.ok) {
+        valid.push(structuredClone(result.commitment));
+      } else {
+        this.quarantineFile(item.id ?? "unknown", item, result.errors, effectiveNow);
+        console.warn(`quarantined invalid in-memory inbox item: ${result.errors.join("; ")}`);
+      }
+    }
+    this.inbox = valid;
+    return valid;
   }
 
   writeInbox(commitment: LeafCommitment): boolean {
@@ -148,5 +215,22 @@ export class MemoryStore implements Store {
   archiveInbox(ids: string[]): void {
     this.archived.push(...ids);
     this.inbox = this.inbox.filter((x) => !ids.includes(x.id));
+  }
+
+  quarantineFile(_filename: string, raw: unknown, errors: string[], now: () => string): void {
+    this.quarantined.push({
+      filename: _filename,
+      originalContent: structuredClone(raw),
+      errors,
+      quarantinedAt: now(),
+    });
+  }
+
+  listQuarantine(): QuarantinedFile[] {
+    return structuredClone(this.quarantined);
+  }
+
+  quarantineSize(): number {
+    return this.quarantined.length;
   }
 }

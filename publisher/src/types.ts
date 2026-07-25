@@ -49,4 +49,13 @@ export interface PublisherMetrics {
   lastPublishAt: string | null;
   lastPublishLatencyMs: number | null;
   startedAt: string;
+  totalDuplicateResubmissions: number;
+  totalIdentityCollisions: number;
+}
+
+export interface QuarantinedFile {
+  filename: string;
+  originalContent: unknown;
+  errors: string[];
+  quarantinedAt: string;
 }

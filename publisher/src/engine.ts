@@ -38,6 +38,8 @@ function initState(verifierId: string, now: string): PublisherState {
 function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
   leaves: LeafCommitment[];
   acceptedIds: string[];
+  duplicateResubmissions: number;
+  identityCollisions: LeafCommitment[];
 } {
   const byId = new Map<string, LeafCommitment>();
   const byLeaf = new Set<string>();
@@ -46,8 +48,21 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
     byLeaf.add(leaf.leaf);
   }
   const acceptedIds: string[] = [];
+  let duplicateResubmissions = 0;
+  const identityCollisions: LeafCommitment[] = [];
   for (const leaf of incoming) {
-    if (byId.has(leaf.id) || byLeaf.has(leaf.leaf)) continue;
+    const existingById = byId.get(leaf.id);
+    const existingByLeaf = byLeaf.has(leaf.leaf);
+    if (existingById && existingById.leaf === leaf.leaf) {
+      duplicateResubmissions++;
+      continue;
+    }
+    if (existingById || existingByLeaf) {
+      identityCollisions.push(leaf);
+      const reason = existingById ? `id "${leaf.id}" already in tree` : `leaf "${leaf.leaf.slice(0, 14)}..." already in tree`;
+      console.warn(`identity collision: ${reason} — incoming leaf flagged, not inserted`);
+      continue;
+    }
     byId.set(leaf.id, leaf);
     byLeaf.add(leaf.leaf);
     acceptedIds.push(leaf.id);
@@ -57,7 +72,7 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
     const bKey = `${String(b.ledger ?? 0).padStart(12, "0")}:${b.id}`;
     return aKey.localeCompare(bKey);
   });
-  return { leaves, acceptedIds };
+  return { leaves, acceptedIds, duplicateResubmissions, identityCollisions };
 }
 
 export function createMetrics(): PublisherMetrics {
@@ -71,6 +86,8 @@ export function createMetrics(): PublisherMetrics {
     lastPublishAt: null,
     lastPublishLatencyMs: null,
     startedAt: new Date().toISOString(),
+    totalDuplicateResubmissions: 0,
+    totalIdentityCollisions: 0,
   };
 }
 
@@ -81,13 +98,18 @@ export async function runPublisherTick(cfg: PublisherTickConfig, metrics?: Publi
   const state = cfg.store.load(cfg.verifierId) ?? initState(cfg.verifierId, at);
   const inbox = cfg.store.readInbox(now);
   const processedIds = inbox.map((leaf) => leaf.id);
-  const { leaves, acceptedIds } = mergeLeaves(state.leaves, inbox);
+  const { leaves, acceptedIds, duplicateResubmissions, identityCollisions } = mergeLeaves(state.leaves, inbox);
   state.leaves = leaves;
   state.updatedAt = at;
 
   if (metrics) {
     metrics.currentInboxDepth = cfg.store.inboxSize();
     metrics.currentLeafCount = leaves.length;
+    metrics.totalDuplicateResubmissions += duplicateResubmissions;
+    metrics.totalIdentityCollisions += identityCollisions.length;
+    if (identityCollisions.length > 0) {
+      console.warn(`tick: ${identityCollisions.length} identity collision(s) flagged this tick`);
+    }
   }
 
   const minLeaves = cfg.minLeavesToPublish ?? 1;

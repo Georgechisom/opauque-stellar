@@ -21,6 +21,7 @@ import { FileStore, normalizeCommitment } from "../src/store.ts";
 import { normalizeHex32 } from "../src/bytes.ts";
 import { buildTreeSnapshot, computeSnapshotHash } from "../src/snapshot.ts";
 import { formatPrometheusMetrics } from "../src/metrics.ts";
+import { createRateLimiterFromEnv } from "../src/rate-limit.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
@@ -97,6 +98,13 @@ async function main() {
     verifierId: cfg.verifierId,
     publisher: cfg.publisher,
   });
+  const rateLimiter = createRateLimiterFromEnv();
+
+  function extractSource(req): string {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
+    return req.socket.remoteAddress ?? "unknown";
+  }
 
   const server = createServer(async (req, res) => {
     try {
@@ -108,6 +116,24 @@ async function main() {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
       if (req.method === "POST" && url.pathname === "/v1/reputation/leaves") {
+        const source = extractSource(req);
+        const rl = rateLimiter.consume(source);
+        if (!rl.allowed) {
+          const retryAfter = Math.ceil((rl.resetMs - Date.now()) / 1000);
+          send(res, 429, {
+            ok: false,
+            error: "rate limit exceeded",
+            retryAfterSeconds: retryAfter,
+            limit: rl.limit,
+            remaining: rl.remaining,
+          }, cfg.corsOrigin);
+          res.setHeader("X-RateLimit-Limit", String(rl.limit));
+          res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
+          res.setHeader("X-RateLimit-Reset", String(Math.ceil(rl.resetMs / 1000)));
+          res.setHeader("Retry-After", String(retryAfter));
+          return;
+        }
+
         const commitment = normalizeCommitment(await readBody(req), () => new Date().toISOString());
         metrics.totalSubmitted += 1;
         const accepted = store.writeInbox(commitment);
@@ -160,6 +186,16 @@ async function main() {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/v1/reputation/quarantine") {
+        const quarantine = store.listQuarantine();
+        send(res, 200, {
+          ok: true,
+          count: quarantine.length,
+          files: quarantine,
+        }, cfg.corsOrigin);
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/metrics") {
         const body = formatPrometheusMetrics(metrics);
         send(res, 200, body, cfg.corsOrigin, "text/plain; version=0.0.4; charset=utf-8");
@@ -172,6 +208,7 @@ async function main() {
           verifierId: cfg.verifierId,
           inboxDepth: store.inboxSize(),
           maxInboxSize: MAX_INBOX_SIZE,
+          quarantineSize: store.quarantineSize(),
         }, cfg.corsOrigin);
         return;
       }
