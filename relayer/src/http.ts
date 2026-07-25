@@ -9,7 +9,11 @@ import {
   type RelayerBid,
   type RelayerMessage,
 } from "./messages.ts";
+
 import { createRateLimiterFromEnv, type RateLimiter } from "./rate-limit.ts";
+
+import type { PayoutReconciler } from "./reconciler.ts";
+
 
 export type RelayerHttpBackend = {
   readonly stats: unknown;
@@ -18,6 +22,9 @@ export type RelayerHttpBackend = {
   handlePayload(payload: EncryptedPayload): Promise<{ acceptedTx: string; submittedTx: string } | null> | Promise<null>;
   publishGossipMessage?(message: RelayerMessage): Promise<void>;
   subscribeGossip?(handler: (message: RelayerMessage) => Promise<void> | void): () => void;
+  healthCheck?(): Promise<unknown>;
+  /** Optional reconciler — enables GET /v1/reconcile and POST /v1/reconcile endpoints. */
+  reconciler?: PayoutReconciler;
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -127,6 +134,10 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
       if (req.method === "POST" && payloadMatch) {
         if (rateLimited(req, res)) return;
         const payload = validatePayload(await readJson(req));
+        const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
+        if (idempotencyKey) {
+          payload.idempotencyKey = idempotencyKey;
+        }
         if (payload.jobId.toLowerCase() !== decodeURIComponent(payloadMatch[1]).toLowerCase()) {
           send(res, 400, { error: "jobId mismatch" });
           return;
@@ -136,7 +147,36 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
         return;
       }
       if (req.method === "GET" && url.pathname === "/health") {
-        send(res, 200, { ok: true, stats: backend.stats });
+        if (backend.healthCheck) {
+          const health = await backend.healthCheck();
+          send(res, 200, health);
+        } else {
+          send(res, 200, { ok: true, stats: backend.stats });
+        }
+        return;
+      }
+      // GET /v1/reconcile — return the most recent reconciliation report without re-running
+      if (req.method === "GET" && url.pathname === "/v1/reconcile") {
+        if (!backend.reconciler) {
+          send(res, 404, { error: "reconciler not configured" });
+          return;
+        }
+        const last = backend.reconciler.getLastReport();
+        if (!last) {
+          send(res, 204, {});
+          return;
+        }
+        send(res, 200, last);
+        return;
+      }
+      // POST /v1/reconcile — trigger an on-demand reconciliation run and return the report
+      if (req.method === "POST" && url.pathname === "/v1/reconcile") {
+        if (!backend.reconciler) {
+          send(res, 404, { error: "reconciler not configured" });
+          return;
+        }
+        const report = await backend.reconciler.reconcile();
+        send(res, 200, report);
         return;
       }
       send(res, 404, { error: "not found" });
