@@ -19,7 +19,8 @@
     "soak": "tsx scripts/soak-test.ts",
     "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",
     "slo:report": "tsx scripts/slo-report.ts",
-    "drift:check": "tsx scripts/drift-check.ts"
+    "drift:check": "tsx scripts/drift-check.ts",
+    "check:scanner-stability": "tsx scripts/check-scanner-byte-stability.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0"
