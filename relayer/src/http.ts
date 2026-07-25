@@ -9,6 +9,7 @@ import {
   type RelayerBid,
   type RelayerMessage,
 } from "./messages.ts";
+import { createRateLimiterFromEnv, type RateLimiter } from "./rate-limit.ts";
 
 export type RelayerHttpBackend = {
   readonly stats: unknown;
@@ -44,7 +45,36 @@ function readGossipEnvelope(value: unknown): RelayerMessage {
   return validateRelayerMessage(env.message);
 }
 
-export function createRelayerHttpServer(backend: RelayerHttpBackend) {
+export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter?: RateLimiter) {
+  const limiter = rateLimiter ?? createRateLimiterFromEnv();
+
+  function extractSource(req: IncomingMessage): string {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
+    return req.socket.remoteAddress ?? "unknown";
+  }
+
+  function rateLimited(req: IncomingMessage, res: ServerResponse): boolean {
+    const source = extractSource(req);
+    const rl = limiter.consume(source);
+    if (!rl.allowed) {
+      const retryAfter = Math.ceil((rl.resetMs - Date.now()) / 1000);
+      res.writeHead(429, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET,POST,OPTIONS",
+        "access-control-allow-headers": "content-type",
+        "content-type": "application/json",
+        "X-RateLimit-Limit": String(rl.limit),
+        "X-RateLimit-Remaining": String(rl.remaining),
+        "X-RateLimit-Reset": String(Math.ceil(rl.resetMs / 1000)),
+        "Retry-After": String(retryAfter),
+      });
+      res.end(JSON.stringify({ ok: false, error: "rate limit exceeded", retryAfterSeconds: retryAfter }));
+      return true;
+    }
+    return false;
+  }
+
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -71,6 +101,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/gossip/messages") {
+        if (rateLimited(req, res)) return;
         if (!backend.publishGossipMessage) {
           send(res, 404, { error: "gossip unavailable" });
           return;
@@ -80,6 +111,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/jobs") {
+        if (rateLimited(req, res)) return;
         const advert = validateAdvert(await readJson(req));
         const bid = await backend.handleAdvert(advert);
         send(res, 202, { ok: true, bid });
@@ -93,6 +125,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
       }
       const payloadMatch = /^\/v1\/jobs\/([^/]+)\/payload$/.exec(url.pathname);
       if (req.method === "POST" && payloadMatch) {
+        if (rateLimited(req, res)) return;
         const payload = validatePayload(await readJson(req));
         if (payload.jobId.toLowerCase() !== decodeURIComponent(payloadMatch[1]).toLowerCase()) {
           send(res, 400, { error: "jobId mismatch" });
