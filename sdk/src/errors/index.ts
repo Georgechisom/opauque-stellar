@@ -117,13 +117,11 @@ export class NotWiredError extends OpaqueError {
  * Known contract error enums, keyed by contract package name. Populated as the
  * SDK binds each contract; an unknown code still surfaces as a numeric
  * {@link ContractError}. Source of truth is each contract's `#[contracterror]`.
+ *
+ * Regenerate after contract error changes:
+ *   npx tsx scripts/generate-error-mapping.ts
  */
-export const CONTRACT_ERROR_NAMES: Record<string, Record<number, string>> = {
-  "reputation-verifier": {
-    2: "RootExpired",
-    4: "NullifierReplay",
-  },
-};
+export { CONTRACT_ERROR_NAMES } from "./contract-errors.generated";
 
 /** Look up a contract error name for a code, if the SDK knows the enum. */
 export function contractErrorName(
