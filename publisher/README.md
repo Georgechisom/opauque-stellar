@@ -105,6 +105,7 @@ Variables:
 | `PUBLISHER_HTTP_PORT` | `8790` | HTTP API port. |
 | `PUBLISHER_CORS_ORIGIN` | `*` | Browser origin allowed to submit leaves/fetch paths. |
 | `PUBLISHER_DATA_DIR` | `publisher/data` | Durable inbox/state/root manifest directory. |
+| `PUBLISHER_MAX_INBOX` | `10000` | Maximum inbox queue size before backpressure is applied. |
 
 ## Run The HTTP API
 
@@ -124,9 +125,11 @@ Endpoints:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/reputation/leaves` | Accept a holder-submitted V2 leaf commitment and run a publish tick. |
+| `POST` | `/v1/reputation/leaves` | Accept a holder-submitted V2 leaf commitment and run a publish tick. Returns 429 when inbox is full. |
 | `GET` | `/v1/reputation/root/:leaf` | Return current root, leaf index, and Merkle path for a leaf. |
-| `GET` | `/health` | Health check with verifier id. |
+| `GET` | `/v1/reputation/snapshot/:verifierId` | Export an auditable tree snapshot with leaves and intermediate hashes. |
+| `GET` | `/metrics` | Prometheus exposition format metrics (inbox depth, latency, publication counters). |
+| `GET` | `/health` | Health check with verifier id and inbox depth. |
 
 Submit body:
 
@@ -250,6 +253,61 @@ Inbox item shape:
 ```
 
 Only `id` and `leaf` are required.
+
+## Backpressure
+
+When the inbox exceeds `PUBLISHER_MAX_INBOX` (default 10,000), new submissions receive an
+HTTP 429 response with a `retryAfterSeconds` hint. This prevents unbounded memory growth
+under submission floods while allowing the publisher to catch up.
+
+```json
+{
+  "ok": false,
+  "error": "inbox full",
+  "retryAfterSeconds": 30,
+  "inboxDepth": 10000
+}
+```
+
+Processing latency for accepted items stays within target under flood tests because
+backpressure limits the work-per-tick. Flood events are visible in the `/metrics` endpoint
+via `publisher_total_rejected`.
+
+## Snapshot Export
+
+Export an auditable tree snapshot that contains the leaves and intermediate hashes needed
+to independently reproduce a published root:
+
+```bash
+curl http://localhost:8790/v1/reputation/snapshot/<verifierId>
+```
+
+Response includes the full `SnapshotExport` object with:
+- `version`: schema version (currently 1)
+- `root`: the Merkle root
+- `leaves`: all leaf values in order
+- `intermediateHashes`: all intermediate tree nodes keyed by `level:index`
+- `snapshotHash`: SHA-256 binding of root + leaves
+
+A third-party verifier can reconstruct the tree from the snapshot and confirm it matches
+the published root without accessing the full pipeline.
+
+## Metrics (Prometheus)
+
+Scrape `GET /metrics` for operational observability:
+
+```text
+publisher_total_submitted 42
+publisher_total_accepted 40
+publisher_total_rejected 2
+publisher_total_published 5
+publisher_inbox_depth 12
+publisher_leaf_count 150
+publisher_last_publish_latency_ms 340
+publisher_uptime_seconds 3600.0
+```
+
+No metric exposes leaf contents or submitter identity.
 
 ## Security Notes
 

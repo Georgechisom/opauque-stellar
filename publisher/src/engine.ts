@@ -1,7 +1,7 @@
 import { buildRoot } from "./merkle.ts";
 import { computeDatasetHash, rootManifest, writeRootManifest } from "./publish.ts";
 import type { Store } from "./store.ts";
-import type { ChainAdapter, LeafCommitment, PublisherState } from "./types.ts";
+import type { ChainAdapter, LeafCommitment, PublisherMetrics, PublisherState } from "./types.ts";
 
 export interface PublisherTickConfig {
   verifierId: string;
@@ -21,6 +21,7 @@ export interface PublisherTickResult {
   datasetHash: string | null;
   published: boolean;
   txHash?: string;
+  latencyMs: number;
 }
 
 function initState(verifierId: string, now: string): PublisherState {
@@ -59,7 +60,22 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
   return { leaves, acceptedIds };
 }
 
-export async function runPublisherTick(cfg: PublisherTickConfig): Promise<PublisherTickResult> {
+export function createMetrics(): PublisherMetrics {
+  return {
+    totalSubmitted: 0,
+    totalAccepted: 0,
+    totalRejected: 0,
+    totalPublished: 0,
+    currentInboxDepth: 0,
+    currentLeafCount: 0,
+    lastPublishAt: null,
+    lastPublishLatencyMs: null,
+    startedAt: new Date().toISOString(),
+  };
+}
+
+export async function runPublisherTick(cfg: PublisherTickConfig, metrics?: PublisherMetrics): Promise<PublisherTickResult> {
+  const tickStart = Date.now();
   const now = cfg.now ?? (() => new Date().toISOString());
   const at = now();
   const state = cfg.store.load(cfg.verifierId) ?? initState(cfg.verifierId, at);
@@ -69,10 +85,16 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
   state.leaves = leaves;
   state.updatedAt = at;
 
+  if (metrics) {
+    metrics.currentInboxDepth = cfg.store.inboxSize();
+    metrics.currentLeafCount = leaves.length;
+  }
+
   const minLeaves = cfg.minLeavesToPublish ?? 1;
   if (leaves.length < minLeaves) {
     cfg.store.archiveInbox(processedIds);
     cfg.store.save(state);
+    const latencyMs = Date.now() - tickStart;
     return {
       verifierId: cfg.verifierId,
       leafCount: leaves.length,
@@ -81,6 +103,7 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
       onChainRoot: await cfg.adapter.currentRoot(),
       datasetHash: null,
       published: false,
+      latencyMs,
     };
   }
 
@@ -110,10 +133,18 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
     state.lastPublishedRoot = localRoot;
     state.lastPublishedLedger = res.ledger ?? null;
     state.lastDatasetHash = datasetHash;
+    if (metrics) {
+      metrics.totalPublished += 1;
+      metrics.lastPublishAt = at;
+    }
   }
 
   cfg.store.archiveInbox(processedIds);
   cfg.store.save(state);
+  const latencyMs = Date.now() - tickStart;
+  if (metrics) {
+    metrics.lastPublishLatencyMs = latencyMs;
+  }
   return {
     verifierId: cfg.verifierId,
     leafCount: leaves.length,
@@ -123,5 +154,6 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
     datasetHash,
     published,
     txHash,
+    latencyMs,
   };
 }

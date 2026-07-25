@@ -3,12 +3,15 @@ import { dirname, join } from "node:path";
 import { normalizeHex32 } from "./bytes.ts";
 import type { LeafCommitment, PublisherState } from "./types.ts";
 
+const DEFAULT_MAX_INBOX_SIZE = 10_000;
+
 export interface Store {
   load(verifierId: string): PublisherState | null;
   save(state: PublisherState): void;
   readInbox(now: () => string): LeafCommitment[];
-  writeInbox(commitment: LeafCommitment): void;
+  writeInbox(commitment: LeafCommitment): boolean;
   archiveInbox(ids: string[]): void;
+  inboxSize(): number;
 }
 
 export function normalizeCommitment(raw: unknown, now: () => string): LeafCommitment {
@@ -28,7 +31,11 @@ export function normalizeCommitment(raw: unknown, now: () => string): LeafCommit
 }
 
 export class FileStore implements Store {
-  constructor(private readonly dataDir: string) {}
+  private readonly maxInboxSize: number;
+
+  constructor(private readonly dataDir: string, maxInboxSize?: number) {
+    this.maxInboxSize = maxInboxSize ?? DEFAULT_MAX_INBOX_SIZE;
+  }
 
   private statePath(verifierId: string): string {
     return join(this.dataDir, "state", `${verifierId}.json`);
@@ -54,6 +61,12 @@ export class FileStore implements Store {
     writeFileSync(p, `${JSON.stringify(state, null, 2)}\n`);
   }
 
+  inboxSize(): number {
+    const dir = this.inboxDir();
+    if (!existsSync(dir)) return 0;
+    return readdirSync(dir).filter((x) => x.endsWith(".json")).length;
+  }
+
   readInbox(now: () => string): LeafCommitment[] {
     const dir = this.inboxDir();
     if (!existsSync(dir)) return [];
@@ -66,11 +79,15 @@ export class FileStore implements Store {
     return out;
   }
 
-  writeInbox(commitment: LeafCommitment): void {
+  writeInbox(commitment: LeafCommitment): boolean {
+    if (this.inboxSize() >= this.maxInboxSize) {
+      return false;
+    }
     const safeId = commitment.id.replace(/[^a-z0-9_.-]/gi, "_");
     const p = join(this.inboxDir(), `${safeId}.json`);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, `${JSON.stringify(commitment, null, 2)}\n`);
+    return true;
   }
 
   archiveInbox(ids: string[]): void {
@@ -96,8 +113,13 @@ export class FileStore implements Store {
 
 export class MemoryStore implements Store {
   private state: PublisherState | null = null;
+  private readonly maxInboxSize: number;
   inbox: LeafCommitment[] = [];
   archived: string[] = [];
+
+  constructor(maxInboxSize?: number) {
+    this.maxInboxSize = maxInboxSize ?? DEFAULT_MAX_INBOX_SIZE;
+  }
 
   load(): PublisherState | null {
     return this.state ? structuredClone(this.state) : null;
@@ -107,12 +129,20 @@ export class MemoryStore implements Store {
     this.state = structuredClone(state);
   }
 
+  inboxSize(): number {
+    return this.inbox.length;
+  }
+
   readInbox(): LeafCommitment[] {
     return structuredClone(this.inbox);
   }
 
-  writeInbox(commitment: LeafCommitment): void {
+  writeInbox(commitment: LeafCommitment): boolean {
+    if (this.inbox.length >= this.maxInboxSize) {
+      return false;
+    }
     this.inbox.push(structuredClone(commitment));
+    return true;
   }
 
   archiveInbox(ids: string[]): void {
