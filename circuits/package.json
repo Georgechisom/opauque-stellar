@@ -12,7 +12,8 @@
     "prove": "snarkjs groth16 prove build/stealth_attestation_final.zkey build/stealth_attestation_js/witness.wtns build/proof.json build/public.json",
     "verify": "snarkjs groth16 verify build/verification_key.json build/public.json build/proof.json",
     "test:regression": "tsx test/regression.ts",
-    "fixtures:generate": "tsx scripts/generate-fixtures.ts"
+    "fixtures:generate": "tsx scripts/generate-fixtures.ts",
+    "generate:witness-hashes": "tsx scripts/generate-witness-hashes.ts"
   },
   "devDependencies": {
     "circomlib": "^2.0.5",
