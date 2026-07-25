@@ -40,5 +40,13 @@ export function formatPrometheusMetrics(metrics: PublisherMetrics): string {
   const uptimeMs = Date.now() - new Date(metrics.startedAt).getTime();
   lines.push(`publisher_uptime_seconds ${(uptimeMs / 1000).toFixed(1)}`);
 
+  lines.push("# HELP publisher_total_duplicate_resubmissions Total number of idempotent duplicate leaf resubmissions.");
+  lines.push("# TYPE publisher_total_duplicate_resubmissions counter");
+  lines.push(`publisher_total_duplicate_resubmissions ${metrics.totalDuplicateResubmissions}`);
+
+  lines.push("# HELP publisher_total_identity_collisions Total number of identity-colliding leaf submissions flagged.");
+  lines.push("# TYPE publisher_total_identity_collisions counter");
+  lines.push(`publisher_total_identity_collisions ${metrics.totalIdentityCollisions}`);
+
   return lines.join("\n") + "\n";
 }
