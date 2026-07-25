@@ -60,6 +60,7 @@ export interface OpaqueWasmModule {
     view_tag: number,
     attestation_id: bigint
   ) => string;
+  get_scanner_metadata: () => string;
 }
 
 interface UseOpaqueWasmReturn {
