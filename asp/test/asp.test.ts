@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { getPoseidon, hashFields, MerkleTree, computeLabel } from "../src/merkle.ts";
 import { AssociationSet } from "../src/set.ts";
 import { approveAll, allowlist } from "../src/policy.ts";
+import { PolicyEngine } from "../src/policy-engine.ts";
+import { PublicationMonitor } from "../src/monitor.ts";
+import { ReorgGuard } from "../src/reorg-guard.ts";
 import { MemoryStore } from "../src/store.ts";
 import { computeDatasetHash } from "../src/publish.ts";
 import { runPoolTick } from "../src/engine.ts";
@@ -216,5 +219,189 @@ describe("engine reconcile", () => {
     });
     expect(r2.statePublished).toBe(false);
     expect(adapter.statePosts.length).toBe(1);
+  });
+});
+
+describe("policy engine", () => {
+  const dep = (index: number): Deposit => ({
+    index,
+    commitment: "0x00",
+    value: "1",
+    scope: 1,
+    ledger: 1,
+  });
+
+  it("first-decides uses the first non-defer verdict", async () => {
+    const engine = new PolicyEngine({
+      policies: [allowlist([1]), approveAll],
+      strategy: "first-decides",
+    });
+    expect(await engine.screen(dep(0))).toBe("defer"); // allowlist defers
+    expect(await engine.screen(dep(1))).toBe("approve"); // allowlist approves
+  });
+
+  it("any-approve returns approve if any policy approves", async () => {
+    const engine = new PolicyEngine({
+      policies: [allowlist([1]), approveAll],
+      strategy: "any-approve",
+    });
+    expect(await engine.screen(dep(0))).toBe("approve"); // approveAll approves
+  });
+
+  it("all-must-approve requires every policy to approve", async () => {
+    const engine = new PolicyEngine({
+      policies: [allowlist([1]), approveAll],
+      strategy: "all-must-approve",
+    });
+    expect(await engine.screen(dep(1))).toBe("approve");
+    // allowlist defers dep(0), so not all approve → reject
+    expect(await engine.screen(dep(0))).toBe("reject");
+  });
+
+  it("calls onDecision for each policy evaluation", async () => {
+    const decisions: Array<{ policy: string; verdict: string }> = [];
+    const engine = new PolicyEngine({
+      policies: [approveAll],
+      strategy: "first-decides",
+      onDecision: (d) => decisions.push({ policy: d.policy, verdict: d.verdict }),
+    });
+    await engine.screen(dep(0));
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].policy).toBe("approve-all");
+    expect(decisions[0].verdict).toBe("approve");
+  });
+
+  it("throws when no policies are provided", () => {
+    expect(() => new PolicyEngine({ policies: [] })).toThrow("at least one policy");
+  });
+});
+
+describe("publication monitor", () => {
+  it("fires alert when root age exceeds threshold", () => {
+    let t = 1000;
+    const alerts: Array<{ root: string; ageMs: number }> = [];
+    const monitor = new PublicationMonitor({
+      maxRootAgeMs: 5000,
+      now: () => t,
+      onAlert: (a) => alerts.push({ root: a.lastRoot, ageMs: a.ageMs }),
+    });
+    monitor.recordPublication("0xabc", 100);
+    t += 6000;
+    const alert = monitor.check();
+    expect(alert).not.toBeNull();
+    expect(alert!.type).toBe("stale-root");
+    expect(alerts).toHaveLength(1);
+  });
+
+  it("returns null when root is fresh", () => {
+    let t = 1000;
+    const monitor = new PublicationMonitor({
+      maxRootAgeMs: 5000,
+      now: () => t,
+      onAlert: () => {},
+    });
+    monitor.recordPublication("0xabc", 100);
+    t += 3000;
+    expect(monitor.check()).toBeNull();
+  });
+
+  it("returns null when nothing published yet", () => {
+    const monitor = new PublicationMonitor({
+      maxRootAgeMs: 5000,
+      onAlert: () => {},
+    });
+    expect(monitor.check()).toBeNull();
+  });
+});
+
+describe("reorg guard", () => {
+  it("allows normal progression", () => {
+    const guard = new ReorgGuard({ onDivergence: () => {} });
+    guard.reset(100);
+    expect(guard.validate(100)).toEqual({ ok: true });
+    guard.commit(105);
+    expect(guard.validate(106)).toEqual({ ok: true });
+  });
+
+  it("detects rollback and fires divergence event", () => {
+    const events: Array<{ expected: number; actual: number }> = [];
+    const guard = new ReorgGuard({
+      onDivergence: (e) => events.push({ expected: e.expectedLedger, actual: e.actualLedger }),
+    });
+    guard.reset(100);
+    guard.commit(105);
+    // Next batch starts at 102 — that's before expected 106
+    const result = guard.validate(102);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.rewindTo).toBe(102);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ expected: 106, actual: 102 });
+  });
+
+  it("resets after divergence", () => {
+    const guard = new ReorgGuard({ onDivergence: () => {} });
+    guard.reset(100);
+    guard.commit(105);
+    guard.validate(102); // divergence
+    guard.commit(102);
+    expect(guard.validate(103)).toEqual({ ok: true });
+  });
+});
+
+describe("engine with monitor and reorg guard", () => {
+  it("records publication and checks staleness", async () => {
+    let t = 1000;
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    const monitor = new PublicationMonitor({
+      maxRootAgeMs: 5000,
+      now: () => t,
+      onAlert: () => {},
+    });
+    adapter.deposits = [deposit(0)];
+    await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+      publicationMonitor: monitor,
+    });
+    t += 6000;
+    const r2 = await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+      publicationMonitor: monitor,
+    });
+    expect(r2.staleAlert).not.toBeNull();
+  });
+
+  it("halts publication on reorg divergence", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    const guard = new ReorgGuard({ onDivergence: () => {} });
+    adapter.deposits = [deposit(0)];
+    await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+      reorgGuard: guard,
+    });
+    // Simulate reorg: guard expects ledger 11, gets ledger 5
+    const r = await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: approveAll,
+      reorgGuard: guard,
+    });
+    expect(r.haltedForReorg).toBe(true);
+    expect(r.published).toBe(false);
   });
 });
