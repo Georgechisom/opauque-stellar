@@ -17,6 +17,7 @@ export type RelayerHttpBackend = {
   handlePayload(payload: EncryptedPayload): Promise<{ acceptedTx: string; submittedTx: string } | null> | Promise<null>;
   publishGossipMessage?(message: RelayerMessage): Promise<void>;
   subscribeGossip?(handler: (message: RelayerMessage) => Promise<void> | void): () => void;
+  healthCheck?(): Promise<unknown>;
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -94,6 +95,10 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
       const payloadMatch = /^\/v1\/jobs\/([^/]+)\/payload$/.exec(url.pathname);
       if (req.method === "POST" && payloadMatch) {
         const payload = validatePayload(await readJson(req));
+        const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
+        if (idempotencyKey) {
+          payload.idempotencyKey = idempotencyKey;
+        }
         if (payload.jobId.toLowerCase() !== decodeURIComponent(payloadMatch[1]).toLowerCase()) {
           send(res, 400, { error: "jobId mismatch" });
           return;
@@ -103,7 +108,12 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
         return;
       }
       if (req.method === "GET" && url.pathname === "/health") {
-        send(res, 200, { ok: true, stats: backend.stats });
+        if (backend.healthCheck) {
+          const health = await backend.healthCheck();
+          send(res, 200, health);
+        } else {
+          send(res, 200, { ok: true, stats: backend.stats });
+        }
         return;
       }
       send(res, 404, { error: "not found" });
