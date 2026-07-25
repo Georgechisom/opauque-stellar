@@ -471,6 +471,13 @@ impl RelayerRegistry {
             .ok_or(RegistryError::JobNotAccepted)?;
         let mut relayer = read_relayer(&env, &operator)?;
         relayer.bonded_stake -= job.fee;
+        if relayer.pending_unstake > 0 {
+            let slash_from_pending = core::cmp::min(relayer.pending_unstake, job.fee);
+            relayer.pending_unstake -= slash_from_pending;
+            if relayer.pending_unstake == 0 {
+                relayer.unstake_unlock_ledger = 0;
+            }
+        }
         write_relayer(&env, &relayer);
 
         job.status = STATUS_SLASHED;
@@ -511,6 +518,20 @@ impl RelayerRegistry {
 
     pub fn get_relayer(env: Env, operator: Address) -> Result<RelayerRecord, RegistryError> {
         read_relayer(&env, &operator)
+    }
+
+    pub fn get_unbonding_status(
+        env: Env,
+        operator: Address,
+    ) -> Result<(i128, u32, bool), RegistryError> {
+        let relayer = read_relayer(&env, &operator)?;
+        let is_unlockable =
+            relayer.pending_unstake > 0 && env.ledger().sequence() >= relayer.unstake_unlock_ledger;
+        Ok((
+            relayer.pending_unstake,
+            relayer.unstake_unlock_ledger,
+            is_unlockable,
+        ))
     }
 
     pub fn get_job(env: Env, job_id: BytesN<32>) -> Result<JobRecord, RegistryError> {
