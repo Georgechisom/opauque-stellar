@@ -27,6 +27,8 @@ export type PolicyVerdict = "approve" | "reject" | "defer";
 export interface Policy {
   readonly name: string;
   screen(deposit: Deposit): Promise<PolicyVerdict> | PolicyVerdict;
+  /** Optional human-readable reason for the decision (used for audit logging). */
+  reason?(deposit: Deposit): string;
 }
 
 /** Persisted per-pool ASP state. */
