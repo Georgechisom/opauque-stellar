@@ -203,6 +203,67 @@ describe("relayer engine", () => {
     ).rejects.toThrow(/hash mismatch/i);
     expect(chain.accepted).toBe(0);
   });
+
+  it("returns the same result for duplicate idempotency keys", async () => {
+    const operator = Keypair.random();
+    const x25519 = generateX25519Keypair();
+    const p = payload(operator.publicKey());
+    const hash = hashPoolWithdrawPayloadHex(p);
+    const chain = new FakeChain(hash, bytesToHex(x25519.publicKey));
+    const engine = new RelayerEngine({
+      operator,
+      x25519PublicKey: x25519.publicKey,
+      x25519SecretKey: x25519.secretKey,
+      minFee: 1n,
+      chain,
+    });
+    const jobId = bytesToHex(bytes(32, 0x18));
+    const box = sealBox(encodePoolWithdrawPayload(p), x25519.publicKey);
+    const idempotencyKey = "test-key-001";
+
+    const first = await engine.handlePayload({
+      t: "payload", v: 1, jobId, to: bytesToHex(x25519.publicKey), box, idempotencyKey,
+    });
+    expect(first).toEqual({ acceptedTx: "accept-tx", submittedTx: "submit-tx" });
+    expect(chain.accepted).toBe(1);
+
+    const second = await engine.handlePayload({
+      t: "payload", v: 1, jobId, to: bytesToHex(x25519.publicKey), box, idempotencyKey,
+    });
+    expect(second).toEqual(first);
+    expect(chain.accepted).toBe(1);
+  });
+
+  it("deduplicates concurrent submissions with the same idempotency key", async () => {
+    const operator = Keypair.random();
+    const x25519 = generateX25519Keypair();
+    const p = payload(operator.publicKey());
+    const hash = hashPoolWithdrawPayloadHex(p);
+    const chain = new FakeChain(hash, bytesToHex(x25519.publicKey));
+    const engine = new RelayerEngine({
+      operator,
+      x25519PublicKey: x25519.publicKey,
+      x25519SecretKey: x25519.secretKey,
+      minFee: 1n,
+      chain,
+    });
+    const jobId = bytesToHex(bytes(32, 0x19));
+    const box = sealBox(encodePoolWithdrawPayload(p), x25519.publicKey);
+    const idempotencyKey = "concurrent-key-001";
+
+    const results = await Promise.all([
+      engine.handlePayload({
+        t: "payload", v: 1, jobId, to: bytesToHex(x25519.publicKey), box, idempotencyKey,
+      }),
+      engine.handlePayload({
+        t: "payload", v: 1, jobId, to: bytesToHex(x25519.publicKey), box, idempotencyKey,
+      }),
+    ]);
+
+    const successful = results.filter((r) => r !== null);
+    expect(successful.length).toBeGreaterThanOrEqual(1);
+    expect(chain.accepted).toBe(1);
+  });
 });
 
 describe("relayer HTTP gateway", () => {
