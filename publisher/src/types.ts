@@ -38,3 +38,15 @@ export interface ChainAdapter {
   currentRoot(): Promise<string | null>;
   postRoot(root: string, datasetHash: string): Promise<{ hash: string; ledger?: number }>;
 }
+
+export interface PublisherMetrics {
+  totalSubmitted: number;
+  totalAccepted: number;
+  totalRejected: number;
+  totalPublished: number;
+  currentInboxDepth: number;
+  currentLeafCount: number;
+  lastPublishAt: string | null;
+  lastPublishLatencyMs: number | null;
+  startedAt: string;
+}

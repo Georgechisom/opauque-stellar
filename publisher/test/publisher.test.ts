@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildProof, buildRoot, getPoseidon, hashFields, MerkleTree } from "../src/merkle.ts";
 import { bigintToHex32 } from "../src/bytes.ts";
 import { computeDatasetHash } from "../src/publish.ts";
-import { runPublisherTick } from "../src/engine.ts";
+import { runPublisherTick, createMetrics } from "../src/engine.ts";
 import { MemoryStore } from "../src/store.ts";
+import { buildTreeSnapshot, verifySnapshot, computeSnapshotHash } from "../src/snapshot.ts";
+import { formatPrometheusMetrics } from "../src/metrics.ts";
 import type { ChainAdapter, LeafCommitment } from "../src/types.ts";
 
 const CANON_1_2 =
@@ -100,6 +102,7 @@ describe("publisher engine", () => {
     expect(first.leafCount).toBe(2);
     expect(first.newlyAccepted).toBe(2);
     expect(first.published).toBe(true);
+    expect(first.latencyMs).toBeGreaterThanOrEqual(0);
     expect(adapter.posts.length).toBe(1);
     expect(store.archived).toEqual(["a", "b"]);
 
@@ -137,5 +140,80 @@ describe("publisher engine", () => {
 
     expect(healed.published).toBe(true);
     expect(adapter.posts.length).toBe(2);
+  });
+
+  it("tracks metrics across ticks", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    store.inbox = [commitment("a", 1n)];
+    const metrics = createMetrics();
+
+    await runPublisherTick({ verifierId: "CVERIFIER", adapter, store }, metrics);
+    expect(metrics.totalPublished).toBe(1);
+    expect(metrics.lastPublishAt).toBe("2026-06-16T00:00:00Z");
+    expect(metrics.currentLeafCount).toBe(1);
+  });
+});
+
+describe("backpressure", () => {
+  it("rejects writes when inbox is full", () => {
+    const store = new MemoryStore(2);
+    expect(store.writeInbox(commitment("a", 1n))).toBe(true);
+    expect(store.writeInbox(commitment("b", 2n))).toBe(true);
+    expect(store.writeInbox(commitment("c", 3n))).toBe(false);
+    expect(store.inboxSize()).toBe(2);
+  });
+
+  it("accepts writes after archive frees space", () => {
+    const store = new MemoryStore(2);
+    store.writeInbox(commitment("a", 1n));
+    store.writeInbox(commitment("b", 2n));
+    store.archiveInbox(["a"]);
+    expect(store.inboxSize()).toBe(1);
+    expect(store.writeInbox(commitment("c", 3n))).toBe(true);
+  });
+});
+
+describe("snapshot export", () => {
+  it("builds a valid snapshot with intermediate hashes", async () => {
+    const leaves = [bigintToHex32(5n), bigintToHex32(6n), bigintToHex32(7n)];
+    const snapshot = await buildTreeSnapshot("CVERIFIER", leaves);
+
+    expect(snapshot.version).toBe(1);
+    expect(snapshot.verifierId).toBe("CVERIFIER");
+    expect(snapshot.leafCount).toBe(3);
+    expect(snapshot.leaves).toHaveLength(3);
+    expect(Object.keys(snapshot.intermediateHashes).length).toBeGreaterThan(0);
+    expect(verifySnapshot(snapshot)).toBe(true);
+  });
+
+  it("produces a deterministic snapshot hash", async () => {
+    const leaves = [bigintToHex32(5n), bigintToHex32(6n)];
+    const a = await buildTreeSnapshot("CVERIFIER", leaves);
+    const b = await buildTreeSnapshot("CVERIFIER", leaves);
+    expect(computeSnapshotHash(a)).toBe(computeSnapshotHash(b));
+  });
+});
+
+describe("metrics", () => {
+  it("formats prometheus metrics", () => {
+    const m = createMetrics();
+    m.totalSubmitted = 10;
+    m.totalAccepted = 8;
+    m.totalRejected = 2;
+    m.totalPublished = 3;
+    m.currentInboxDepth = 5;
+    m.currentLeafCount = 100;
+    m.lastPublishLatencyMs = 42;
+
+    const output = formatPrometheusMetrics(m);
+    expect(output).toContain("publisher_total_submitted 10");
+    expect(output).toContain("publisher_total_accepted 8");
+    expect(output).toContain("publisher_total_rejected 2");
+    expect(output).toContain("publisher_total_published 3");
+    expect(output).toContain("publisher_inbox_depth 5");
+    expect(output).toContain("publisher_leaf_count 100");
+    expect(output).toContain("publisher_last_publish_latency_ms 42");
+    expect(output).toContain("publisher_uptime_seconds");
   });
 });

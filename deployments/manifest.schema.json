@@ -16,7 +16,8 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "1.0.0"
+      "const": "1.0.0",
+      "description": "Manifest schema version. Bump on structural changes."
     },
     "release": {
       "type": "string",
@@ -62,6 +63,13 @@
       "type": "string",
       "enum": ["template", "deployed", "not_deployed"]
     },
+    "wiring": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/wiringBlock" }
+      ],
+      "description": "Cross-contract wiring recorded after deploy."
+    },
     "contracts": {
       "type": "object",
       "required": [
@@ -79,7 +87,10 @@
         "groth16Verifier": { "$ref": "#/$defs/contractRecord" },
         "reputationVerifier": { "$ref": "#/$defs/contractRecord" },
         "schemaRegistry": { "$ref": "#/$defs/contractRecord" },
-        "attestationEngineV2": { "$ref": "#/$defs/contractRecord" }
+        "attestationEngineV2": { "$ref": "#/$defs/contractRecord" },
+        "poolVerifier": { "$ref": "#/$defs/contractRecord" },
+        "privacyPool": { "$ref": "#/$defs/contractRecord" },
+        "relayerRegistry": { "$ref": "#/$defs/contractRecord" }
       }
     },
     "artifacts": {
@@ -156,6 +167,64 @@
           "description": "SHA-256 hex of deployed WASM artifact"
         },
         "package": { "type": "string" }
+      }
+    },
+    "wiringBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reputationVerifier": { "$ref": "#/$defs/reputationVerifierWiring" },
+        "attestationEngineV2": { "$ref": "#/$defs/attestationEngineWiring" },
+        "privacyPool": { "$ref": "#/$defs/privacyPoolWiring" },
+        "relayerRegistry": { "$ref": "#/$defs/relayerRegistryWiring" }
+      }
+    },
+    "reputationVerifierWiring": {
+      "type": "object",
+      "required": ["admin", "groth16Verifier"],
+      "additionalProperties": false,
+      "properties": {
+        "admin": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
+        "groth16Verifier": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" }
+      }
+    },
+    "attestationEngineWiring": {
+      "type": "object",
+      "required": ["admin", "schemaRegistry"],
+      "additionalProperties": false,
+      "properties": {
+        "admin": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
+        "governance": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
+        "schemaRegistry": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "privacyPoolWiring": {
+      "type": "object",
+      "required": ["admin", "groth16Verifier", "nativeSac", "scope"],
+      "additionalProperties": false,
+      "properties": {
+        "admin": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
+        "groth16Verifier": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
+        "nativeSac": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
+        "scope": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "relayerRegistryWiring": {
+      "type": "object",
+      "required": ["admin", "nativeSac", "privacyPool", "minimumStake", "unstakeCooldownLedgers", "maxDeadlineLedgers"],
+      "additionalProperties": false,
+      "properties": {
+        "admin": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
+        "nativeSac": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
+        "privacyPool": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
+        "gatewayUrls": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "minimumStake": { "type": "integer", "minimum": 0 },
+        "unstakeCooldownLedgers": { "type": "integer", "minimum": 1 },
+        "maxDeadlineLedgers": { "type": "integer", "minimum": 1 }
       }
     }
   }

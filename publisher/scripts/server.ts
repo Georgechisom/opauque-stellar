@@ -2,8 +2,11 @@
 /**
  * Minimal reputation publisher HTTP API.
  *
- * POST /v1/reputation/leaves
- * GET  /v1/reputation/root/:leaf
+ * POST   /v1/reputation/leaves
+ * GET    /v1/reputation/root/:leaf
+ * GET    /v1/reputation/snapshot/:verifierId
+ * GET    /metrics  (Prometheus exposition format)
+ * GET    /health
  */
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -11,15 +14,19 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarReputationAdapter } from "../src/chains/stellar.ts";
-import { runPublisherTick } from "../src/engine.ts";
+import { runPublisherTick, createMetrics } from "../src/engine.ts";
 import { buildProof } from "../src/merkle.ts";
 import { computeDatasetHash } from "../src/publish.ts";
 import { FileStore, normalizeCommitment } from "../src/store.ts";
 import { normalizeHex32 } from "../src/bytes.ts";
+import { buildTreeSnapshot, computeSnapshotHash } from "../src/snapshot.ts";
+import { formatPrometheusMetrics } from "../src/metrics.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+
+const MAX_INBOX_SIZE = Number(process.env.PUBLISHER_MAX_INBOX ?? 10_000);
 
 function loadConfig() {
   const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "deployments", "v1", "testnet.json"), "utf8"));
@@ -47,14 +54,18 @@ async function readBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
-function send(res, status, body, corsOrigin) {
+function send(res, status, body, corsOrigin, contentType = "application/json") {
   res.writeHead(status, {
     "access-control-allow-origin": corsOrigin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type",
-    "content-type": "application/json",
+    "content-type": contentType,
   });
-  res.end(JSON.stringify(body));
+  if (contentType === "application/json") {
+    res.end(JSON.stringify(body));
+  } else {
+    res.end(body);
+  }
 }
 
 async function rootResponse(store, verifierId, leaf) {
@@ -78,7 +89,8 @@ async function rootResponse(store, verifierId, leaf) {
 
 async function main() {
   const cfg = loadConfig();
-  const store = new FileStore(cfg.dataDir);
+  const store = new FileStore(cfg.dataDir, MAX_INBOX_SIZE);
+  const metrics = createMetrics();
   const adapter = new StellarReputationAdapter({
     rpcUrl: cfg.rpcUrl,
     networkPassphrase: NETWORK_PASSPHRASE,
@@ -94,15 +106,29 @@ async function main() {
       }
 
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
       if (req.method === "POST" && url.pathname === "/v1/reputation/leaves") {
         const commitment = normalizeCommitment(await readBody(req), () => new Date().toISOString());
-        store.writeInbox(commitment);
+        metrics.totalSubmitted += 1;
+        const accepted = store.writeInbox(commitment);
+        if (!accepted) {
+          metrics.totalRejected += 1;
+          send(res, 429, {
+            ok: false,
+            error: "inbox full",
+            retryAfterSeconds: 30,
+            inboxDepth: store.inboxSize(),
+          }, cfg.corsOrigin);
+          return;
+        }
+        metrics.totalAccepted += 1;
+        metrics.currentInboxDepth = store.inboxSize();
         const tick = await runPublisherTick({
           verifierId: cfg.verifierId,
           adapter,
           store,
           dataDir: cfg.dataDir,
-        });
+        }, metrics);
         let inclusion = null;
         if (tick.localRoot) inclusion = await rootResponse(store, cfg.verifierId, commitment.leaf);
         send(res, 202, { ok: true, accepted: commitment, tick, inclusion }, cfg.corsOrigin);
@@ -119,8 +145,34 @@ async function main() {
         return;
       }
 
+      const snapshotMatch = /^\/v1\/reputation\/snapshot\/([^/]+)$/.exec(url.pathname);
+      if (req.method === "GET" && snapshotMatch) {
+        const snapshotVerifierId = decodeURIComponent(snapshotMatch[1]);
+        const state = store.load(snapshotVerifierId);
+        if (!state || state.leaves.length === 0) {
+          send(res, 404, { ok: false, error: "no leaves found for this verifier" }, cfg.corsOrigin);
+          return;
+        }
+        const leafValues = state.leaves.map((x) => x.leaf);
+        const snapshot = await buildTreeSnapshot(snapshotVerifierId, leafValues);
+        const snapshotHash = computeSnapshotHash(snapshot);
+        send(res, 200, { ok: true, snapshot, snapshotHash }, cfg.corsOrigin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/metrics") {
+        const body = formatPrometheusMetrics(metrics);
+        send(res, 200, body, cfg.corsOrigin, "text/plain; version=0.0.4; charset=utf-8");
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/health") {
-        send(res, 200, { ok: true, verifierId: cfg.verifierId }, cfg.corsOrigin);
+        send(res, 200, {
+          ok: true,
+          verifierId: cfg.verifierId,
+          inboxDepth: store.inboxSize(),
+          maxInboxSize: MAX_INBOX_SIZE,
+        }, cfg.corsOrigin);
         return;
       }
 
@@ -132,7 +184,7 @@ async function main() {
 
   server.listen(cfg.port, cfg.host, () => {
     console.log(`Reputation publisher API listening on http://${cfg.host}:${cfg.port}`);
-    console.log(`verifier=${cfg.verifierId}`);
+    console.log(`verifier=${cfg.verifierId} maxInbox=${MAX_INBOX_SIZE}`);
   });
 }
 
