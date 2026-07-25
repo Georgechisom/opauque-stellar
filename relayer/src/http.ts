@@ -9,6 +9,7 @@ import {
   type RelayerBid,
   type RelayerMessage,
 } from "./messages.ts";
+import type { PayoutReconciler } from "./reconciler.ts";
 
 export type RelayerHttpBackend = {
   readonly stats: unknown;
@@ -18,6 +19,8 @@ export type RelayerHttpBackend = {
   publishGossipMessage?(message: RelayerMessage): Promise<void>;
   subscribeGossip?(handler: (message: RelayerMessage) => Promise<void> | void): () => void;
   healthCheck?(): Promise<unknown>;
+  /** Optional reconciler — enables GET /v1/reconcile and POST /v1/reconcile endpoints. */
+  reconciler?: PayoutReconciler;
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -114,6 +117,30 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend) {
         } else {
           send(res, 200, { ok: true, stats: backend.stats });
         }
+        return;
+      }
+      // GET /v1/reconcile — return the most recent reconciliation report without re-running
+      if (req.method === "GET" && url.pathname === "/v1/reconcile") {
+        if (!backend.reconciler) {
+          send(res, 404, { error: "reconciler not configured" });
+          return;
+        }
+        const last = backend.reconciler.getLastReport();
+        if (!last) {
+          send(res, 204, {});
+          return;
+        }
+        send(res, 200, last);
+        return;
+      }
+      // POST /v1/reconcile — trigger an on-demand reconciliation run and return the report
+      if (req.method === "POST" && url.pathname === "/v1/reconcile") {
+        if (!backend.reconciler) {
+          send(res, 404, { error: "reconciler not configured" });
+          return;
+        }
+        const report = await backend.reconciler.reconcile();
+        send(res, 200, report);
         return;
       }
       send(res, 404, { error: "not found" });
