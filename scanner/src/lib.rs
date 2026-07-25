@@ -13,8 +13,15 @@ use std::str::FromStr;
 /// Announcements carrying a different version are skipped with a console warning.
 const SUPPORTED_EVENT_VERSION: u32 = 1;
 
+/// Scanner version — embedded in WASM for diagnostics.
+const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Build hash — set at build time via env var, or defaults to "unknown".
+/// Pass `SCANNER_BUILD_HASH=<sha256>` at build time for deterministic builds.
+const SCANNER_BUILD_HASH: &str = option_env!("SCANNER_BUILD_HASH").unwrap_or("unknown");
+
 mod scanner;
-mod attestation;
+pub mod attestation;
 mod merkle;
 
 pub use merkle::MerkleError;
@@ -29,6 +36,20 @@ use scanner::{
 pub fn init() {
     console_error_panic_hook::set_once();
     env_logger::init();
+}
+
+/// Returns scanner build metadata for diagnostics display.
+///
+/// # Returns
+/// JSON object with `version` and `buildHash` fields.
+#[wasm_bindgen]
+pub fn get_scanner_metadata() -> Result<String, JsValue> {
+    let metadata = serde_json::json!({
+        "version": SCANNER_VERSION,
+        "buildHash": SCANNER_BUILD_HASH,
+    });
+    serde_json::to_string(&metadata)
+        .map_err(|e| JsValue::from_str(&format!("Serialize metadata error: {}", e)))
 }
 
 // =============================================================================
@@ -182,6 +203,41 @@ pub fn check_announcement_view_tag_wasm(
         ViewTagCheck::NoMatch => Ok("NoMatch".to_string()),
         ViewTagCheck::PossibleMatch => Ok("PossibleMatch".to_string()),
     }
+}
+
+/// View-only check: verifies an announcement belongs to this recipient using
+/// only the viewing key and spending public key. Does NOT require the spend key.
+///
+/// # Arguments
+/// * `announcement_stealth_address` - Stealth address from announcement (hex string)
+/// * `view_tag` - View tag from announcement (number 0-255)
+/// * `view_privkey_bytes` - 32-byte viewing private key (Uint8Array)
+/// * `spend_pubkey_bytes` - 33-byte spending public key, compressed (Uint8Array)
+/// * `ephemeral_pubkey_bytes` - 33-byte ephemeral public key, compressed (Uint8Array)
+///
+/// # Returns
+/// `true` if the announcement is for this recipient, `false` otherwise.
+#[wasm_bindgen]
+pub fn check_announcement_view_only_wasm(
+    announcement_stealth_address: &str,
+    view_tag: u8,
+    view_privkey_bytes: &[u8],
+    spend_pubkey_bytes: &[u8],
+    ephemeral_pubkey_bytes: &[u8],
+) -> Result<bool, JsValue> {
+    let address = hex_to_address(announcement_stealth_address)?;
+    let view_privkey = bytes_to_signing_key(view_privkey_bytes)?;
+    let spend_pubkey = bytes_to_public_key(spend_pubkey_bytes)?;
+    let ephemeral_pubkey = bytes_to_public_key(ephemeral_pubkey_bytes)?;
+
+    check_announcement(
+        address,
+        view_tag,
+        &view_privkey,
+        &spend_pubkey,
+        &ephemeral_pubkey,
+    )
+    .map_err(|e| JsValue::from_str(&format!("View-only check error: {}", e)))
 }
 
 /// Reconstructs the one-time signing key (private key) for a stealth address.
@@ -396,6 +452,131 @@ pub fn generate_reputation_witness(
 pub fn encode_attestation_metadata_wasm(view_tag: u8, attestation_id: u64) -> String {
     let metadata = attestation::encode_attestation_metadata(view_tag, attestation_id);
     format!("0x{}", metadata.iter().map(|b| format!("{:02x}", b)).collect::<String>())
+}
+
+// =============================================================================
+// View-Only Scan Mode (Issue #608)
+// =============================================================================
+
+/// Scans announcements using only view keys, without loading spend material.
+///
+/// This is the least-privilege scanning mode: it uses the view private key for
+/// ECDH shared secret derivation and the spend public key for stealth address
+/// confirmation, but never requires the spend private key.
+///
+/// # Arguments
+/// * `announcements_json` - JSON array of announcement objects
+/// * `view_privkey_bytes` - 32-byte viewing private key (Uint8Array)
+/// * `spend_pubkey_bytes` - 33-byte spending public key, compressed (Uint8Array)
+///
+/// # Returns
+/// JSON array of matching announcements (stealth addresses belonging to this recipient).
+#[wasm_bindgen]
+pub fn scan_announcements_view_only_wasm(
+    announcements_json: &str,
+    view_privkey_bytes: &[u8],
+    spend_pubkey_bytes: &[u8],
+) -> Result<String, JsValue> {
+    let view_privkey = bytes_to_signing_key(view_privkey_bytes)?;
+    let spend_pubkey = bytes_to_public_key(spend_pubkey_bytes)?;
+
+    let raw_anns: Vec<serde_json::Value> = serde_json::from_str(announcements_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))?;
+
+    let mut matches = Vec::new();
+
+    for ann in &raw_anns {
+        // Skip unsupported event versions
+        if let Some(ver) = ann["eventVersion"].as_u64().map(|v| v as u32) {
+            if ver != SUPPORTED_EVENT_VERSION {
+                continue;
+            }
+        }
+
+        let stealth_addr_str = ann["stealthAddress"].as_str().unwrap_or_default();
+        let stealth_address = match hex_to_address(stealth_addr_str) {
+            Ok(addr) => addr,
+            Err(_) => continue,
+        };
+        let view_tag = ann["viewTag"].as_u64().unwrap_or(0) as u8;
+
+        let eph_hex = ann["ephemeralPubKey"].as_str().unwrap_or_default();
+        let eph_clean = if eph_hex.starts_with("0x") { &eph_hex[2..] } else { eph_hex };
+        let eph_bytes = match hex::decode(eph_clean) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let ephemeral_pubkey = match bytes_to_public_key(&eph_bytes) {
+            Ok(pk) => pk,
+            Err(_) => continue,
+        };
+
+        // View tag fast path
+        match check_announcement_view_tag(view_tag, &view_privkey, &ephemeral_pubkey) {
+            ViewTagCheck::NoMatch => continue,
+            ViewTagCheck::PossibleMatch => {}
+        }
+
+        // Full derivation to confirm ownership (view-only: no spend key needed)
+        match scanner::derive_stealth_address(&view_privkey, &spend_pubkey, &ephemeral_pubkey) {
+            Ok((derived_addr, _)) if derived_addr == stealth_address => {
+                matches.push(ann.clone());
+            }
+            _ => continue,
+        }
+    }
+
+    serde_json::to_string(&matches)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Quick view-tag-only check for batch filtering without any key derivation.
+///
+/// Returns indices of announcements that pass the view-tag pre-check.
+/// Use this to filter a large batch before running full derivation.
+///
+/// # Arguments
+/// * `announcements_json` - JSON array of announcement objects
+/// * `view_privkey_bytes` - 32-byte viewing private key (Uint8Array)
+///
+/// # Returns
+/// JSON array of indices (0-based) of announcements passing the view-tag check.
+#[wasm_bindgen]
+pub fn filter_by_view_tag_wasm(
+    announcements_json: &str,
+    view_privkey_bytes: &[u8],
+) -> Result<String, JsValue> {
+    let view_privkey = bytes_to_signing_key(view_privkey_bytes)?;
+
+    let raw_anns: Vec<serde_json::Value> = serde_json::from_str(announcements_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))?;
+
+    let mut passing_indices = Vec::new();
+
+    for (i, ann) in raw_anns.iter().enumerate() {
+        let view_tag = ann["viewTag"].as_u64().unwrap_or(0) as u8;
+
+        let eph_hex = ann["ephemeralPubKey"].as_str().unwrap_or_default();
+        let eph_clean = if eph_hex.starts_with("0x") { &eph_hex[2..] } else { eph_hex };
+        let eph_bytes = match hex::decode(eph_clean) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let ephemeral_pubkey = match bytes_to_public_key(&eph_bytes) {
+            Ok(pk) => pk,
+            Err(_) => continue,
+        };
+
+        match check_announcement_view_tag(view_tag, &view_privkey, &ephemeral_pubkey) {
+            ViewTagCheck::PossibleMatch => passing_indices.push(i),
+            ViewTagCheck::NoMatch => {}
+        }
+    }
+
+    serde_json::to_string(&passing_indices)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
 // =============================================================================

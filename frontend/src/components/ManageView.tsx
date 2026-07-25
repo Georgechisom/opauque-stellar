@@ -33,6 +33,7 @@ import type { Tab } from "./Layout";
 import { ModalShell } from "./ModalShell";
 import { AdminPanel } from "./AdminPanel";
 import { ContractVersionPanelConnected } from "./ContractVersionPanel";
+import { ScannerDiagnosticsPanel } from "./ScannerDiagnosticsPanel";
 import { FeatureDisabledNotice } from "./FeatureDisabledNotice";
 
 // =============================================================================
@@ -905,6 +906,9 @@ export function ManageView({ onNavigate, readOnly = false }: ManageViewProps = {
       {section === "admin" && (
         <div className="space-y-8">
           <AdminPanel />
+          <div className="border-t border-ink-800 pt-6">
+            <ScannerDiagnosticsPanel />
+          </div>
           <div className="border-t border-ink-800 pt-6">
             <ContractVersionPanelConnected />
           </div>
