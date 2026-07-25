@@ -29,28 +29,27 @@ export class RateLimiter {
 
     let bucket = this.buckets.get(source);
     if (!bucket) {
-      bucket = { tokens: this.maxRequests, lastRefill: now };
+      bucket = { tokens: this.burstSize, lastRefill: now };
       this.buckets.set(source, bucket);
     }
 
     const elapsed = now - bucket.lastRefill;
     if (elapsed >= this.windowMs) {
-      bucket.tokens = this.maxRequests;
+      bucket.tokens = this.burstSize;
       bucket.lastRefill = now;
     } else {
       const refill = (elapsed / this.windowMs) * this.maxRequests;
-      bucket.tokens = Math.min(this.maxRequests, bucket.tokens + refill);
+      bucket.tokens = Math.min(this.burstSize, bucket.tokens + refill);
       bucket.lastRefill = now;
     }
 
-    const effectiveLimit = this.maxRequests + this.burstSize;
     const resetMs = bucket.lastRefill + this.windowMs;
 
     if (bucket.tokens >= 1) {
       bucket.tokens -= 1;
       return {
         allowed: true,
-        limit: effectiveLimit,
+        limit: this.burstSize,
         remaining: Math.floor(bucket.tokens),
         resetMs,
       };
@@ -58,7 +57,7 @@ export class RateLimiter {
 
     return {
       allowed: false,
-      limit: effectiveLimit,
+      limit: this.burstSize,
       remaining: 0,
       resetMs,
     };

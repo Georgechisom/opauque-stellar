@@ -188,8 +188,20 @@ export class MemoryStore implements Store {
     return this.inbox.length;
   }
 
-  readInbox(): LeafCommitment[] {
-    return structuredClone(this.inbox);
+  readInbox(now?: () => string): LeafCommitment[] {
+    const effectiveNow = now ?? (() => new Date().toISOString());
+    const valid: LeafCommitment[] = [];
+    for (const item of this.inbox) {
+      const result = validateLeafCommitment(item as unknown);
+      if (result.ok) {
+        valid.push(structuredClone(result.commitment));
+      } else {
+        this.quarantineFile(item.id ?? "unknown", item, result.errors, effectiveNow);
+        console.warn(`quarantined invalid in-memory inbox item: ${result.errors.join("; ")}`);
+      }
+    }
+    this.inbox = valid;
+    return valid;
   }
 
   writeInbox(commitment: LeafCommitment): boolean {
