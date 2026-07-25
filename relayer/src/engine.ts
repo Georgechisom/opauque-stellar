@@ -14,6 +14,7 @@ import {
   type JobAdvert,
   type RelayerBid,
 } from "./messages.ts";
+import type { JobLedger } from "./reconciler.ts";
 
 export type OnChainJob = {
   exists: boolean;
@@ -45,6 +46,8 @@ export interface RelayerEngineConfig {
   endpoint?: string;
   minFee: bigint;
   chain: RelayerChainAdapter;
+  /** Optional ledger that records each successfully submitted job for reconciliation. */
+  jobLedger?: JobLedger;
 }
 
 export type RelayerEngineStats = {
@@ -213,6 +216,14 @@ export class RelayerEngine {
         const submittedTx = await this.cfg.chain.submitPoolWithdraw(payloadMsg.jobId, payload);
         this.stats.submitted += 1;
         const result = { acceptedTx, submittedTx };
+
+        this.cfg.jobLedger?.record({
+          jobId: payloadMsg.jobId,
+          acceptedTx,
+          submittedTx,
+          expectedFee: job.fee,
+          submittedAt: Date.now(),
+        });
 
         if (payloadMsg.idempotencyKey) {
           this.idempotencyStore.set(payloadMsg.idempotencyKey, {
