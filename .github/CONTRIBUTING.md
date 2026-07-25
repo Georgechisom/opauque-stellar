@@ -272,6 +272,11 @@ The relayer market (`relayer/`) and the Association Set Provider (`asp/`) are No
 services. Keep `typecheck` and `test` green; both have smoke scripts (for example
 `npm run smoke:market` in the relayer) for manual end-to-end checks.
 
+Testnet operations for these services (plus the reputation publisher) are held to the
+SLOs in [`docs/testnet-slos.md`](../docs/testnet-slos.md), measured by `npm run
+slo:report`. A change that materially affects publish/completion latency should call
+that out in the PR description.
+
 ---
 
 ## 8. Deploying (maintainers)

@@ -18,6 +18,10 @@
     "test:circuits": "npm --prefix circuits run test:regression --",
     "soak": "tsx scripts/soak-test.ts",
     "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",
+    "slo:report": "tsx scripts/slo-report.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

@@ -168,6 +168,10 @@ The pool and reputation verifiers need published roots, and relayed withdrawals 
 | Reputation publisher | `cd publisher && npm run serve` | [Readme](publisher/) |
 | Relayer hub + node | `cd relayer && npm run hub` / `npm run relayer` | [Guide](docs/running-relayer.md) |
 
+Service level objectives for these three (latency, availability, and how they're
+measured) are defined in [docs/testnet-slos.md](docs/testnet-slos.md); `npm run
+slo:report` compares current operations against them.
+
 ## Architecture
 
 | Path | Purpose |
