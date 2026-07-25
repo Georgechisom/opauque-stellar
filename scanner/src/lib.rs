@@ -13,6 +13,13 @@ use std::str::FromStr;
 /// Announcements carrying a different version are skipped with a console warning.
 const SUPPORTED_EVENT_VERSION: u32 = 1;
 
+/// Scanner version — embedded in WASM for diagnostics.
+const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Build hash — set at build time via env var, or defaults to "unknown".
+/// Pass `SCANNER_BUILD_HASH=<sha256>` at build time for deterministic builds.
+const SCANNER_BUILD_HASH: &str = option_env!("SCANNER_BUILD_HASH").unwrap_or("unknown");
+
 mod scanner;
 mod attestation;
 mod merkle;
@@ -29,6 +36,20 @@ use scanner::{
 pub fn init() {
     console_error_panic_hook::set_once();
     env_logger::init();
+}
+
+/// Returns scanner build metadata for diagnostics display.
+///
+/// # Returns
+/// JSON object with `version` and `buildHash` fields.
+#[wasm_bindgen]
+pub fn get_scanner_metadata() -> Result<String, JsValue> {
+    let metadata = serde_json::json!({
+        "version": SCANNER_VERSION,
+        "buildHash": SCANNER_BUILD_HASH,
+    });
+    serde_json::to_string(&metadata)
+        .map_err(|e| JsValue::from_str(&format!("Serialize metadata error: {}", e)))
 }
 
 // =============================================================================
