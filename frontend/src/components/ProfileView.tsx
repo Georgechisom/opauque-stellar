@@ -5,7 +5,7 @@ type ProfileViewProps = {
   onDisconnect: () => void;
 };
 
-export function ProfileView({ onNavigate: _onNavigate, onDisconnect }: ProfileViewProps) {
+export function ProfileView({ onNavigate, onDisconnect }: ProfileViewProps) {
   return (
     <div className="w-full max-w-lg mx-auto">
       <h2 className="text-lg font-semibold text-white mb-1">Profile</h2>
@@ -13,6 +13,13 @@ export function ProfileView({ onNavigate: _onNavigate, onDisconnect }: ProfileVi
         Identity and session.
       </p>
       <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => onNavigate("security")}
+          className="w-full py-2.5 px-4 rounded-lg text-sm font-medium border border-ink-600 text-white hover:border-white/40 transition-colors"
+        >
+          Security & Recovery Settings
+        </button>
         <button
           type="button"
           onClick={onDisconnect}

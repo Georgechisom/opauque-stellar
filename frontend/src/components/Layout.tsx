@@ -11,6 +11,7 @@ export type Tab =
   | "balance"
   | "history"
   | "profile"
+  | "security"
   | "reputation"
   // V2 tabs
   | "schemas"

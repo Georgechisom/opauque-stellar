@@ -164,7 +164,7 @@ function AppContent() {
         </Suspense>
       );
     }
-    if ((tab as string) === "security") return <SecuritySettings />;
+    if (tab === "security") return <SecuritySettings />;
     return null;
   };
 

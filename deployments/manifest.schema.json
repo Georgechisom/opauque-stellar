@@ -207,7 +207,13 @@
         "admin": { "type": "string", "pattern": "^G[A-Z2-7]{55}$" },
         "groth16Verifier": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
         "nativeSac": { "type": "string", "pattern": "^C[A-Z2-7]{55}$" },
-        "scope": { "type": "integer", "minimum": 0 }
+        "scope": { "type": "integer", "minimum": 0 },
+        "depositPresetsXlm": {
+          "type": "array",
+          "description": "One-tap deposit amount presets (XLM) offered on the deposit screen to keep deposit sizes uniform and preserve the anonymity set.",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 1
+        }
       }
     },
     "relayerRegistryWiring": {

@@ -21,6 +21,8 @@ import { fetchLatestValidMerkleRoot, generateReputationProof, submitProofOnChain
 import { isWasmHtmlFallbackError } from "../lib/publicAssets";
 import type { DiscoveredTrait, ProofData } from "../lib/reputation";
 import { ModalShell } from "./ModalShell";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { CopyStatusHint } from "./CopyStatusHint";
 
 type ProveTraitModalProps = {
   trait: DiscoveredTrait;
@@ -328,22 +330,13 @@ function ReadyStep({
   onSubmit: () => void;
   onClose: () => void;
 }) {
-  const [copiedNullifier, setCopiedNullifier] = useState(false);
-  const [copiedProof, setCopiedProof] = useState(false);
+  const nullifierCopy = useCopyToClipboard({ secret: true });
+  const proofCopy = useCopyToClipboard({ secret: true });
 
-  const handleCopyNullifier = () => {
-    navigator.clipboard.writeText(nullifier).then(() => {
-      setCopiedNullifier(true);
-      setTimeout(() => setCopiedNullifier(false), 2000);
-    });
-  };
-
+  const handleCopyNullifier = () => void nullifierCopy.copy(nullifier);
   const handleCopyProof = () => {
     if (!proof) return;
-    navigator.clipboard.writeText(JSON.stringify(proof, null, 2)).then(() => {
-      setCopiedProof(true);
-      setTimeout(() => setCopiedProof(false), 2000);
-    });
+    void proofCopy.copy(JSON.stringify(proof, null, 2));
   };
 
   return (
@@ -368,9 +361,14 @@ function ReadyStep({
             onClick={handleCopyNullifier}
             className="text-[10px] text-mist/70 hover:text-white transition-colors shrink-0"
           >
-            {copiedNullifier ? "Copied!" : "Copy"}
+            {nullifierCopy.status === "copied" ? "Copied!" : "Copy"}
           </button>
         </div>
+        <CopyStatusHint
+          status={nullifierCopy.status}
+          remaining={nullifierCopy.remaining}
+          onCancelClear={nullifierCopy.cancelClear}
+        />
       </div>
 
       <div className="rounded-xl bg-ink-950/40 border border-ink-700 p-3 mb-4 text-left">
@@ -380,8 +378,13 @@ function ReadyStep({
           onClick={handleCopyProof}
           className="w-full px-3 py-2 rounded-xl text-xs font-medium text-mist border border-ink-600 bg-ink-950/30 hover:border-white/30 hover:text-white transition-colors"
         >
-          {copiedProof ? "Copied proof JSON" : "Copy Proof JSON"}
+          {proofCopy.status === "copied" ? "Copied proof JSON" : "Copy Proof JSON"}
         </button>
+        <CopyStatusHint
+          status={proofCopy.status}
+          remaining={proofCopy.remaining}
+          onCancelClear={proofCopy.cancelClear}
+        />
       </div>
 
       <div className="flex gap-3">

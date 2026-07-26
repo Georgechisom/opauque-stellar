@@ -9,6 +9,7 @@ import {
 } from "@stellar/freighter-api";
 import { getNetworkPassphrase } from "../lib/chain";
 import type { SignTxFn } from "../lib/stellar";
+import { logSigningEvent } from "../lib/signingAuditLog";
 
 export type StellarWalletContextValue = {
   publicKey: string | null;
@@ -79,6 +80,7 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
         address: publicKey ?? undefined,
       });
       if (res.error) throw new Error(freighterErrorMessage(res.error, "Failed to sign the transaction."));
+      logSigningEvent("transaction");
       return res.signedTxXdr;
     },
     [publicKey],
@@ -92,6 +94,7 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
       if (res.error) throw new Error(freighterErrorMessage(res.error, "Failed to sign the setup message."));
       const signed = res.signedMessage;
       if (signed == null) throw new Error("Freighter returned no signature.");
+      logSigningEvent("message");
       // Freighter returns a Buffer (v3) or a base64 string (v4) depending on version.
       return typeof signed === "string"
         ? Uint8Array.from(Buffer.from(signed, "base64"))

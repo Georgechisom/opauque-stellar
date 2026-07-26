@@ -23,6 +23,8 @@ import type { ProofData } from "../lib/reputation";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { getDemoVerifierUrl } from "../lib/featureFlags";
 import { isWasmHtmlFallbackError, publicAssetPath } from "../lib/publicAssets";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { CopyStatusHint } from "./CopyStatusHint";
 
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
@@ -199,7 +201,7 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
   const [externalNullifier, setExternalNullifier] = useState("");
   const [proof, setProof] = useState<GeneratedProof | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const proofCopy = useCopyToClipboard({ secret: true });
   const [txSig, setTxSig] = useState<string | null>(null);
 
   const handleGenerate = async () => {
@@ -318,9 +320,7 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
 
   const handleCopy = async () => {
     if (!proof) return;
-    await navigator.clipboard.writeText(JSON.stringify(proof, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await proofCopy.copy(JSON.stringify(proof, null, 2));
   };
 
   const handleSubmitOnChain = async () => {
@@ -485,22 +485,29 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
                 </div>
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="flex-1 rounded-xl border border-ink-700 bg-ink-800 py-2.5 text-sm font-medium text-white hover:bg-ink-700 transition-colors"
-                >
-                  {copied ? "Copied!" : "Copy Proof"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmitOnChain}
-                  disabled={!publicKey}
+              <div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="flex-1 rounded-xl border border-ink-700 bg-ink-800 py-2.5 text-sm font-medium text-white hover:bg-ink-700 transition-colors"
+                  >
+                    {proofCopy.status === "copied" ? "Copied!" : "Copy Proof"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitOnChain}
+                    disabled={!publicKey}
                   className="flex-1 rounded-xl bg-white text-black border border-white py-2.5 text-sm font-semibold hover:bg-black hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Submit On-Chain
                 </button>
+                </div>
+                <CopyStatusHint
+                  status={proofCopy.status}
+                  remaining={proofCopy.remaining}
+                  onCancelClear={proofCopy.cancelClear}
+                />
               </div>
               {getDemoVerifierUrl() && (
                 <a

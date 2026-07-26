@@ -854,6 +854,26 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       {/* Deposit */}
       <div className={card} data-tour="pool-deposit">
         <h2 className="text-sm font-semibold text-white">Deposit</h2>
+        {!!cfg?.depositPresetsXlm.length && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {cfg.depositPresetsXlm.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setAmount(String(preset))}
+                disabled={readOnly || !!busy}
+                aria-pressed={amount === String(preset)}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  amount === String(preset)
+                    ? "border-glow bg-black/30 text-white"
+                    : "border-ink-700 text-mist hover:border-white/30"
+                }`}
+              >
+                {preset.toLocaleString()} XLM
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-3 flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
@@ -877,6 +897,13 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
           A secret note is generated and saved locally. Keep your backup — losing notes loses the
           funds.
         </p>
+        {!!cfg?.depositPresetsXlm.length && (
+          <p className="mt-2 text-xs text-mist/60">
+            Custom amounts are still allowed, but depositing a preset size means your note looks
+            like everyone else's — an unusual amount narrows the set of deposits it could be
+            withdrawn from later, weakening unlinkability.
+          </p>
+        )}
       </div>
 
       {/* Withdraw */}
