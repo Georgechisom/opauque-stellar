@@ -125,6 +125,9 @@ Privacy systems live or die by their assumptions, so here are Opaque's, stated p
 
 What is **always enforced on-chain**: proof verification, nullifier-replay protection, and the custody invariant.
 
+See [`docs/PRIVACY_GUARANTEES.md`](docs/PRIVACY_GUARANTEES.md) for the precise,
+per-property adversary model behind these trade-offs and their known weakenings.
+
 
 ## Use cases
 

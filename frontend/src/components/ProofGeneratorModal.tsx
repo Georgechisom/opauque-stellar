@@ -299,7 +299,8 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
       if (isWasmHtmlFallbackError(msg)) {
         setError(
           `The deployed app is serving HTML instead of the V2 witness WASM at ${V2_CIRCUIT_WASM_PATH}. ` +
-            "Redeploy with the frontend circuit artifacts present and hash-verified."
+            "Redeploy with the frontend circuit artifacts present and hash-verified. " +
+            "See docs/TROUBLESHOOTING_PROOF_GENERATION.md."
         );
       } else if (
         msg.includes("fetch") ||
@@ -309,7 +310,8 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
       ) {
         setError(
           `V2 circuit files were not found at ${V2_CIRCUIT_WASM_PATH} and ${V2_ZKEY_PATH}. ` +
-            "Redeploy with the frontend circuit artifacts present and hash-verified."
+            "Redeploy with the frontend circuit artifacts present and hash-verified. " +
+            "See docs/TROUBLESHOOTING_PROOF_GENERATION.md."
         );
       } else {
         setError(msg);

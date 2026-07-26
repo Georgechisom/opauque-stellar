@@ -26,6 +26,11 @@ The reference wallet also surfaces an in-app summary at `/abuse-policy` (see `fr
 
 Security fixes are applied to the latest code on the `main` branch. When we tag a release, notes appear on the [GitHub Releases](https://github.com/collinsadi/opauque-stellar/releases) page.
 
+## Dependency security
+
+Advisory response windows and the routine update-batching schedule are
+defined in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md#12-dependency-update-policy).
+
 ## Upgrade governance
 
 Contract upgrade authority, process, and user-visible guarantees are documented in [docs/UPGRADE_GOVERNANCE.md](docs/UPGRADE_GOVERNANCE.md).
