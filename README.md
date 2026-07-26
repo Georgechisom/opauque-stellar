@@ -186,6 +186,7 @@ slo:report` compares current operations against them.
 | [relayer/](relayer/) | Relayer gateway, hub, node engine, and market tests. |
 | [deployments/](deployments/) | Versioned on-chain address book and manifests. |
 | [docs/](docs/) | Operator guides, protocol internals, and security notes. |
+| [docs/MULTISIG_ADMIN.md](docs/MULTISIG_ADMIN.md) | On-chain N-of-M threshold admin contract and the registry migration path off single-key admins. |
 
 ## On-chain contracts (Stellar testnet)
 

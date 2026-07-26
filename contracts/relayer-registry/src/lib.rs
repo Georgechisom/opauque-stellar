@@ -603,6 +603,21 @@ impl RelayerRegistry {
         env.storage().instance().set(&config_key(&env), &config);
         Ok(())
     }
+
+    /// Moves admin authority to `new_admin` (Issue #589) — the migration path
+    /// from a single-key admin to a deployed `multisig-admin` contract's
+    /// address, with no redeployment. Once this call succeeds, the current
+    /// `admin` can no longer authorize any admin-gated operation.
+    pub fn transfer_admin(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+    ) -> Result<(), RegistryError> {
+        let mut config = require_admin(&env, &admin)?;
+        config.admin = new_admin;
+        env.storage().instance().set(&config_key(&env), &config);
+        Ok(())
+    }
 }
 
 fn push_array<const N: usize>(env: &Env, buf: &mut Bytes, value: &[u8; N]) {

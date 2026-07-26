@@ -9,6 +9,7 @@ members = [
     "contracts/opaque-schema-core",
     "contracts/schema-registry",
     "contracts/attestation-engine-v2",
+    "contracts/multisig-admin",
 ]
 resolver = "2"
 

@@ -225,6 +225,14 @@ cargo deny check
   requires a redeploy plus a manifest update.
 - After any contract change that affects bytecode, rebuild and update the WASM hashes
   in the relevant `deployments/v1/<network>.json` manifest.
+- `attestation-engine-v2`, `privacy-pool`, `reputation-verifier`, and
+  `relayer-registry` are meant to be administered through the
+  `multisig-admin` contract (see
+  [docs/MULTISIG_ADMIN.md](../docs/MULTISIG_ADMIN.md)), not a single key. A
+  new admin-gated function on any of them should follow the same
+  `caller.require_auth()` + `caller == config.admin` pattern the existing
+  ones use, so it works unchanged whether `admin` is a single account or a
+  deployed multisig.
 
 ### 7.2 Changing the scanner
 
