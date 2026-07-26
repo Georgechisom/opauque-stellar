@@ -309,6 +309,7 @@ function ProofProgressBar({ stage, progress, error }: { stage: ProofStage; progr
     idle: "",
     "preparing-witness": "Preparing witness data...",
     "generating-proof": "Generating ZK-Proof...",
+    "verifying-proof": "Verifying proof locally...",
     "proof-ready": "Proof ready!",
     submitting: "Submitting to verifier...",
     verified: "Verified on-chain!",
