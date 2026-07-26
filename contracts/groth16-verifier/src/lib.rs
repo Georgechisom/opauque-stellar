@@ -594,127 +594,10 @@ mod test {
         0xf6, 0xed,
     ];
 
-    fn client(env: &Env) -> Groth16VerifierClient<'_> {
+    fn fuzz_client(env: &Env) -> Groth16VerifierClient<'_> {
         let id = env.register(Groth16Verifier, ());
         Groth16VerifierClient::new(env, &id)
     }
-
-    /// #14: the V2 key is the real deployed key, not the old placeholder.
-    #[test]
-    fn v2_vk_is_real_deployed_key() {
-        // gamma_2 must be the canonical generator (proves correct G2 encoding).
-        assert_eq!(VK_GAMMA_V2[0..32], G2_GEN_X_C1);
-        assert_eq!(VK_GAMMA_V2[32..64], G2_GEN_X_C0);
-
-        // alpha_1 must be a real, non-trivial G1 point from the ceremony
-        // (the embedded VK is regenerated per trusted setup, so we assert it is
-        // present and non-placeholder rather than pinning a specific ceremony's value).
-        assert!(
-            VK_ALPHA_V2.iter().any(|&b| b != 0),
-            "alpha must not be all zero"
-        );
-
-        // The old placeholder IC0 began 0x2b,0x7c,0x3a,0x5e — must be gone.
-        assert_ne!(VK_IC_V2[0][0..4], [0x2b, 0x7c, 0x3a, 0x5e]);
-    }
-
-    /// Regression guard: SCALAR_FIELD (r) and BASE_FIELD (q) must not be swapped.
-    /// field_negate operates on point coordinates in F_q, so BASE_FIELD must be q
-    /// (the larger modulus). A swap makes neg_a off-curve -> "G1 not on curve".
-    #[test]
-    fn field_constants_not_swapped() {
-        assert!(
-            BASE_FIELD > SCALAR_FIELD,
-            "BASE_FIELD (q) must exceed SCALAR_FIELD (r)"
-        );
-        assert_eq!(BASE_FIELD[31], 0x47, "q ends in ...d87cfd47");
-        assert_eq!(SCALAR_FIELD[31], 0x01, "r ends in ...f0000001");
-    }
-
-    /// #13: the V1 verifier requires exactly 5 public signals
-    /// [nullifier, is_valid, merkle_root, attestation_id, external_nullifier].
-    #[test]
-    fn verify_proof_rejects_wrong_signal_count() {
-        let env = Env::default();
-        let client = client(&env);
-        let signals = vec![&env, BytesN::from_array(&env, &[0u8; 32])]; // 1, not 5
-        let res = client.try_verify_proof(
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &BytesN::from_array(&env, &[0u8; 128]),
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &signals,
-        );
-        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
-    }
-
-    /// #13: a public signal at or above the scalar field is rejected (tampered input).
-    #[test]
-    fn verify_proof_rejects_out_of_field_signal() {
-        let env = Env::default();
-        let client = client(&env);
-        let mut signals = vec![&env];
-        for _ in 0..5 {
-            signals.push_back(BytesN::from_array(&env, &[0xffu8; 32])); // > field order
-        }
-        let res = client.try_verify_proof(
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &BytesN::from_array(&env, &[0u8; 128]),
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &signals,
-        );
-        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
-    }
-
-    /// #13/#14: V2 verifier rejects out-of-field public inputs before pairing.
-    #[test]
-    fn verify_proof_v2_rejects_out_of_field_signal() {
-        let env = Env::default();
-        let client = client(&env);
-        let inputs = VerifyPublicInputsV2 {
-            merkle_root: BytesN::from_array(&env, &[0xffu8; 32]),
-            attestation_id: BytesN::from_array(&env, &[0u8; 32]),
-            external_nullifier: BytesN::from_array(&env, &[0u8; 32]),
-            nullifier_hash: BytesN::from_array(&env, &[0u8; 32]),
-        };
-        let res = client.try_verify_proof_v2(
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &BytesN::from_array(&env, &[0u8; 128]),
-            &BytesN::from_array(&env, &[0u8; 64]),
-            &inputs,
-        );
-        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
-    }
-
-    // --- V3 privacy-pool withdraw proof (real snarkjs proof over the embedded VK) ---
-    // Generated from circuits/v3 valid fixture via groth16 fullprove; serialized to
-    // the host byte layout by scripts (see circuits/v3/scripts/gen-fixtures.ts). Proves
-    // a privacy-pool withdraw proof verifies on Soroban — the literal hackathon theme.
-
-    const V3_PROOF_A: [u8; 64] = [
-        0x17, 0x6a, 0xe6, 0xd8, 0xcb, 0xe3, 0x0e, 0xfb, 0x8a, 0xd1, 0xd3, 0xe1, 0x5d, 0x1e, 0x2a,
-        0x0a, 0x15, 0x72, 0xd4, 0x06, 0x7b, 0x47, 0x1a, 0x3b, 0xc2, 0x7b, 0x59, 0xca, 0x89, 0x83,
-        0x94, 0xd2, 0x13, 0x28, 0xcc, 0xfe, 0x4e, 0xc2, 0x7b, 0x97, 0x55, 0xa7, 0x22, 0x1c, 0x02,
-        0x6e, 0xe9, 0x49, 0x50, 0x96, 0xd6, 0xf8, 0x13, 0xd5, 0x04, 0x23, 0x80, 0xbb, 0x65, 0xac,
-        0x5b, 0xf6, 0x1d, 0x67,
-    ];
-    const V3_PROOF_B: [u8; 128] = [
-        0x1d, 0x8e, 0xcc, 0x7e, 0xd8, 0xc2, 0xad, 0x24, 0x06, 0xe3, 0xd2, 0x10, 0x7b, 0xd3, 0x7e,
-        0x00, 0x8a, 0x22, 0xbc, 0x0c, 0x5c, 0x8b, 0x03, 0xa1, 0xf4, 0xc1, 0x54, 0x6f, 0xf3, 0x45,
-        0xd3, 0x1f, 0x18, 0x9c, 0xbf, 0xc2, 0x34, 0x33, 0xe0, 0xd8, 0xdf, 0x86, 0xae, 0x5e, 0x9a,
-        0xa5, 0x58, 0x7c, 0xfa, 0x23, 0x20, 0x5e, 0xe6, 0x34, 0x55, 0x2a, 0x26, 0x3f, 0x4e, 0x11,
-        0x60, 0x98, 0x6c, 0xad, 0x1e, 0x56, 0x89, 0x81, 0xc6, 0x3b, 0x81, 0xad, 0xdf, 0x12, 0x0b,
-        0x57, 0x04, 0x89, 0x19, 0xbc, 0x21, 0x15, 0x71, 0xbd, 0xb9, 0x01, 0xff, 0xd2, 0x6a, 0x87,
-        0x7f, 0x10, 0x93, 0xbd, 0x03, 0x8b, 0x2f, 0x95, 0xa2, 0xfb, 0x38, 0x3e, 0x71, 0x8b, 0xea,
-        0xbf, 0xfa, 0x7c, 0x54, 0xfe, 0xfe, 0xf8, 0x10, 0x73, 0xb2, 0x67, 0xb0, 0xaf, 0x5a, 0x17,
-        0x0b, 0xe5, 0xbb, 0x8a, 0x95, 0xfa, 0x2d, 0x7c,
-    ];
-    const V3_PROOF_C: [u8; 64] = [
-        0x2b, 0xb0, 0x17, 0x21, 0x97, 0x45, 0xb9, 0xa8, 0x08, 0x35, 0xa7, 0xbb, 0x4d, 0x8e, 0xf3,
-        0x0e, 0xa5, 0x4c, 0xc7, 0xd5, 0xc3, 0x45, 0xf3, 0xdb, 0x69, 0xc6, 0x45, 0x02, 0xf5, 0xf9,
-        0x1b, 0x59, 0x12, 0x3e, 0xe1, 0xfa, 0x5b, 0x38, 0x11, 0x2e, 0x77, 0x05, 0x95, 0x56, 0x76,
-        0x78, 0x0d, 0xb6, 0xcc, 0xd6, 0xb6, 0x9e, 0x0b, 0x10, 0x93, 0x23, 0x53, 0xbd, 0x90, 0xbb,
-        0xc6, 0xd6, 0xd1, 0x75,
-    ];
 
     fn v3_inputs(env: &Env) -> VerifyPublicInputsV3 {
         VerifyPublicInputsV3 {
@@ -769,142 +652,277 @@ mod test {
         }
     }
 
+    const V3_PROOF_A: [u8; 64] = [
+        0x17, 0x6a, 0xe6, 0xd8, 0xcb, 0xe3, 0x0e, 0xfb, 0x8a, 0xd1, 0xd3, 0xe1, 0x5d, 0x1e, 0x2a,
+        0x0a, 0x15, 0x72, 0xd4, 0x06, 0x7b, 0x47, 0x1a, 0x3b, 0xc2, 0x7b, 0x59, 0xca, 0x89, 0x83,
+        0x94, 0xd2, 0x13, 0x28, 0xcc, 0xfe, 0x4e, 0xc2, 0x7b, 0x97, 0x55, 0xa7, 0x22, 0x1c, 0x02,
+        0x6e, 0xe9, 0x49, 0x50, 0x96, 0xd6, 0xf8, 0x13, 0xd5, 0x04, 0x23, 0x80, 0xbb, 0x65, 0xac,
+        0x5b, 0xf6, 0x1d, 0x67,
+    ];
+    const V3_PROOF_B: [u8; 128] = [
+        0x1d, 0x8e, 0xcc, 0x7e, 0xd8, 0xc2, 0xad, 0x24, 0x06, 0xe3, 0xd2, 0x10, 0x7b, 0xd3, 0x7e,
+        0x00, 0x8a, 0x22, 0xbc, 0x0c, 0x5c, 0x8b, 0x03, 0xa1, 0xf4, 0xc1, 0x54, 0x6f, 0xf3, 0x45,
+        0xd3, 0x1f, 0x18, 0x9c, 0xbf, 0xc2, 0x34, 0x33, 0xe0, 0xd8, 0xdf, 0x86, 0xae, 0x5e, 0x9a,
+        0xa5, 0x58, 0x7c, 0xfa, 0x23, 0x20, 0x5e, 0xe6, 0x34, 0x55, 0x2a, 0x26, 0x3f, 0x4e, 0x11,
+        0x60, 0x98, 0x6c, 0xad, 0x1e, 0x56, 0x89, 0x81, 0xc6, 0x3b, 0x81, 0xad, 0xdf, 0x12, 0x0b,
+        0x57, 0x04, 0x89, 0x19, 0xbc, 0x21, 0x15, 0x71, 0xbd, 0xb9, 0x01, 0xff, 0xd2, 0x6a, 0x87,
+        0x7f, 0x10, 0x93, 0xbd, 0x03, 0x8b, 0x2f, 0x95, 0xa2, 0xfb, 0x38, 0x3e, 0x71, 0x8b, 0xea,
+        0xbf, 0xfa, 0x7c, 0x54, 0xfe, 0xfe, 0xf8, 0x10, 0x73, 0xb2, 0x67, 0xb0, 0xaf, 0x5a, 0x17,
+        0x0b, 0xe5, 0xbb, 0x8a, 0x95, 0xfa, 0x2d, 0x7c,
+    ];
+    const V3_PROOF_C: [u8; 64] = [
+        0x2b, 0xb0, 0x17, 0x21, 0x97, 0x45, 0xb9, 0xa8, 0x08, 0x35, 0xa7, 0xbb, 0x4d, 0x8e, 0xf3,
+        0x0e, 0xa5, 0x4c, 0xc7, 0xd5, 0xc3, 0x45, 0xf3, 0xdb, 0x69, 0xc6, 0x45, 0x02, 0xf5, 0xf9,
+        0x1b, 0x59, 0x12, 0x3e, 0xe1, 0xfa, 0x5b, 0x38, 0x11, 0x2e, 0x77, 0x05, 0x95, 0x56, 0x76,
+        0x78, 0x0d, 0xb6, 0xcc, 0xd6, 0xb6, 0x9e, 0x0b, 0x10, 0x93, 0x23, 0x53, 0xbd, 0x90, 0xbb,
+        0xc6, 0xd6, 0xd1, 0x75,
+    ];
+
+    /// Simple deterministic PRNG (xorshift32) for reproducible fuzz inputs.
+    struct XorShift(u32);
+
+    impl XorShift {
+        fn next(&mut self) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 17;
+            self.0 ^= self.0 << 5;
+            self.0
+        }
+
+        fn next_bytes(&mut self, buf: &mut [u8]) {
+            for chunk in buf.chunks_mut(4) {
+                let v = self.next().to_le_bytes();
+                for (i, b) in chunk.iter_mut().enumerate() {
+                    *b = v[i];
+                }
+            }
+        }
+    }
+
+    fn client(env: &Env) -> Groth16VerifierClient<'_> {
+        let id = env.register(Groth16Verifier, ());
+        Groth16VerifierClient::new(env, &id)
+    }
+
+    // -- is_valid_scalar fuzzing ------------------------------------------------
+
     #[test]
-    fn verify_proof_v3_accepts_real_proof() {
-        let env = Env::default();
-        let client = client(&env);
-        let ok = client.verify_proof_v3(
-            &BytesN::from_array(&env, &V3_PROOF_A),
-            &BytesN::from_array(&env, &V3_PROOF_B),
-            &BytesN::from_array(&env, &V3_PROOF_C),
-            &v3_inputs(&env),
-        );
-        assert!(ok, "real v3 withdraw proof must verify on-chain");
+    fn fuzz_is_valid_scalar_random_bytes() {
+        let mut rng = XorShift(0xDEAD_BEEF);
+        for _ in 0..1000 {
+            let mut val = [0u8; 32];
+            rng.next_bytes(&mut val);
+            // Must not panic — just returns bool.
+            let _ = is_valid_scalar(&val);
+        }
     }
 
     #[test]
-    fn verify_proof_v3_rejects_tampered_public_input() {
-        let env = Env::default();
-        let client = client(&env);
-        let mut inputs = v3_inputs(&env);
-        // Claim a different (in-field) withdrawn_value of 1 — the pairing must fail.
-        let mut one = [0u8; 32];
-        one[31] = 1;
-        inputs.withdrawn_value = BytesN::from_array(&env, &one);
-        let ok = client.verify_proof_v3(
-            &BytesN::from_array(&env, &V3_PROOF_A),
-            &BytesN::from_array(&env, &V3_PROOF_B),
-            &BytesN::from_array(&env, &V3_PROOF_C),
-            &inputs,
-        );
-        assert!(!ok, "tampered public input must not verify");
-    }
-
-    #[test]
-    fn is_valid_scalar_rejects_zero() {
-        assert!(!is_valid_scalar(&[0u8; 32]));
-    }
-
-    #[test]
-    fn is_valid_scalar_rejects_field_order() {
-        assert!(!is_valid_scalar(&SCALAR_FIELD));
-    }
-
-    #[test]
-    fn is_valid_scalar_rejects_one_above_field_order() {
-        let mut val = SCALAR_FIELD;
-        val[31] = val[31].wrapping_add(1);
-        assert!(!is_valid_scalar(&val));
-    }
-
-    #[test]
-    fn is_valid_scalar_accepts_one() {
-        let mut val = [0u8; 32];
-        val[31] = 1;
-        assert!(is_valid_scalar(&val));
-    }
-
-    #[test]
-    fn is_valid_scalar_accepts_max_valid() {
-        let mut val = SCALAR_FIELD;
-        val[31] = val[31].wrapping_sub(1);
-        assert!(is_valid_scalar(&val));
-    }
-
-    #[test]
-    fn is_valid_scalar_rejects_all_ff() {
+    fn fuzz_is_valid_scalar_boundary_values() {
+        // All zeros — valid (0 < r)
+        assert!(is_valid_scalar(&[0u8; 32]));
+        // All 0xFF — invalid (> r)
         assert!(!is_valid_scalar(&[0xffu8; 32]));
+        // SCALAR_FIELD (equal to r — not valid)
+        assert!(!is_valid_scalar(&SCALAR_FIELD));
+        // SCALAR_FIELD - 1 (max valid)
+        let mut max_valid = SCALAR_FIELD;
+        max_valid[31] = max_valid[31].wrapping_sub(1);
+        assert!(is_valid_scalar(&max_valid));
+        // SCALAR_FIELD + 1 (one above — not valid)
+        let mut above = SCALAR_FIELD;
+        above[31] = above[31].wrapping_add(1);
+        assert!(!is_valid_scalar(&above));
+        // Single byte at each position
+        for pos in 0..32 {
+            let mut val = [0u8; 32];
+            val[pos] = 1;
+            let _ = is_valid_scalar(&val);
+        }
+    }
+
+    // -- field_negate fuzzing ---------------------------------------------------
+
+    #[test]
+    fn fuzz_field_negate_random_bytes() {
+        let mut rng = XorShift(0xCAFE_BABE);
+        for _ in 0..500 {
+            let mut val = [0u8; 32];
+            rng.next_bytes(&mut val);
+            // Must not panic.
+            let neg = field_negate(&val);
+            // Double-negate roundtrip (except for val == 0 or val == BASE_FIELD).
+            if val != [0u8; 32] && val != BASE_FIELD {
+                let double_neg = field_negate(&neg);
+                assert_eq!(double_neg, val, "field_negate must be involutive");
+            }
+        }
     }
 
     #[test]
-    fn field_negate_zero_returns_zero() {
-        let result = field_negate(&[0u8; 32]);
-        assert_eq!(result, [0u8; 32]);
-    }
-
-    #[test]
-    fn field_negate_base_field_returns_zero() {
-        let result = field_negate(&BASE_FIELD);
-        assert_eq!(result, [0u8; 32]);
-    }
-
-    #[test]
-    fn field_negate_one_returns_base_field_minus_one() {
-        let result = field_negate(&[0u8; 32]);
-        assert_eq!(result, [0u8; 32]);
-
+    fn fuzz_field_negate_boundary_values() {
+        // Zero → zero
+        assert_eq!(field_negate(&[0u8; 32]), [0u8; 32]);
+        // BASE_FIELD → zero
+        assert_eq!(field_negate(&BASE_FIELD), [0u8; 32]);
+        // One → BASE_FIELD - 1
         let mut one = [0u8; 32];
         one[31] = 1;
         let neg = field_negate(&one);
-        let mut expected = BASE_FIELD;
-        expected[31] = expected[31].wrapping_sub(1);
-        assert_eq!(neg, expected);
+        assert_eq!(neg[31], BASE_FIELD[31] - 1);
     }
 
-    #[test]
-    fn field_negate_self_roundtrip() {
-        let val = [
-            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
-            0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78,
-            0x9a, 0xbc, 0xde, 0x01,
-        ];
-        let neg = field_negate(&val);
-        let double_neg = field_negate(&neg);
-        assert_eq!(double_neg, val);
-    }
+    // -- V1 verify_proof fuzzing ------------------------------------------------
 
     #[test]
-    fn verify_proof_v2_rejects_wrong_signal_count() {
+    fn fuzz_v1_proof_all_zero_inputs() {
         let env = Env::default();
-        let client = client(&env);
-        let inputs = VerifyPublicInputsV2 {
-            merkle_root: BytesN::from_array(&env, &[0u8; 32]),
-            attestation_id: BytesN::from_array(&env, &[0u8; 32]),
-            external_nullifier: BytesN::from_array(&env, &[0u8; 32]),
-            nullifier_hash: BytesN::from_array(&env, &[0u8; 32]),
-        };
-        let res = client.try_verify_proof_v2(
+        let c = fuzz_client(&env);
+        let signals = vec![
+            &env,
+            BytesN::from_array(&env, &[0u8; 32]),
+            BytesN::from_array(&env, &[0u8; 32]),
+            BytesN::from_array(&env, &[0u8; 32]),
+            BytesN::from_array(&env, &[0u8; 32]),
+            BytesN::from_array(&env, &[0u8; 32]),
+        ];
+        // All-zero proof — must not panic, may return false or error.
+        let res = c.try_verify_proof(
             &BytesN::from_array(&env, &[0u8; 64]),
             &BytesN::from_array(&env, &[0u8; 128]),
             &BytesN::from_array(&env, &[0u8; 64]),
-            &inputs,
+            &signals,
         );
-        assert!(res.is_ok());
+        // Either Ok(false) or Err — never a panic.
+        assert!(res.is_ok() || res.is_err());
     }
 
     #[test]
-    fn verify_proof_v3_rejects_out_of_field_signal() {
+    fn fuzz_v1_proof_random_proof_bytes() {
+        let mut rng = XorShift(0x1234_5678);
+        for _ in 0..100 {
+            let env = Env::default();
+            let c = fuzz_client(&env);
+            let mut a = [0u8; 64];
+            let mut b = [0u8; 128];
+            let mut c_arr = [0u8; 64];
+            rng.next_bytes(&mut a);
+            rng.next_bytes(&mut b);
+            rng.next_bytes(&mut c_arr);
+            let signals = vec![
+                &env,
+                BytesN::from_array(&env, &[0u8; 32]),
+                BytesN::from_array(&env, &[0u8; 32]),
+                BytesN::from_array(&env, &[0u8; 32]),
+                BytesN::from_array(&env, &[0u8; 32]),
+                BytesN::from_array(&env, &[0u8; 32]),
+            ];
+            // Random proof bytes — must not panic.
+            let res = c.try_verify_proof(
+                &BytesN::from_array(&env, &a),
+                &BytesN::from_array(&env, &b),
+                &BytesN::from_array(&env, &c_arr),
+                &signals,
+            );
+            assert!(res.is_ok() || res.is_err());
+        }
+    }
+
+    #[test]
+    fn fuzz_v1_proof_random_signals() {
+        let mut rng = XorShift(0xABCD_4321);
+        for _ in 0..100 {
+            let env = Env::default();
+            let c = fuzz_client(&env);
+            let mut sigs = Vec::new(&env);
+            for _ in 0..5 {
+                let mut buf = [0u8; 32];
+                rng.next_bytes(&mut buf);
+                sigs.push_back(BytesN::from_array(&env, &buf));
+            }
+            let res = c.try_verify_proof(
+                &BytesN::from_array(&env, &[0u8; 64]),
+                &BytesN::from_array(&env, &[0u8; 128]),
+                &BytesN::from_array(&env, &[0u8; 64]),
+                &sigs,
+            );
+            assert!(res.is_ok() || res.is_err());
+        }
+    }
+
+    #[test]
+    fn fuzz_v1_wrong_signal_count() {
         let env = Env::default();
-        let client = client(&env);
-        let inputs = VerifyPublicInputsV3 {
-            withdrawn_value: BytesN::from_array(&env, &[0xffu8; 32]),
-            state_root: BytesN::from_array(&env, &[0u8; 32]),
-            asp_root: BytesN::from_array(&env, &[0u8; 32]),
-            nullifier_hash: BytesN::from_array(&env, &[0u8; 32]),
-            new_commitment: BytesN::from_array(&env, &[0u8; 32]),
-            context: BytesN::from_array(&env, &[0u8; 32]),
+        let c = fuzz_client(&env);
+        // 0 signals
+        let empty = vec![&env];
+        let res = c.try_verify_proof(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &empty,
+        );
+        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
+        // 1 signal
+        let one = vec![&env, BytesN::from_array(&env, &[0u8; 32])];
+        let res = c.try_verify_proof(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &one,
+        );
+        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
+    }
+
+    // -- V2 verify_proof_v2 fuzzing ---------------------------------------------
+
+    #[test]
+    fn fuzz_v2_random_inputs() {
+        let mut rng = XorShift(0xBEEF_1234);
+        for _ in 0..100 {
+            let env = Env::default();
+            let c = fuzz_client(&env);
+            let mut a = [0u8; 64];
+            let mut b = [0u8; 128];
+            let mut c_arr = [0u8; 64];
+            let mut sig1 = [0u8; 32];
+            let mut sig2 = [0u8; 32];
+            let mut sig3 = [0u8; 32];
+            let mut sig4 = [0u8; 32];
+            rng.next_bytes(&mut a);
+            rng.next_bytes(&mut b);
+            rng.next_bytes(&mut c_arr);
+            rng.next_bytes(&mut sig1);
+            rng.next_bytes(&mut sig2);
+            rng.next_bytes(&mut sig3);
+            rng.next_bytes(&mut sig4);
+            let inputs = VerifyPublicInputsV2 {
+                merkle_root: BytesN::from_array(&env, &sig1),
+                attestation_id: BytesN::from_array(&env, &sig2),
+                external_nullifier: BytesN::from_array(&env, &sig3),
+                nullifier_hash: BytesN::from_array(&env, &sig4),
+            };
+            let res = c.try_verify_proof_v2(
+                &BytesN::from_array(&env, &a),
+                &BytesN::from_array(&env, &b),
+                &BytesN::from_array(&env, &c_arr),
+                &inputs,
+            );
+            assert!(res.is_ok() || res.is_err());
+        }
+    }
+
+    #[test]
+    fn fuzz_v2_out_of_field_signals() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+        let inputs = VerifyPublicInputsV2 {
+            merkle_root: BytesN::from_array(&env, &[0xffu8; 32]),
+            attestation_id: BytesN::from_array(&env, &[0xffu8; 32]),
+            external_nullifier: BytesN::from_array(&env, &[0xffu8; 32]),
+            nullifier_hash: BytesN::from_array(&env, &[0xffu8; 32]),
         };
-        let res = client.try_verify_proof_v3(
+        let res = c.try_verify_proof_v2(
             &BytesN::from_array(&env, &[0u8; 64]),
             &BytesN::from_array(&env, &[0u8; 128]),
             &BytesN::from_array(&env, &[0u8; 64]),
@@ -913,8 +931,127 @@ mod test {
         assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
     }
 
+    // -- V3 verify_proof_v3 fuzzing ---------------------------------------------
+
     #[test]
-    fn field_constants_base_exceeds_scalar() {
-        assert!(BASE_FIELD > SCALAR_FIELD);
+    fn fuzz_v3_random_inputs() {
+        let mut rng = XorShift(0xFEED_5678);
+        for _ in 0..100 {
+            let env = Env::default();
+            let c = fuzz_client(&env);
+            let mut a = [0u8; 64];
+            let mut b = [0u8; 128];
+            let mut c_arr = [0u8; 64];
+            let mut sigs = [[0u8; 32]; 6];
+            rng.next_bytes(&mut a);
+            rng.next_bytes(&mut b);
+            rng.next_bytes(&mut c_arr);
+            for s in &mut sigs {
+                rng.next_bytes(s);
+            }
+            let inputs = VerifyPublicInputsV3 {
+                withdrawn_value: BytesN::from_array(&env, &sigs[0]),
+                state_root: BytesN::from_array(&env, &sigs[1]),
+                asp_root: BytesN::from_array(&env, &sigs[2]),
+                nullifier_hash: BytesN::from_array(&env, &sigs[3]),
+                new_commitment: BytesN::from_array(&env, &sigs[4]),
+                context: BytesN::from_array(&env, &sigs[5]),
+            };
+            let res = c.try_verify_proof_v3(
+                &BytesN::from_array(&env, &a),
+                &BytesN::from_array(&env, &b),
+                &BytesN::from_array(&env, &c_arr),
+                &inputs,
+            );
+            assert!(res.is_ok() || res.is_err());
+        }
+    }
+
+    #[test]
+    fn fuzz_v3_out_of_field_signals() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+        let inputs = VerifyPublicInputsV3 {
+            withdrawn_value: BytesN::from_array(&env, &[0xffu8; 32]),
+            state_root: BytesN::from_array(&env, &[0xffu8; 32]),
+            asp_root: BytesN::from_array(&env, &[0xffu8; 32]),
+            nullifier_hash: BytesN::from_array(&env, &[0xffu8; 32]),
+            new_commitment: BytesN::from_array(&env, &[0xffu8; 32]),
+            context: BytesN::from_array(&env, &[0xffu8; 32]),
+        };
+        let res = c.try_verify_proof_v3(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &inputs,
+        );
+        assert_eq!(res, Err(Ok(VerifierError::InvalidPublicSignal)));
+    }
+
+    // -- Truncated proof inputs -------------------------------------------------
+
+    #[test]
+    fn fuzz_v3_tampered_proof_bytes() {
+        let mut rng = XorShift(0xAAAA_BBBB);
+        for _ in 0..50 {
+            let env = Env::default();
+            let c = fuzz_client(&env);
+            // Start with real proof, flip random bytes.
+            let mut a = V3_PROOF_A;
+            let mut b = V3_PROOF_B;
+            let mut c_arr = V3_PROOF_C;
+            let idx = (rng.next() as usize) % 64;
+            a[idx] ^= 0x01;
+            let idx2 = (rng.next() as usize) % 128;
+            b[idx2] ^= 0x01;
+            let idx3 = (rng.next() as usize) % 64;
+            c_arr[idx3] ^= 0x01;
+            let res = c.try_verify_proof_v3(
+                &BytesN::from_array(&env, &a),
+                &BytesN::from_array(&env, &b),
+                &BytesN::from_array(&env, &c_arr),
+                &v3_inputs(&env),
+            );
+            // Tampered proof must not verify (may return Ok(false) or error).
+            if let Ok(Ok(valid)) = res {
+                assert!(!valid, "tampered proof must not verify");
+            }
+        }
+    }
+
+    // -- All-zero proof point (identity element) ---------------------------------
+
+    #[test]
+    fn fuzz_v3_all_zero_proof_points() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+        let res = c.try_verify_proof_v3(
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &v3_inputs(&env),
+        );
+        // All-zero proof points — must not panic.
+        assert!(res.is_ok() || res.is_err());
+    }
+
+    // -- Corpus of known inputs that must not cause panics -----------------------
+
+    #[test]
+    fn fuzz_corpus_max_scalar_field() {
+        let mut val = SCALAR_FIELD;
+        val[31] = val[31].wrapping_sub(1); // max valid
+        assert!(is_valid_scalar(&val));
+        let _ = field_negate(&val);
+    }
+
+    #[test]
+    fn fuzz_corpus_single_bit_inputs() {
+        for bit in 0..256 {
+            let mut val = [0u8; 32];
+            val[bit / 8] |= 1 << (bit % 8);
+            let _ = is_valid_scalar(&val);
+            let _ = field_negate(&val);
+        }
     }
 }

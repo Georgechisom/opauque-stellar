@@ -34,6 +34,17 @@ const DEFAULT_ROOT_EXPIRY_LEDGERS: u32 = 17_280;
 const MAX_ROOT_HISTORY: u32 = 100;
 const EVENT_VERSION: u32 = 1;
 
+/// TTL management for persistent storage entries.
+///
+/// Persistent entries default to Soroban's maximum TTL (~120 days / 2,073,600 ledgers).
+/// To prevent archival expiry from stranding user funds or breaking root lookups, every
+/// write to persistent storage also extends the entry's TTL to this value.
+///
+/// Ownership: the contract bumps its own persistent entries on every mutating call.
+/// An external cron script (`scripts/check-ttl-expiry.ts`) monitors approaching-expiry
+/// entries and alerts operators.
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 /// BN254 scalar field order r, big-endian — `context` is reduced modulo this so it is a
 /// valid circuit public input.
 const SCALAR_FIELD: [u8; 32] = [
@@ -130,6 +141,31 @@ fn commitment_key(env: &Env, c: &BytesN<32>) -> (Symbol, BytesN<32>) {
     (Symbol::new(env, "commit"), c.clone())
 }
 
+/// Extend the TTL of a persistent storage entry to prevent archival expiry.
+/// Called on every write to persistent storage to keep long-lived entries
+/// (nullifiers, commitments, roots) from being pruned by Soroban's state
+/// archival mechanism.
+fn bump_root_ttl(env: &Env, kind: bool, root: &BytesN<32>) {
+    let key = root_entry_key(env, kind, root);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
+fn bump_nullifier_ttl(env: &Env, n: &BytesN<32>) {
+    let key = nullifier_key(env, n);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
+fn bump_commitment_ttl(env: &Env, c: &BytesN<32>) {
+    let key = commitment_key(env, c);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 #[contractimpl]
 impl PrivacyPool {
     pub fn initialize(
@@ -209,9 +245,9 @@ impl PrivacyPool {
         token::TokenClient::new(&env, &config.native_sac).transfer(&depositor, &pool, &value);
 
         // Record the commitment as legitimately deposited and bump counters.
-        env.storage()
-            .persistent()
-            .set(&commitment_key(&env, &commitment), &index);
+        let ckey = commitment_key(&env, &commitment);
+        env.storage().persistent().set(&ckey, &index);
+        bump_commitment_ttl(&env, &commitment);
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "dep_count"), &(index + 1));
@@ -264,13 +300,15 @@ impl PrivacyPool {
             return Err(PoolError::Unauthorized);
         }
         let ledger = env.ledger().sequence();
+        let rkey = root_entry_key(&env, kind, &root);
         env.storage().persistent().set(
-            &root_entry_key(&env, kind, &root),
+            &rkey,
             &RootEntry {
                 ledger,
                 dataset_hash: dataset_hash.clone(),
             },
         );
+        bump_root_ttl(&env, kind, &root);
         let mut hist: Vec<BytesN<32>> = env
             .storage()
             .instance()
@@ -395,17 +433,17 @@ impl PrivacyPool {
             .set(&Symbol::new(&env, "tot_wd"), &(tot_wd + withdrawn_value));
 
         // Spend the nullifier and re-insert the remainder commitment as a new leaf.
-        env.storage()
-            .persistent()
-            .set(&nullifier_key(&env, &nullifier_hash), &true);
+        let nkey = nullifier_key(&env, &nullifier_hash);
+        env.storage().persistent().set(&nkey, &true);
+        bump_nullifier_ttl(&env, &nullifier_hash);
         let index: u64 = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "dep_count"))
             .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&commitment_key(&env, &new_commitment), &index);
+        let ckey = commitment_key(&env, &new_commitment);
+        env.storage().persistent().set(&ckey, &index);
+        bump_commitment_ttl(&env, &new_commitment);
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "dep_count"), &(index + 1));

@@ -17,6 +17,10 @@ const MAX_ROOT_HISTORY: u32 = 100;
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
 
+/// TTL for persistent storage entries (~120 days at 5 s/ledger).
+/// Prevents state archival from expiring roots and nullifiers.
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 #[contract]
 pub struct ReputationVerifier;
 
@@ -104,6 +108,21 @@ fn nullifier_key(n: &BytesN<32>) -> (Symbol, BytesN<32>) {
 
 fn history_key(env: &Env) -> Symbol {
     Symbol::new(env, "root_history")
+}
+
+/// Extend the TTL of a persistent storage entry to prevent archival expiry.
+fn bump_root_ttl(env: &Env, root: &BytesN<32>) {
+    let key = root_key(root);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
+fn bump_nullifier_ttl(env: &Env, n: &BytesN<32>) {
+    let key = nullifier_key(n);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
 }
 
 #[contractimpl]
@@ -203,14 +222,16 @@ impl ReputationVerifier {
             return Err(ReputationError::Unauthorized);
         }
         let ledger = env.ledger().sequence();
+        let rkey = root_key(&root);
         env.storage().persistent().set(
-            &root_key(&root),
+            &rkey,
             &MerkleRootEntry {
                 root: root.clone(),
                 ledger,
                 dataset_hash: dataset_hash.clone(),
             },
         );
+        bump_root_ttl(&env, &root);
         let mut history: Vec<BytesN<32>> = env
             .storage()
             .instance()
@@ -316,9 +337,11 @@ impl ReputationVerifier {
             return Err(ReputationError::InvalidProof);
         }
 
+        let nkey = nullifier_key(&nullifier);
         env.storage()
             .persistent()
-            .set(&nullifier_key(&nullifier), &NullifierEntry { used: true });
+            .set(&nkey, &NullifierEntry { used: true });
+        bump_nullifier_ttl(&env, &nullifier);
 
         env.events().publish(
             (Symbol::new(&env, "ReputationVerified"), EVENT_VERSION),
