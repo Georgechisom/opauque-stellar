@@ -40,6 +40,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Pull CPU/read/write resource counts out of a simulation's Soroban transaction
+ * data. Defensive: the generated XDR accessor names have shifted across
+ * protocol versions, so this never throws — it reports zeros rather than fail a
+ * dry run over an introspection detail.
+ */
+function extractResourceUsage(transactionData: {
+  build(): unknown;
+}): SimulatedResourceUsage {
+  try {
+    const resources = (
+      transactionData.build() as {
+        resources(): {
+          instructions(): number;
+          readBytes?(): number;
+          diskReadBytes?(): number;
+          writeBytes(): number;
+        };
+      }
+    ).resources();
+    return {
+      cpuInstructions: Number(resources.instructions()),
+      readBytes: Number(resources.diskReadBytes?.() ?? resources.readBytes?.() ?? 0),
+      writeBytes: Number(resources.writeBytes()),
+    };
+  } catch {
+    return { cpuInstructions: 0, readBytes: 0, writeBytes: 0 };
+  }
+}
+
 function isRetryableReadError(err: unknown): boolean {
   const status =
     typeof err === "object" && err !== null && "response" in err
@@ -90,6 +120,32 @@ export interface ReadOptions {
   args: xdr.ScVal[];
 }
 
+export interface SimulateInvokeOptions {
+  /** Account the (unsubmitted) transaction is built for. */
+  source: string;
+  contractId: string;
+  method: string;
+  args: xdr.ScVal[];
+}
+
+export interface SimulatedResourceUsage {
+  /** CPU instructions the transaction would consume. */
+  cpuInstructions: number;
+  /** Ledger-entry bytes read. */
+  readBytes: number;
+  /** Ledger-entry bytes written. */
+  writeBytes: number;
+}
+
+export interface SimulationReport {
+  /** Estimated resource fee (stroops) simulation says the transaction would need. */
+  minResourceFeeStroops: bigint;
+  /** Best-effort resource usage breakdown; zeroed out if unavailable. */
+  resources: SimulatedResourceUsage;
+  /** Native-decoded return value of the simulated call, if any. */
+  returnValue: unknown;
+}
+
 /**
  * The subset of {@link RpcClient} the contract bindings depend on. Bindings are
  * written against this interface so they can be unit-tested with a stub invoker
@@ -101,6 +157,11 @@ export interface ContractInvoker {
   simulateRead(opts: ReadOptions): Promise<xdr.ScVal | undefined>;
   getEvents(request: rpc.Server.GetEventsRequest): Promise<rpc.Api.GetEventsResponse>;
   getLatestLedger(): Promise<number>;
+  /**
+   * Build and simulate a write call without signing or submitting it (a dry
+   * run). Optional: implementations that only support reads/writes may omit it.
+   */
+  simulateInvoke?(opts: SimulateInvokeOptions): Promise<SimulationReport>;
 }
 
 export class RpcClient {
@@ -257,6 +318,37 @@ export class RpcClient {
   async readNative<T = unknown>(opts: ReadOptions): Promise<T> {
     const retval = await this.simulateRead(opts);
     return (retval ? scValToNative(retval) : undefined) as T;
+  }
+
+  /**
+   * Build and simulate a write call without signing or submitting it. Used for
+   * dry runs: reports the resource fee and usage a real submission would incur,
+   * with no on-chain side effects (no nullifier/state is touched).
+   */
+  async simulateInvoke(opts: SimulateInvokeOptions): Promise<SimulationReport> {
+    const account = await this.read((s) => s.getAccount(opts.source), "getAccount");
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.passphrase,
+    })
+      .addOperation(new Contract(opts.contractId).call(opts.method, ...opts.args))
+      .setTimeout(60)
+      .build();
+
+    const sim = await this.read(
+      (s) => s.simulateTransaction(tx),
+      `simulate ${opts.method}`,
+    );
+    if (rpc.Api.isSimulationError(sim)) {
+      throw new SimulationError(`Simulation failed for ${opts.method}`, {
+        diagnostics: sim.error,
+      });
+    }
+    return {
+      minResourceFeeStroops: BigInt(sim.minResourceFee),
+      resources: extractResourceUsage(sim.transactionData),
+      returnValue: sim.result?.retval ? scValToNative(sim.result.retval) : undefined,
+    };
   }
 
   /** Invoke a contract method as a signed transaction. Returns the tx hash. */

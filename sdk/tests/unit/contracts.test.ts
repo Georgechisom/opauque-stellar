@@ -25,15 +25,19 @@ import {
 
 class CaptureInvoker implements ContractInvoker {
   last?: InvokeOptions;
-  /** Canned `getEvents` responses, consumed in order; errors thrown as-is. */
-  eventPages: Array<rpc.Api.GetEventsResponse | Error> = [];
-  eventsCallCount = 0;
-  latestLedgerValue = 0;
+  lastRead?: { source: string; contractId: string; method: string };
+  reads: Record<string, unknown> = {};
   async invoke(opts: InvokeOptions): Promise<string> {
     this.last = opts;
     return "TXHASH";
   }
-  async readNative<T>(): Promise<T> {
+  async readNative<T>(opts: {
+    source: string;
+    contractId: string;
+    method: string;
+  }): Promise<T> {
+    this.lastRead = opts;
+    if (opts.method in this.reads) return this.reads[opts.method] as T;
     throw new Error("not used");
   }
   async simulateRead(): Promise<xdr.ScVal | undefined> {
@@ -287,6 +291,44 @@ describe("pool binding", () => {
     expect(inv.last!.method).toBe("update_state_root");
     await pool.updateRoot({ kind: "asp", root: bytes(32), datasetHash: bytes(32), signer });
     expect(inv.last!.method).toBe("update_asp_root");
+  });
+
+  it("getConfig decodes the on-chain PoolConfig struct", async () => {
+    inv.reads.get_config = {
+      admin: DELEGATE,
+      groth16_verifier: "CGROTH16",
+      native_sac: "CNATIVESAC",
+      scope: 1,
+      root_expiry_ledgers: 17_280,
+    };
+    const config = await new PrivacyPool(inv, C).getConfig(PK);
+    expect(inv.lastRead).toEqual({ source: PK, contractId: C, method: "get_config", args: [] });
+    expect(config).toEqual({
+      admin: DELEGATE,
+      groth16Verifier: "CGROTH16",
+      nativeSac: "CNATIVESAC",
+      scope: 1,
+      rootExpiryLedgers: 17_280,
+    });
+  });
+
+  it("getNativeAssetDecimals reads live config then the SAC's decimals", async () => {
+    inv.reads.get_config = {
+      admin: DELEGATE,
+      groth16_verifier: "CGROTH16",
+      native_sac: "CNATIVESAC",
+      scope: 1,
+      root_expiry_ledgers: 17_280,
+    };
+    inv.reads.decimals = 7;
+    const decimals = await new PrivacyPool(inv, C).getNativeAssetDecimals(PK);
+    expect(decimals).toBe(7);
+    expect(inv.lastRead).toEqual({
+      source: PK,
+      contractId: "CNATIVESAC",
+      method: "decimals",
+      args: [],
+    });
   });
 });
 

@@ -7,3 +7,5 @@
 export * from "./serialize";
 export * from "./reputation";
 export * from "./pool";
+export * from "./pool-size";
+export * from "./worker-pool";

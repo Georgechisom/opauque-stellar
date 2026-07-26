@@ -13,6 +13,7 @@ import { ArtifactError } from "../errors/index";
 import type { ArtifactResolver } from "../artifacts/index";
 import type { VerifyReputationInputs } from "../contracts/verifier";
 import { serializeGroth16Proof } from "./serialize";
+import { runProofJobs, type ProofPoolOptions } from "./worker-pool";
 
 const TREE_DEPTH = 20;
 
@@ -154,4 +155,44 @@ export async function proveReputationV2(opts: {
     nullifierHash: bigIntToBytes32(BigInt(publicSignals[3])),
     publicSignals,
   };
+}
+
+/**
+ * Generate V2 reputation proofs for several independent inputs. Parallelizes
+ * the CPU-heavy `fullProve` calls across a worker pool when one is available
+ * (same fallback rules as {@link import("./pool").provePoolWithdrawBatch}); the
+ * serial path is exactly {@link proveReputationV2} called in a loop, so results
+ * are identical either way for the same inputs.
+ */
+export async function proveReputationV2Batch(opts: {
+  inputs: ReputationProveInput[];
+  artifacts: ArtifactResolver;
+  snarkjs?: SnarkjsLike;
+  /** `false` forces serial proving; omit to auto-detect a worker pool. */
+  pool?: ProofPoolOptions | false;
+}): Promise<ReputationProof[]> {
+  const witnesses = await Promise.all(opts.inputs.map(buildReputationWitnessV2));
+  const [wasm, zkey] = await Promise.all([
+    opts.artifacts.resolve("reputation-v2", "wasm"),
+    opts.artifacts.resolve("reputation-v2", "zkey"),
+  ]);
+
+  const results = await runProofJobs(
+    witnesses.map((w) => ({ input: w as unknown as Record<string, unknown>, wasm, zkey })),
+    { snarkjs: opts.snarkjs, pool: opts.pool },
+  );
+
+  return results.map((r, i) => {
+    const { a, b, c } = serializeGroth16Proof(r.proof);
+    return {
+      proofA: a,
+      proofB: b,
+      proofC: c,
+      merkleRoot: bigIntToBytes32(BigInt(r.publicSignals[0])),
+      attestationId: bigIntToBytes32(BigInt(r.publicSignals[1])),
+      externalNullifier: opts.inputs[i].externalNullifier,
+      nullifierHash: bigIntToBytes32(BigInt(r.publicSignals[3])),
+      publicSignals: r.publicSignals,
+    };
+  });
 }
