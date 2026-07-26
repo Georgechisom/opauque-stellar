@@ -2,6 +2,7 @@ import React from "react";
 import { BackupExport } from "../../components/recovery/BackupExport";
 import { BackupImport } from "../../components/recovery/BackupImport";
 import { KeyRotationWizard } from "../../components/security/KeyRotationWizard";
+import { ErrorReportingSettings } from "../../components/ErrorReportingSettings";
 
 export const SecuritySettings: React.FC = () => {
   return (
@@ -20,6 +21,11 @@ export const SecuritySettings: React.FC = () => {
         <section>
           <h2 className="text-2xl font-semibold mb-4">Account Migration</h2>
           <KeyRotationWizard />
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4">Diagnostics</h2>
+          <ErrorReportingSettings />
         </section>
       </div>
     </div>

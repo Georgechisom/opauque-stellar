@@ -192,10 +192,13 @@ async function pollTransactionStatus(
     await new Promise((r) => setTimeout(r, TX_POLL_INTERVAL_MS));
   }
 
-  throw new Error(
-    `Transaction polling timed out after ${timeoutMs}ms. Hash: ${txHash}. ` +
+  throw new TransactionTimeoutError({
+    message:
+      `Transaction polling timed out after ${timeoutMs}ms. Hash: ${txHash}. ` +
       `Check status manually or retry later.`,
-  );
+    txHash,
+    waitedMs: Date.now() - startTime,
+  });
 }
 
 /** Render a Soroban ScError into a short, human-readable token. */
@@ -276,7 +279,12 @@ export async function invokeContractMethod(opts: {
     if (opts.simulate !== false) {
       const simResult = await simulateAndDecode(server, tx);
       if (!simResult.success) {
-        throw new Error(`Simulation failed: ${simResult.error}`);
+        throw new SimulationFailedError({
+          message: `Simulation failed: ${simResult.error}`,
+          contractId: opts.contractId,
+          method: opts.method,
+          contractError: simResult.errorCode ?? null,
+        });
       }
     }
 
@@ -284,7 +292,12 @@ export async function invokeContractMethod(opts: {
     const signed = TransactionBuilder.fromXDR(signedXdr, passphrase);
     const send = await server.sendTransaction(signed);
     if (send.status === "ERROR") {
-      throw new Error(`Transaction failed: ${JSON.stringify(send)}`);
+      throw new TransactionRejectedError({
+        message: `Transaction rejected by the RPC node: ${JSON.stringify(send)}`,
+        status: send.status,
+        txHash: send.hash ?? null,
+        context: { contractId: opts.contractId, method: opts.method },
+      });
     }
 
     const txResponse = await pollTransactionStatus(server, send.hash);
@@ -314,10 +327,15 @@ export async function invokeContractMethod(opts: {
           /* fall through to the raw response */
         }
       }
-      throw new Error(
-        `Transaction ${txResponse.status} (${send.hash})` +
+      throw new TransactionFailedError({
+        message:
+          `Transaction ${txResponse.status} (${send.hash})` +
           (reason ? `: ${reason}` : `: ${JSON.stringify(txResponse)}`),
-      );
+        txHash: send.hash,
+        status: txResponse.status,
+        diagnostics: reason || null,
+        context: { contractId: opts.contractId, method: opts.method },
+      });
     }
     recordContractCall({
       contractId: opts.contractId,
@@ -378,31 +396,30 @@ async function getLatestLedgerRules(): Promise<{
   baseFeeStroops: bigint;
   baseReserveStroops: bigint;
 }> {
+  const policy = getDefaultRetryPolicy();
   for (const url of getHorizonUrls()) {
     const server = new Horizon.Server(url);
-    for (let attempt = 0; attempt < READ_RETRIES_PER_PROVIDER; attempt += 1) {
-      try {
-        const latest = await withTimeout(
-          server.ledgers().order("desc").limit(1).call(),
-          "Horizon.ledgers",
-        );
-        const record = latest.records[0] as
-          | {
-              base_fee_in_stroops?: number | string;
-              base_reserve_in_stroops?: number | string;
-            }
-          | undefined;
-        return {
-          baseFeeStroops:
-            horizonInt(record?.base_fee_in_stroops) || BigInt(BASE_FEE),
-          baseReserveStroops:
-            horizonInt(record?.base_reserve_in_stroops) || 5_000_000n,
-        };
-      } catch (err) {
-        if (!isRetryableReadError(err)) break;
-        if (attempt + 1 < READ_RETRIES_PER_PROVIDER)
-          await sleep(350 * (attempt + 1));
-      }
+    try {
+      const latest = await runWithRetryPolicy(
+        () => server.ledgers().order("desc").limit(1).call(),
+        { label: "Horizon.ledgers", method: "ledgers", policy },
+      );
+      const record = latest.records[0] as
+        | {
+            base_fee_in_stroops?: number | string;
+            base_reserve_in_stroops?: number | string;
+          }
+        | undefined;
+      return {
+        baseFeeStroops:
+          horizonInt(record?.base_fee_in_stroops) || BigInt(BASE_FEE),
+        baseReserveStroops:
+          horizonInt(record?.base_reserve_in_stroops) || 5_000_000n,
+      };
+    } catch (err) {
+      // A hard (non-transient) failure means the next provider will say the
+      // same thing; fall back to protocol defaults rather than stalling.
+      if (!isRetryableRpcError(underlyingError(err), policy)) break;
     }
   }
   return { baseFeeStroops: BigInt(BASE_FEE), baseReserveStroops: 5_000_000n };
@@ -564,20 +581,35 @@ export async function invokeContractWithKeypair(opts: {
     if (opts.simulate !== false) {
       const simResult = await simulateAndDecode(server, tx);
       if (!simResult.success) {
-        throw new Error(`Simulation failed: ${simResult.error}`);
+        throw new SimulationFailedError({
+          message: `Simulation failed: ${simResult.error}`,
+          contractId: opts.contractId,
+          method: opts.method,
+          contractError: simResult.errorCode ?? null,
+        });
       }
     }
 
     tx.sign(opts.keypair);
     const send = await server.sendTransaction(tx);
     if (send.status === "ERROR") {
-      throw new Error(`Transaction failed: ${JSON.stringify(send)}`);
+      throw new TransactionRejectedError({
+        message: `Transaction rejected by the RPC node: ${JSON.stringify(send)}`,
+        status: send.status,
+        txHash: send.hash ?? null,
+        context: { contractId: opts.contractId, method: opts.method },
+      });
     }
 
     const txResponse = await pollTransactionStatus(server, send.hash);
 
     if (txResponse.status !== "SUCCESS") {
-      throw new Error(`Transaction failed: ${JSON.stringify(txResponse)}`);
+      throw new TransactionFailedError({
+        message: `Transaction ${txResponse.status} (${send.hash})`,
+        txHash: send.hash,
+        status: txResponse.status,
+        context: { contractId: opts.contractId, method: opts.method },
+      });
     }
     recordContractCall({
       contractId: opts.contractId,
