@@ -19,8 +19,16 @@ import { useKeys } from "../context/KeysContext";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { fetchLatestValidMerkleRoot, generateReputationProof, submitProofOnChain } from "../lib/reputationProver";
 import { isWasmHtmlFallbackError } from "../lib/publicAssets";
-import type { DiscoveredTrait, ProofData } from "../lib/reputation";
+import type { DiscoveredTrait, ProofData, ProofStage } from "../lib/reputation";
+import { ProofStageTimer } from "../lib/proofDiagnostics";
 import { ModalShell } from "./ModalShell";
+import { StagedProgress, type StageDef } from "./StagedProgress";
+
+const PROOF_STAGES: StageDef[] = [
+  { key: "preparing-witness", label: "Witness build" },
+  { key: "generating-proof", label: "Proving" },
+  { key: "verifying-proof", label: "Verification" },
+];
 
 type ProveTraitModalProps = {
   trait: DiscoveredTrait;
@@ -52,6 +60,7 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
 
     setStep("generating");
     startProof(trait.traitDef.id);
+    const stageTimer = new ProofStageTimer(trait.traitDef.label);
 
     try {
       const masterKeys = getMasterKeys();

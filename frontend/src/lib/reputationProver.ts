@@ -105,9 +105,25 @@ async function buildV2Witness(
 }
 
 /**
+ * Verifies a freshly-generated proof against the verification key embedded in the
+ * same zkey used to prove it, so a broken circuit or malformed witness surfaces
+ * immediately instead of only failing later against the on-chain verifier.
+ */
+async function verifyProofLocally(proof: unknown, publicSignals: unknown): Promise<void> {
+  const verificationKey = await snarkjs.zKey.exportVerificationKey(ZKEY_PATH);
+  const isValid = await snarkjs.groth16.verify(verificationKey, publicSignals, proof);
+  if (!isValid) {
+    throw new Error(
+      "Local proof verification failed: the generated proof did not verify against the circuit's verification key.",
+    );
+  }
+}
+
+/**
  * Full proof generation pipeline:
  * 1. Generate witness via WASM
  * 2. Generate Groth16 proof via snarkjs
+ * 3. Verify the proof locally before returning it
  */
 export async function generateReputationProof(
   _wasm: OpaqueWasmModule,
@@ -135,6 +151,11 @@ export async function generateReputationProof(
   );
 
   onProgress("generating-proof", 95);
+  onProgress("verifying-proof", 96);
+
+  await verifyProofLocally(proof, publicSignals);
+
+  onProgress("verifying-proof", 99);
 
   // V2 public signal order (canonical, see docs/PUBLIC_SIGNALS.md):
   //   [0] merkle_root  [1] attestation_id  [2] external_nullifier  [3] nullifier_hash

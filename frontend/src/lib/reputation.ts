@@ -87,6 +87,7 @@ export type ProofStage =
   | "idle"
   | "preparing-witness"
   | "generating-proof"
+  | "verifying-proof"
   | "proof-ready"
   | "submitting"
   | "verified"
