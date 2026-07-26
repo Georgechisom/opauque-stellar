@@ -17,11 +17,32 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { getHorizonUrls, getNetworkPassphrase, getRpcUrls } from "./chain";
-import { recordContractCall } from "./monitoring";
+import { recordContractCall, recordRpcError } from "./monitoring";
 import { parseHorizonBalanceToStroops } from "./decimalParser";
 import { simulateAndDecode } from "./sorobanErrors";
+import {
+  RpcRetriesExhaustedError,
+  SimulationFailedError,
+  TransactionFailedError,
+  TransactionRejectedError,
+  TransactionTimeoutError,
+} from "./errors";
+import {
+  getDefaultRetryPolicy,
+  isRetryableRpcError,
+  resolveRetryPolicy,
+  runWithRetryPolicy,
+  underlyingError,
+  type RetryPolicy,
+  type RetryPolicyOptions,
+} from "./retryPolicy";
 
-export function getSorobanServer(): rpc.Server {
+/** Per-client options. `retryPolicy` overrides the process-wide default (#561). */
+export type RpcClientOptions = {
+  retryPolicy?: RetryPolicyOptions;
+};
+
+export function getSorobanServer(options?: RpcClientOptions): rpc.Server {
   const urls = getRpcUrls();
   const servers = urls.map(
     (url) => new rpc.Server(url, { allowHttp: url.startsWith("http://") }),
@@ -29,17 +50,22 @@ export function getSorobanServer(): rpc.Server {
   return withReadFallback(
     servers,
     "Soroban RPC",
+    // `sendTransaction` bypasses the retry wrapper entirely: a resubmitted
+    // transaction is a new ledger entry, never a free retry.
     new Set(["sendTransaction"]),
+    undefined,
+    resolveRetryPolicy(options?.retryPolicy, getDefaultRetryPolicy()),
   ) as rpc.Server;
 }
 
-export function getHorizonServer(): Horizon.Server {
+export function getHorizonServer(options?: RpcClientOptions): Horizon.Server {
   const servers = getHorizonUrls().map((url) => new Horizon.Server(url));
   return withReadFallback(
     servers,
     "Horizon",
     new Set(["submitTransaction"]),
     new Set(["loadAccount"]),
+    resolveRetryPolicy(options?.retryPolicy, getDefaultRetryPolicy()),
   ) as Horizon.Server;
 }
 
@@ -58,8 +84,6 @@ export async function accountExists(publicKey: string): Promise<boolean> {
 
 export type SignTxFn = (xdr: string) => Promise<string>;
 
-const READ_TIMEOUT_MS = 12_000;
-const READ_RETRIES_PER_PROVIDER = 2;
 const TX_POLL_TIMEOUT_MS = 60_000; // 60 seconds max polling
 const TX_POLL_INTERVAL_MS = 1_000; // 1 second between polls
 
@@ -67,47 +91,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableReadError(err: unknown): boolean {
-  const status =
-    typeof err === "object" && err !== null && "response" in err
-      ? (err as { response?: { status?: number } }).response?.status
-      : undefined;
-  if (
-    status === 429 ||
-    status === 408 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504
-  ) {
-    return true;
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  return /timeout|timed out|rate.?limit|too many requests|network|fetch/i.test(
-    message,
-  );
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
-async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${READ_TIMEOUT_MS}ms`)),
-      READ_TIMEOUT_MS,
-    );
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
+/**
+ * Proxy that runs read methods through the configured retry policy (#561) and
+ * falls through to the next configured provider once a provider is exhausted.
+ *
+ * Methods in `noRetryMethods` — transaction submission — bypass the wrapper
+ * completely and are invoked exactly once against the primary provider.
+ */
 function withReadFallback<T extends object>(
   providers: T[],
   label: string,
   noRetryMethods: Set<string>,
-  retryMethods?: Set<string>,
+  retryMethods: Set<string> | undefined,
+  policy: RetryPolicy,
 ): T {
   const primary = providers[0];
   if (!primary) throw new Error(`No ${label} providers configured.`);
@@ -123,32 +123,47 @@ function withReadFallback<T extends object>(
           return value.apply(target, args);
         }
         return (async () => {
+          const startedAt = Date.now();
           let lastError: unknown;
+          let providersTried = 0;
           for (const provider of providers) {
             const fn = Reflect.get(provider, prop);
             if (typeof fn !== "function") continue;
-            for (
-              let attempt = 0;
-              attempt < READ_RETRIES_PER_PROVIDER;
-              attempt += 1
-            ) {
-              try {
-                return await withTimeout(
-                  Promise.resolve(fn.apply(provider, args)),
-                  `${label}.${prop}`,
-                );
-              } catch (err) {
-                lastError = err;
-                if (!isRetryableReadError(err)) throw err;
-                if (attempt + 1 < READ_RETRIES_PER_PROVIDER) {
-                  await sleep(350 * (attempt + 1));
-                }
-              }
+            providersTried += 1;
+            try {
+              return await runWithRetryPolicy(
+                () => Promise.resolve(fn.apply(provider, args)),
+                {
+                  label: `${label}.${prop}`,
+                  method: prop,
+                  policy,
+                  providersTried,
+                  onRetry: ({ error }) =>
+                    recordRpcError({
+                      provider: label,
+                      method: prop,
+                      error: errorMessage(error),
+                    }),
+                },
+              );
+            } catch (err) {
+              lastError = err;
+              // A non-transient failure is a real answer from the network —
+              // failing over to another provider would only repeat it.
+              if (!(err instanceof RpcRetriesExhaustedError)) throw err;
             }
           }
-          throw lastError instanceof Error
-            ? lastError
-            : new Error(`${label}.${prop} failed`);
+          const cause = underlyingError(lastError);
+          throw new RpcRetriesExhaustedError({
+            message:
+              `${label}.${prop} failed across ${providersTried} provider(s): ` +
+              `${errorMessage(cause) || "unknown error"}`,
+            cause,
+            method: prop,
+            attempts: policy.attempts * Math.max(providersTried, 1),
+            providersTried,
+            elapsedMs: Date.now() - startedAt,
+          });
         })();
       };
     },
