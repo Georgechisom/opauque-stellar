@@ -54,6 +54,20 @@ export function decodeDiagnostics(events: unknown[]): string {
   return Array.from(new Set(parts)).join(" | ").slice(0, 1500);
 }
 
+/** Parse the "ledger range: X - Y" hint from a `getEvents` range error. */
+export function parseOldestLedgerFromRangeError(err: unknown): number | null {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : typeof (err as { message?: unknown })?.message === "string"
+          ? (err as { message: string }).message
+          : "";
+  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * Best-effort extraction of a contract error code from diagnostic events.
  * Returns the first `ContractError#N` code found, or null.

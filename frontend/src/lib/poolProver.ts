@@ -26,7 +26,17 @@ import { keccak_256 } from "@noble/hashes/sha3";
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
 import { getSorobanServer } from "./stellar";
-import { getNetworkPassphrase } from "./chain";
+import { getNetwork, getNetworkPassphrase } from "./chain";
+import {
+  NoteCommitmentMismatchError,
+  NoteNotIndexedError,
+  PoolNotDeployedError,
+  PoolRootsStaleError,
+  PoolRootsUnpublishedError,
+  ProofArtifactUnavailableError,
+  ProofGenerationError,
+  SimulationFailedError,
+} from "./errors";
 import { getActiveManifest } from "../contracts/deploymentManifest";
 import { getPoolConfig } from "../contracts/poolConfig";
 import { publicAssetPath } from "./publicAssets";
@@ -289,7 +299,12 @@ export async function generateWithdrawProof(opts: {
   onProgress?: ProofProgress;
 }): Promise<WithdrawProof> {
   const cfg = getPoolConfig();
-  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  if (!cfg) {
+    throw new PoolNotDeployedError({
+      message: "Privacy pool is not deployed on this network.",
+      network: getNetwork(),
+    });
+  }
   const { note } = opts;
   const value = BigInt(note.value);
   const withdrawnValue = value; // full withdrawal
@@ -306,19 +321,28 @@ export async function generateWithdrawProof(opts: {
   const aspLeafIndex = depositIndices.indexOf(note.leafIndex);
   const indexed = depositIndices.length > 0 ? depositIndices.join(", ") : "none";
   if (aspLeafIndex < 0) {
-    throw new Error(
-      `Leaf #${note.leafIndex} is not a current pool Deposit event. Indexed deposits: ${indexed}. ` +
+    throw new NoteNotIndexedError({
+      message:
+        `Leaf #${note.leafIndex} is not a current pool Deposit event. Indexed deposits: ${indexed}. ` +
         "Select the note created by your latest deposit, or clear/import notes if this one is stale.",
-    );
+      leafIndex: note.leafIndex,
+      indexedLeafIndices: depositIndices,
+      context: { poolId: cfg.poolId },
+    });
   }
   const onChainCommitment = stateLeaves[note.leafIndex] != null
     ? toHex32(stateLeaves[note.leafIndex]).toLowerCase()
     : null;
   if (onChainCommitment && onChainCommitment !== note.commitment.toLowerCase()) {
-    throw new Error(
-      `Leaf #${note.leafIndex} exists, but this note's commitment does not match the current pool. ` +
+    throw new NoteCommitmentMismatchError({
+      message:
+        `Leaf #${note.leafIndex} exists, but this note's commitment does not match the current pool. ` +
         "This note is probably from an older deposit or pool deployment.",
-    );
+      leafIndex: note.leafIndex,
+      expectedCommitment: note.commitment.toLowerCase(),
+      onChainCommitment,
+      context: { poolId: cfg.poolId },
+    });
   }
 
   const stateTree = new MerkleTree(poseidon as never, stateLeaves);
@@ -331,15 +355,26 @@ export async function generateWithdrawProof(opts: {
   const publishedState = await latestRoot(cfg.poolId, opts.caller, true);
   const publishedAsp = await latestRoot(cfg.poolId, opts.caller, false);
   if (!publishedState || !publishedAsp) {
-    throw new Error("No published pool roots yet — the ASP indexer must publish first.");
+    throw new PoolRootsUnpublishedError({
+      message: "No published pool roots yet — the ASP indexer must publish first.",
+      poolId: cfg.poolId,
+      hasStateRoot: publishedState !== null,
+      hasAspRoot: publishedAsp !== null,
+    });
   }
   const reconStateRoot = toBE32(stateTree.root());
   const reconAspRoot = toBE32(aspTree.root());
   const eq = (x: Uint8Array, y: Uint8Array) => x.length === y.length && x.every((b, i) => b === y[i]);
-  if (!eq(reconStateRoot, publishedState) || !eq(reconAspRoot, publishedAsp)) {
-    throw new Error(
-      "Published roots don't yet cover your deposit (ASP indexer is behind). Try again shortly.",
-    );
+  const stateRootMatches = eq(reconStateRoot, publishedState);
+  const aspRootMatches = eq(reconAspRoot, publishedAsp);
+  if (!stateRootMatches || !aspRootMatches) {
+    throw new PoolRootsStaleError({
+      message:
+        "Published roots don't yet cover your deposit (ASP indexer is behind). Try again shortly.",
+      poolId: cfg.poolId,
+      stateRootMatches,
+      aspRootMatches,
+    });
   }
 
   // Throwaway change commitment (remainder = 0 in v1).
@@ -369,7 +404,27 @@ export async function generateWithdrawProof(opts: {
   };
 
   opts.onProgress?.("proving");
-  const { proof } = await snarkjs.groth16.fullProve(input, WASM_PATH, ZKEY_PATH);
+  let proof: { pi_a: string[]; pi_b: string[][]; pi_c: string[] };
+  try {
+    ({ proof } = await snarkjs.groth16.fullProve(input, WASM_PATH, ZKEY_PATH));
+  } catch (err) {
+    // A missing/short-served artifact and a genuine proving failure need
+    // different remedies, so they get different classes.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/fetch|network|404|not found|unexpected end|invalid|magic/i.test(message)) {
+      throw new ProofArtifactUnavailableError({
+        message: `Could not load the withdrawal circuit artifacts: ${message}`,
+        artifact: /zkey/i.test(message) ? ZKEY_PATH : WASM_PATH,
+        cause: err,
+      });
+    }
+    throw new ProofGenerationError({
+      message: `Withdrawal proof generation failed: ${message}`,
+      circuit: "privacy_pool_withdraw",
+      cause: err,
+      context: { poolId: cfg.poolId, leafIndex: note.leafIndex },
+    });
+  }
   const { a, b, c } = serializeProof(proof);
 
   return {
@@ -402,7 +457,12 @@ export async function fetchPoolRoots(
 /** Read the next deposit leaf index (the value `deposit` will assign). */
 export async function fetchNextLeafIndex(caller: string): Promise<number> {
   const cfg = getPoolConfig();
-  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  if (!cfg) {
+    throw new PoolNotDeployedError({
+      message: "Privacy pool is not deployed on this network.",
+      network: getNetwork(),
+    });
+  }
   const server = getSorobanServer();
   const source = await server.getAccount(caller);
   const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: getNetworkPassphrase() })
@@ -411,7 +471,12 @@ export async function fetchNextLeafIndex(caller: string): Promise<number> {
     .build();
   const sim = await server.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim) || !sim.result?.retval) {
-    throw new Error("Could not read pool deposit count.");
+    throw new SimulationFailedError({
+      message: "Could not read pool deposit count.",
+      contractId: cfg.poolId,
+      method: "get_deposit_count",
+      contractError: rpc.Api.isSimulationError(sim) ? sim.error : null,
+    });
   }
   return Number(scValToNative(sim.result.retval));
 }

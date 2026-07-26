@@ -21,6 +21,7 @@ import {
 export type { OpaqueNetwork, NetworkPreset } from "./networks";
 export type {
   ContractAddresses,
+  ContractVersions,
   NetworkDeployment,
   PoolWiring,
   RelayerWiring,
@@ -43,6 +44,8 @@ export interface OpaqueConfig {
   reputationPublisherUrl?: string;
   /** Override the ledger event scans start from (defaults to deployment ledger). */
   startLedger?: number;
+  /** Skip the contract-version handshake at client initialization (testing only). */
+  skipVersionCheck?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -56,6 +59,8 @@ export interface ResolvedConfig {
   relayerGatewayUrls: string[];
   reputationPublisherUrl?: string;
   startLedger: number;
+  contractVersions?: ContractVersions;
+  skipVersionCheck: boolean;
 }
 
 function mergeContracts(
@@ -146,5 +151,7 @@ export function resolveConfig(config: OpaqueConfig): ResolvedConfig {
     relayerGatewayUrls,
     reputationPublisherUrl: config.reputationPublisherUrl,
     startLedger: config.startLedger ?? deployment?.deploymentLedger ?? 0,
+    contractVersions: deployment?.contractVersions,
+    skipVersionCheck: config.skipVersionCheck ?? false,
   };
 }

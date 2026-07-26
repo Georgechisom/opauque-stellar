@@ -14,6 +14,7 @@ import {
   i128ToScVal,
   u64ToScVal,
 } from "../rpc/scval";
+import { parseOldestLedgerFromRangeError } from "../rpc/diagnostics";
 
 const POOL_EVENT_LOOKBACK = 16_000;
 
@@ -59,6 +60,18 @@ export class PrivacyPool {
     private readonly rpc: ContractInvoker,
     readonly contractId: string,
   ) {}
+
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
 
   /** Deposit `value` stroops under a precomputed commitment at `expectedIndex`. */
   async deposit(opts: {

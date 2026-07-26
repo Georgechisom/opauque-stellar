@@ -1,9 +1,9 @@
 /**
  * Stealth private payments. Derive an identity and meta-address, register it,
  * send a stealth XLM payment (one-time account + announcement), and sweep a
- * detected stealth account. Announcement scanning needs the WASM scanner and is
- * surfaced as a not-wired capability in this build (use the crypto primitives
- * `checkViewTagMatch` / `reconstructStealthPrivateKey` with your own event feed).
+ * detected stealth account. `scan()` matches against a caller-supplied
+ * announcement list; `scanIterator()` reads announcements from chain itself
+ * and streams matches incrementally with a resumable cursor.
  */
 import {
   computeStealthAddressAndViewTag,
@@ -125,5 +125,40 @@ export class PaymentsService {
       viewingKey: opts.identity.viewingKey,
       spendingKey: opts.identity.spendingKey,
     });
+  }
+
+  /**
+   * Stream announcement matches from chain instead of waiting for the full
+   * range to resolve: each match yields as soon as it is found, and the
+   * *last processed* ledger persists to the configured `ScanStore` after
+   * every page so a caller can resume mid-range later without re-reading (and
+   * re-yielding) events already seen. Stop early (`break` out of the
+   * `for await`) to release the scan without reading further pages.
+   */
+  async *scanIterator(opts: {
+    identity: Pick<StealthIdentity, "viewingKey" | "spendingKey">;
+    /** Resume from this ledger instead of the persisted cursor. */
+    startLedger?: number;
+    /** Skip reading/writing the persisted cursor (default false). */
+    skipCursor?: boolean;
+  }): AsyncGenerator<ScanMatch & { ledger: number }> {
+    let startLedger = opts.startLedger;
+    if (startLedger == null && !opts.skipCursor) {
+      const cursor = await this.ctx.scanStore.getCursor();
+      // The stored cursor is the last *processed* ledger; resume after it so
+      // its events are not re-fetched (`getEvents`' startLedger is inclusive).
+      if (cursor != null) startLedger = cursor + 1;
+    }
+
+    for await (const page of this.ctx.contracts.stealthAnnouncer.scanEvents({ startLedger })) {
+      for (const match of scanAnnouncements({
+        announcements: page.announcements,
+        viewingKey: opts.identity.viewingKey,
+        spendingKey: opts.identity.spendingKey,
+      })) {
+        yield { ...match, ledger: page.ledger };
+      }
+      if (!opts.skipCursor) await this.ctx.scanStore.setCursor(page.ledger);
+    }
   }
 }

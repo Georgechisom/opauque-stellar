@@ -5,3 +5,4 @@
 export * from "./scval";
 export * from "./diagnostics";
 export * from "./client";
+export * from "./fixture";

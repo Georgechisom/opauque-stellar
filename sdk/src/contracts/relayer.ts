@@ -14,6 +14,18 @@ export class RelayerRegistry {
     readonly contractId: string,
   ) {}
 
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
+
   /** Create a blind job with an escrowed fee and a payload hash + deadline. */
   async createJob(opts: {
     jobId: Uint8Array;

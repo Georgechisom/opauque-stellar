@@ -71,7 +71,8 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && npm run check:size",
+    "check:size": "node scripts/check-bundle-size.mjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
