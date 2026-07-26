@@ -34,6 +34,7 @@ import {
   recordRpcError,
 } from "./monitoring";
 import { parseHorizonBalanceToStroops } from "./decimalParser";
+import { getPollingBackoff } from "./horizonBackoff";
 
 export interface StealthLifecycleWasm {
   check_announcement_view_tag_wasm: (
@@ -84,8 +85,9 @@ export class StealthScanner {
   private readonly announcerContractId: string;
   private readonly wasm: StealthLifecycleWasm;
   private readonly getKeys: () => MasterKeys;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private lastLedger = 0;
+  private readonly backoff = getPollingBackoff(POLL_MS);
   private progress: ScanningProgress = {
     status: "idle",
     fromLedger: null,
@@ -164,15 +166,20 @@ export class StealthScanner {
 
   startWatching(): void {
     if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => {
-      void this.pollOnce();
-    }, POLL_MS);
+    this.scheduleNextPoll();
     this.setProgress({ status: "watching", error: null });
+  }
+
+  private scheduleNextPoll(): void {
+    const intervalMs = this.backoff.getState().currentIntervalMs;
+    this.pollTimer = setTimeout(() => {
+      void this.pollOnce();
+    }, intervalMs);
   }
 
   stopWatching(): void {
     if (this.pollTimer) {
-      clearInterval(this.pollTimer);
+      clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.setProgress({ status: "idle" });
@@ -201,6 +208,7 @@ export class StealthScanner {
           announcementsFound: 0,
         });
       }
+      this.backoff.recordSuccess();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       recordRpcError({
@@ -208,7 +216,11 @@ export class StealthScanner {
         method: "pollOnce",
         error: msg,
       });
+      this.backoff.recordFailure();
       this.setProgress({ status: "error", error: msg });
+    }
+    if (this.pollTimer !== null) {
+      this.scheduleNextPoll();
     }
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useOpaqueWasm } from "../hooks/useOpaqueWasm";
+import { getPollingBackoff, type BackoffState } from "../lib/horizonBackoff";
 
 interface ScannerMetadata {
   version: string;
@@ -10,6 +11,15 @@ export function ScannerDiagnosticsPanel() {
   const { wasm, isReady } = useOpaqueWasm();
   const [metadata, setMetadata] = useState<ScannerMetadata | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pollingBackoff, setPollingBackoff] = useState<BackoffState>(() =>
+    getPollingBackoff(30_000).getState()
+  );
+
+  useEffect(() => {
+    const backoff = getPollingBackoff(30_000);
+    const unsub = backoff.onStateChange((state) => setPollingBackoff(state));
+    return unsub;
+  }, []);
 
   useEffect(() => {
     if (!wasm || !isReady) return;
@@ -69,6 +79,37 @@ export function ScannerDiagnosticsPanel() {
           </div>
         </div>
       </div>
+
+      {pollingBackoff && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Horizon Balance Polling</h4>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-800 bg-ink-900/60 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Current Interval</p>
+              <p className="text-[11px] text-mist/60 mt-0.5">
+                {pollingBackoff.currentIntervalMs.toLocaleString()}ms
+                {pollingBackoff.consecutiveFailures > 0 && (
+                  <span className="text-amber-400 ml-1">(backed off)</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-800 bg-ink-900/60 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Consecutive Failures</p>
+              <p className="text-[11px] text-mist/60 mt-0.5">{pollingBackoff.consecutiveFailures}</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-800 bg-ink-900/60 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Status</p>
+              <p className={`text-[11px] mt-0.5 ${pollingBackoff.lastRequestSucceeded ? "text-emerald-400" : "text-neutral-400"}`}>
+                {pollingBackoff.lastRequestSucceeded ? "Healthy" : "Degraded"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
