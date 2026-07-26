@@ -10,6 +10,9 @@ describe("config resolution", () => {
     expect(c.pool.scope).toBe(1);
     expect(c.relayerGatewayUrls.length).toBeGreaterThan(0);
     expect(c.startLedger).toBe(TESTNET_DEPLOYMENT.deploymentLedger);
+    expect(c.contractVersions).toBeDefined();
+    expect(c.contractVersions!.privacyPool).toBe(1);
+    expect(c.skipVersionCheck).toBe(false);
   });
 
   it("applies overrides over baked defaults", () => {

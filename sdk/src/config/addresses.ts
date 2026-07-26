@@ -34,10 +34,24 @@ export interface RelayerWiring {
   gatewayUrls: string[];
 }
 
+export interface ContractVersions {
+  stealthRegistry: number;
+  stealthAnnouncer: number;
+  groth16Verifier: number;
+  reputationVerifier: number;
+  schemaRegistry: number;
+  attestationEngineV2: number;
+  poolVerifier: number;
+  privacyPool: number;
+  relayerRegistry: number;
+}
+
 export interface NetworkDeployment {
   contracts: ContractAddresses;
   pool: PoolWiring;
   relayer: RelayerWiring;
+  /** Expected contract interface versions at this deployment. */
+  contractVersions?: ContractVersions;
   /** Ledger the contracts were deployed at; event scans start here. */
   deploymentLedger: number;
 }
@@ -54,6 +68,18 @@ export const TESTNET_DEPLOYMENT: NetworkDeployment = {
     poolVerifier: "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
     privacyPool: "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
     relayerRegistry: "CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO",
+  },
+  /** All contracts deployed at interface version 1 for the initial deployment. */
+  contractVersions: {
+    stealthRegistry: 1,
+    stealthAnnouncer: 1,
+    groth16Verifier: 1,
+    reputationVerifier: 1,
+    schemaRegistry: 1,
+    attestationEngineV2: 1,
+    poolVerifier: 1,
+    privacyPool: 1,
+    relayerRegistry: 1,
   },
   pool: {
     scope: 1,

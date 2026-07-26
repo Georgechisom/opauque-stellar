@@ -28,7 +28,7 @@ import {
   StealthAnnouncer,
   StealthRegistry,
 } from "../contracts/index";
-import { RpcError, SignerError } from "../errors/index";
+import { CompatibilityError, RpcError, SignerError } from "../errors/index";
 import {
   PaymentsService,
   PoolService,
@@ -68,6 +68,9 @@ export class OpaqueClient implements OpaqueClientContext {
 
   private readonly rpcClient?: RpcClient;
 
+  /** Cached contract-version check promise (at most one round trip per session). */
+  private versionCheckPromise?: Promise<void>;
+
   constructor(opts: OpaqueClientOptions) {
     this.config = resolveConfig(opts);
     this.rpcClient = opts.invoker
@@ -101,6 +104,51 @@ export class OpaqueClient implements OpaqueClientContext {
     this.pool = new PoolService(this);
     this.relayer = new RelayerService(this);
     this.reputation = new ReputationService(this, this.schemas);
+
+    // Fire-and-forget version check — will reject on first use if mismatched.
+    if (!opts.skipVersionCheck && this.config.contractVersions && this.rpcClient) {
+      this.versionCheckPromise = this.checkContractVersions();
+    }
+  }
+
+  /**
+   * Read each deployed contract's `version()` and compare against the expected
+   * versions baked in the deployment config. Throws {@link CompatibilityError}
+   * on any mismatch so the caller gets actionable guidance before any transaction.
+   * Cached: at most one RPC round trip per session.
+   */
+  private async checkContractVersions(): Promise<void> {
+    const expected = this.config.contractVersions!;
+    const source = "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU";
+    const mismatches: Array<{ contract: string; contractId: string; expected: number; deployed: number }> = [];
+
+    const checks: Array<{ contract: string; contractId: string; fn: () => Promise<number> }> = [
+      { contract: "stealthRegistry", contractId: this.config.contracts.stealthRegistry, fn: () => this.contracts.stealthRegistry.version(source) },
+      { contract: "stealthAnnouncer", contractId: this.config.contracts.stealthAnnouncer, fn: () => this.contracts.stealthAnnouncer.version(source) },
+      { contract: "schemaRegistry", contractId: this.config.contracts.schemaRegistry, fn: () => this.contracts.schemaRegistry.version(source) },
+      { contract: "attestationEngineV2", contractId: this.config.contracts.attestationEngineV2, fn: () => this.contracts.attestationEngine.version(source) },
+      { contract: "groth16Verifier", contractId: this.config.contracts.groth16Verifier, fn: () => this.contracts.groth16Verifier.version(source) },
+      { contract: "reputationVerifier", contractId: this.config.contracts.reputationVerifier, fn: () => this.contracts.reputationVerifier.version(source) },
+      { contract: "privacyPool", contractId: this.config.contracts.privacyPool, fn: () => this.contracts.privacyPool.version(source) },
+      { contract: "relayerRegistry", contractId: this.config.contracts.relayerRegistry, fn: () => this.contracts.relayerRegistry.version(source) },
+    ];
+
+    for (const check of checks) {
+      const expectedVersion = (expected as Record<string, number>)[check.contract];
+      if (expectedVersion === undefined) continue;
+      try {
+        const deployed = await check.fn();
+        if (deployed !== expectedVersion) {
+          mismatches.push({ contract: check.contract, contractId: check.contractId, expected: expectedVersion, deployed });
+        }
+      } catch {
+        // skip — failed to query; let the user discover deeper issues naturally
+      }
+    }
+
+    if (mismatches.length > 0) {
+      throw new CompatibilityError(mismatches);
+    }
   }
 
   /** The built-in Soroban/Horizon client, or undefined when a custom invoker was injected. */
@@ -130,5 +178,25 @@ export class OpaqueClient implements OpaqueClientContext {
       );
     }
     return this.rpcClient.sendNativeTransfer(opts);
+  }
+
+  /**
+   * Wait for the contract-version handshake to complete (kicked off at
+   * construction). Returns immediately when the handshake is not configured
+   * (custom invoker, stale versions, or `skipVersionCheck`). Throws
+   * {@link CompatibilityError} on version mismatch, providing both the
+   * expected and deployed versions in the error detail.
+   *
+   * Callers building on an untrusted network should await this before the
+   * first transaction to fail fast if the deployed contracts are incompatible.
+   *
+   * @example
+   * ```ts
+   * const client = new OpaqueClient({ network: "testnet", signer });
+   * await client.waitForReady();
+   * ```
+   */
+  async waitForReady(): Promise<void> {
+    return this.versionCheckPromise ?? Promise.resolve();
   }
 }

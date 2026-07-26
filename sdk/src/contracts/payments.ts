@@ -15,6 +15,18 @@ export class StealthRegistry {
     readonly contractId: string,
   ) {}
 
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
+
   /** Register a stealth meta-address for the signer's account. */
   async registerKeys(opts: {
     stealthMetaAddress: Uint8Array;
@@ -42,6 +54,18 @@ export class StealthAnnouncer {
     private readonly rpc: ContractInvoker,
     readonly contractId: string,
   ) {}
+
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
 
   /** Announce a one-time stealth transfer (stealth id + ephemeral key + view tag). */
   async announce(opts: {
