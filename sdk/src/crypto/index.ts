@@ -9,6 +9,7 @@ export * from "./amount";
 export * from "./dksap";
 export * from "./scan";
 export * from "./notes";
+export * from "./note-codec";
 export * from "./schema-types";
 export * from "./schema-codec";
 export * from "./backup";

@@ -99,6 +99,27 @@ export class ArtifactError extends OpaqueError {
   }
 }
 
+/** A serialized note failed to decode: unknown schema version or a missing/malformed field. */
+export class NoteSchemaError extends OpaqueError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, "NOTE_SCHEMA", options);
+  }
+}
+
+/** A deposit amount violates a pool constraint (bounds or precision). */
+export class PoolValidationError extends OpaqueError {
+  /** Name of the violated constraint, e.g. "non-positive" or "precision". */
+  readonly constraint: string;
+  constructor(
+    message: string,
+    constraint: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, "POOL_VALIDATION", options);
+    this.constraint = constraint;
+  }
+}
+
 /**
  * A capability that depends on a layer not yet wired in this build (e.g. the
  * proving layer, the WASM scanner, or the relayer gateway client). Thrown so the

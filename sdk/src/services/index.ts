@@ -8,4 +8,5 @@ export * from "./schemas";
 export * from "./payments";
 export * from "./reputation";
 export * from "./pool";
+export * from "./pool-validation";
 export * from "./relayer";

@@ -4,8 +4,9 @@
  * signer's account is the tx source.
  */
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
-import type { ContractInvoker } from "../rpc/client";
+import type { ContractInvoker, SimulationReport } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
+import { NotWiredError } from "../errors/index";
 import {
   addressToScVal,
   boolToScVal,
@@ -28,6 +29,15 @@ function parseOldestLedgerFromRangeError(err: unknown): number | null {
           : "";
   const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
   return m ? Number(m[1]) : null;
+}
+
+/** Live on-chain pool configuration, as read by `get_config`. */
+export interface PoolConfig {
+  admin: string;
+  groth16Verifier: string;
+  nativeSac: string;
+  scope: number;
+  rootExpiryLedgers: number;
 }
 
 export interface PoolWithdrawInputs {
@@ -73,6 +83,22 @@ export class PrivacyPool {
     });
   }
 
+  private withdrawArgs(opts: PoolWithdrawInputs): xdr.ScVal[] {
+    return [
+      bytesToScVal(opts.proofA),
+      bytesToScVal(opts.proofB),
+      bytesToScVal(opts.proofC),
+      i128ToScVal(opts.withdrawnValue),
+      bytesToScVal(opts.stateRoot),
+      bytesToScVal(opts.aspRoot),
+      bytesToScVal(opts.nullifierHash),
+      bytesToScVal(opts.newCommitment),
+      addressToScVal(opts.recipient),
+      i128ToScVal(opts.fee),
+      addressToScVal(opts.relayer),
+    ];
+  }
+
   /** Withdraw to `recipient` (minus `fee` to `relayer`) with a v3 proof. */
   async withdraw(
     opts: PoolWithdrawInputs & { signer: OpaqueSigner },
@@ -83,20 +109,30 @@ export class PrivacyPool {
       contractId: this.contractId,
       method: "withdraw",
       contractPackage: "privacy-pool",
-      args: [
-        bytesToScVal(opts.proofA),
-        bytesToScVal(opts.proofB),
-        bytesToScVal(opts.proofC),
-        i128ToScVal(opts.withdrawnValue),
-        bytesToScVal(opts.stateRoot),
-        bytesToScVal(opts.aspRoot),
-        bytesToScVal(opts.nullifierHash),
-        bytesToScVal(opts.newCommitment),
-        addressToScVal(opts.recipient),
-        i128ToScVal(opts.fee),
-        addressToScVal(opts.relayer),
-      ],
+      args: this.withdrawArgs(opts),
       signer: opts.signer,
+    });
+  }
+
+  /**
+   * Dry-run a withdrawal: builds and simulates the same transaction `withdraw`
+   * would submit, but never signs or sends it, so no nullifier is consumed.
+   * Requires an invoker that implements `simulateInvoke`.
+   */
+  async simulateWithdraw(
+    opts: PoolWithdrawInputs & { source: string },
+  ): Promise<SimulationReport> {
+    if (!this.rpc.simulateInvoke) {
+      throw new NotWiredError(
+        "Withdrawal dry run",
+        "The configured invoker does not implement simulateInvoke.",
+      );
+    }
+    return this.rpc.simulateInvoke({
+      source: opts.source,
+      contractId: this.contractId,
+      method: "withdraw",
+      args: this.withdrawArgs(opts),
     });
   }
 
@@ -120,6 +156,38 @@ export class PrivacyPool {
       ],
       signer: opts.signer,
     });
+  }
+
+  /** Read the pool's live on-chain configuration (`get_config`). */
+  async getConfig(source: string): Promise<PoolConfig> {
+    const raw = await this.rpc.readNative<Record<string, unknown>>({
+      source,
+      contractId: this.contractId,
+      method: "get_config",
+      args: [],
+    });
+    return {
+      admin: String(raw.admin),
+      groth16Verifier: String(raw.groth16_verifier),
+      nativeSac: String(raw.native_sac),
+      scope: Number(raw.scope),
+      rootExpiryLedgers: Number(raw.root_expiry_ledgers),
+    };
+  }
+
+  /**
+   * Read the decimal precision of the pool's backing asset (its native SAC's
+   * `decimals()`), by way of the live pool config rather than an assumed constant.
+   */
+  async getNativeAssetDecimals(source: string): Promise<number> {
+    const config = await this.getConfig(source);
+    const decimals = await this.rpc.readNative<number>({
+      source,
+      contractId: config.nativeSac,
+      method: "decimals",
+      args: [],
+    });
+    return Number(decimals);
   }
 
   /** Read the next deposit leaf index (the value `deposit` will assign). */
