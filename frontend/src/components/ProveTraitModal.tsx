@@ -19,7 +19,8 @@ import { useKeys } from "../context/KeysContext";
 import { getExplorerTxUrl } from "../lib/explorer";
 import { fetchLatestValidMerkleRoot, generateReputationProof, submitProofOnChain } from "../lib/reputationProver";
 import { isWasmHtmlFallbackError } from "../lib/publicAssets";
-import type { DiscoveredTrait, ProofData } from "../lib/reputation";
+import type { DiscoveredTrait, ProofData, ProofStage } from "../lib/reputation";
+import { ProofStageTimer } from "../lib/proofDiagnostics";
 import { ModalShell } from "./ModalShell";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { CopyStatusHint } from "./CopyStatusHint";
@@ -54,6 +55,7 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
 
     setStep("generating");
     startProof(trait.traitDef.id);
+    const stageTimer = new ProofStageTimer(trait.traitDef.label);
 
     try {
       const masterKeys = getMasterKeys();
@@ -82,7 +84,10 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
         JSON.stringify(attestationsForWasm),
         stealthPrivKey,
         externalNullifier,
-        (stage, percent) => setProofStage(stage as "preparing-witness" | "generating-proof", percent),
+        (stage, percent) => {
+          stageTimer.enter(stage);
+          setProofStage(stage as ProofStage, percent);
+        },
       );
 
       // V2 public-signal order: [0] merkle_root. Convert decimal -> bytes32 hex.
@@ -102,9 +107,11 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
         }
       }
 
+      stageTimer.finish("success");
       setProofReady(proofData);
       setStep("ready");
     } catch (err) {
+      stageTimer.finish("error");
       const msg = err instanceof Error ? err.message : "Unknown error during proof generation";
       setProofError(
         isWasmHtmlFallbackError(msg)
@@ -295,24 +302,15 @@ function ExplainStep({
 }
 
 function GeneratingStep({ progress, stage }: { progress: number; stage: string }) {
-  const label = stage === "preparing-witness"
-    ? "Preparing witness from stealth history..."
-    : "Generating ZK-SNARK proof (Groth16)...";
-
   return (
-    <div className="text-center py-4">
-      <div className="w-12 h-12 mx-auto mb-4 border-2 border-ink-600 border-t-white rounded-full animate-spin" aria-hidden />
-      <p className="text-sm font-medium text-white mb-1">{label}</p>
-      <p className="text-[11px] text-mist mb-4">
+    <div className="py-4">
+      <p className="text-sm font-medium text-white mb-1 text-center">
+        Generating zero-knowledge proof…
+      </p>
+      <p className="text-[11px] text-mist mb-5 text-center">
         This runs entirely in your browser using WebAssembly.
       </p>
-      <div className="h-1.5 bg-ink-800 rounded-full overflow-hidden max-w-xs mx-auto">
-        <div
-          className="h-full bg-linear-to-r from-white to-white rounded-full transition-all duration-700 ease-out"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <p className="text-[10px] text-mist/70 mt-2">{progress}%</p>
+      <StagedProgress stages={PROOF_STAGES} currentStage={stage} progress={progress} />
     </div>
   );
 }

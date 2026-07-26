@@ -25,6 +25,7 @@ import {
 import { ArtifactError } from "../errors/index";
 import type { ArtifactResolver } from "../artifacts/index";
 import { serializeGroth16Proof, type Groth16ProofLike } from "./serialize";
+import { runProofJobs, type ProofPoolOptions } from "./worker-pool";
 
 type Poseidon = Parameters<typeof hashFields>[0];
 
@@ -142,13 +143,24 @@ async function loadSnarkjs(): Promise<SnarkjsLike> {
   }
 }
 
+export interface PoolWithdrawWitness {
+  /** snarkjs circuit input. */
+  input: Record<string, unknown>;
+  withdrawnValue: bigint;
+  stateRoot: bigint;
+  aspRoot: bigint;
+  nullifierHash: bigint;
+  newCommitment: bigint;
+}
+
 /**
- * Generate a full-withdrawal proof for `note`, paying `recipient` (minus `fee` to
- * `relayer`). The caller supplies the reconstructed pool leaves: `stateLeaves`
- * (commitment per state-tree index) and `depositIndices` (state index of each
- * deposit, in ASP-tree order).
+ * Build the v3 withdrawal witness for `note` — everything `fullProve` needs,
+ * short of the circuit artifacts and snarkjs itself. Pulled out of
+ * {@link provePoolWithdraw} so batch proving (`provePoolWithdrawBatch`) can
+ * build every witness up front and only parallelize the CPU-heavy `fullProve`
+ * calls across a worker pool.
  */
-export async function provePoolWithdraw(opts: {
+export async function buildPoolWithdrawWitness(opts: {
   note: PoolNote;
   recipient: string;
   relayer: string;
@@ -156,9 +168,7 @@ export async function provePoolWithdraw(opts: {
   scope: number;
   stateLeaves: bigint[];
   depositIndices: number[];
-  artifacts: ArtifactResolver;
-  snarkjs?: SnarkjsLike;
-}): Promise<PoolWithdrawProof> {
+}): Promise<PoolWithdrawWitness> {
   const { note } = opts;
   const value = BigInt(note.value);
   const withdrawnValue = value; // full withdrawal
@@ -214,22 +224,109 @@ export async function provePoolWithdraw(opts: {
     aspIndex: aspPath.indices.map((x) => x.toString()),
   };
 
+  return {
+    input,
+    withdrawnValue,
+    stateRoot: stateTree.root(),
+    aspRoot: aspTree.root(),
+    nullifierHash,
+    newCommitment,
+  };
+}
+
+function finishPoolWithdrawProof(
+  witness: PoolWithdrawWitness,
+  proof: Groth16ProofLike,
+): PoolWithdrawProof {
+  const { a, b, c } = serializeGroth16Proof(proof);
+  return {
+    proofA: a,
+    proofB: b,
+    proofC: c,
+    withdrawnValue: witness.withdrawnValue,
+    stateRoot: bigIntToBytes32(witness.stateRoot),
+    aspRoot: bigIntToBytes32(witness.aspRoot),
+    nullifierHash: bigIntToBytes32(witness.nullifierHash),
+    newCommitment: bigIntToBytes32(witness.newCommitment),
+  };
+}
+
+/**
+ * Generate a full-withdrawal proof for `note`, paying `recipient` (minus `fee` to
+ * `relayer`). The caller supplies the reconstructed pool leaves: `stateLeaves`
+ * (commitment per state-tree index) and `depositIndices` (state index of each
+ * deposit, in ASP-tree order).
+ */
+export async function provePoolWithdraw(opts: {
+  note: PoolNote;
+  recipient: string;
+  relayer: string;
+  fee: bigint;
+  scope: number;
+  stateLeaves: bigint[];
+  depositIndices: number[];
+  artifacts: ArtifactResolver;
+  snarkjs?: SnarkjsLike;
+}): Promise<PoolWithdrawProof> {
+  const witness = await buildPoolWithdrawWitness(opts);
   const snarkjs = opts.snarkjs ?? (await loadSnarkjs());
   const [wasm, zkey] = await Promise.all([
     opts.artifacts.resolve("pool-v3", "wasm"),
     opts.artifacts.resolve("pool-v3", "zkey"),
   ]);
-  const { proof } = await snarkjs.groth16.fullProve(input, wasm, zkey);
-  const { a, b, c } = serializeGroth16Proof(proof);
+  const { proof } = await snarkjs.groth16.fullProve(witness.input, wasm, zkey);
+  return finishPoolWithdrawProof(witness, proof);
+}
 
-  return {
-    proofA: a,
-    proofB: b,
-    proofC: c,
-    withdrawnValue,
-    stateRoot: bigIntToBytes32(stateTree.root()),
-    aspRoot: bigIntToBytes32(aspTree.root()),
-    nullifierHash: bigIntToBytes32(nullifierHash),
-    newCommitment: bigIntToBytes32(newCommitment),
-  };
+/** One note to prove in a {@link provePoolWithdrawBatch} call. */
+export interface PoolWithdrawBatchJob {
+  note: PoolNote;
+  recipient: string;
+  relayer?: string;
+  fee?: bigint;
+  scope?: number;
+  stateLeaves: bigint[];
+  depositIndices: number[];
+}
+
+/**
+ * Generate full-withdrawal proofs for several independent notes. When a worker
+ * pool is available (Node `worker_threads` or a browser `Worker`), the
+ * CPU-heavy `fullProve` calls run in parallel across it; otherwise (or when
+ * `pool: false`) they run serially in-process, one at a time — same code path
+ * as {@link provePoolWithdraw}, so results are identical either way for the
+ * same inputs. Results are returned in the same order as `jobs`.
+ */
+export async function provePoolWithdrawBatch(opts: {
+  jobs: PoolWithdrawBatchJob[];
+  artifacts: ArtifactResolver;
+  snarkjs?: SnarkjsLike;
+  /** `false` forces serial proving; omit to auto-detect a worker pool. */
+  pool?: ProofPoolOptions | false;
+}): Promise<PoolWithdrawProof[]> {
+  const witnesses = await Promise.all(
+    opts.jobs.map((job) =>
+      buildPoolWithdrawWitness({
+        note: job.note,
+        recipient: job.recipient,
+        relayer: job.relayer ?? job.recipient,
+        fee: job.fee ?? 0n,
+        scope: job.scope ?? job.note.scope,
+        stateLeaves: job.stateLeaves,
+        depositIndices: job.depositIndices,
+      }),
+    ),
+  );
+
+  const [wasm, zkey] = await Promise.all([
+    opts.artifacts.resolve("pool-v3", "wasm"),
+    opts.artifacts.resolve("pool-v3", "zkey"),
+  ]);
+
+  const results = await runProofJobs(
+    witnesses.map((w) => ({ input: w.input, wasm, zkey })),
+    { snarkjs: opts.snarkjs, pool: opts.pool },
+  );
+
+  return results.map((r, i) => finishPoolWithdrawProof(witnesses[i], r.proof));
 }

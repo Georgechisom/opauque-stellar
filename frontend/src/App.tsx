@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
+import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
 import { KeysProvider, useKeys } from "./context/KeysContext";
 import { hasCompletedOnboardingTour, runOnboardingTour } from "./lib/onboardingTour";
 import { ProtocolLogProvider } from "./context/ProtocolLogContext";
@@ -31,6 +33,17 @@ const AttestationManager = lazy(() => import("./components/AttestationManager").
 const MyTraitsView = lazy(() => import("./components/MyTraitsView").then((m) => ({ default: m.MyTraitsView })));
 const ManageView = lazy(() => import("./components/ManageView").then((m) => ({ default: m.ManageView })));
 const PoolView = lazy(() => import("./components/PoolView").then((m) => ({ default: m.PoolView })));
+
+/** Stamps the resolved motion preference onto <html> for the CSS kill-switch in index.css. */
+function MotionPreferenceEffect() {
+  const reduceMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    document.documentElement.dataset.reduceMotion = reduceMotion ? "true" : "false";
+  }, [reduceMotion]);
+
+  return null;
+}
 
 function LazyFallback() {
   return (
@@ -280,14 +293,25 @@ function ToastLayer() {
   );
 }
 
+function MotionAwareApp() {
+  const reduceMotion = usePrefersReducedMotion();
+
+  return (
+    <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
+      <MotionPreferenceEffect />
+      <NetworkMismatchModal />
+      <AppContent />
+      <ToastLayer />
+    </MotionConfig>
+  );
+}
+
 export default function App() {
   return (
     <KeysProvider>
       <ProtocolLogProvider>
         <ToastProvider>
-          <NetworkMismatchModal />
-          <AppContent />
-          <ToastLayer />
+          <MotionAwareApp />
         </ToastProvider>
       </ProtocolLogProvider>
     </KeysProvider>
