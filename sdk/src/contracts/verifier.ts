@@ -29,6 +29,18 @@ export class Groth16Verifier {
     readonly contractId: string,
   ) {}
 
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
+
   /** Submit a Groth16 V2 proof. The public signals are passed as an ScMap. */
   async verifyProofV2(
     opts: VerifyProofV2Inputs & { signer: OpaqueSigner },
@@ -80,6 +92,18 @@ export class ReputationVerifier {
     private readonly rpc: ContractInvoker,
     readonly contractId: string,
   ) {}
+
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
 
   /** Submit a V2 reputation proof for on-chain verification. */
   async verifyReputation(

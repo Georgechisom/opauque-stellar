@@ -1,0 +1,95 @@
+[
+  {
+    "key": "getLatestLedger",
+    "type": "getLatestLedger",
+    "result": 3101000
+  },
+  {
+    "key": "CAIXWMGYZR3YAQ3CPCXOU42WG62E3ARUSG4GDHHDMNRXUD44YSGE5VXW::version::[]",
+    "type": "readNative",
+    "contractId": "CAIXWMGYZR3YAQ3CPCXOU42WG62E3ARUSG4GDHHDMNRXUD44YSGE5VXW",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CB2Y3GJMPY5BUSZLXG3DSIMERCNCTUM63IIEQ2GUNYEJ3DBKPFIZQGCS::version::[]",
+    "type": "readNative",
+    "contractId": "CB2Y3GJMPY5BUSZLXG3DSIMERCNCTUM63IIEQ2GUNYEJ3DBKPFIZQGCS",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP::version::[]",
+    "type": "readNative",
+    "contractId": "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX::version::[]",
+    "type": "readNative",
+    "contractId": "CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T::version::[]",
+    "type": "readNative",
+    "contractId": "CAWXRGFZITZ7TJIZNDLOPJNVEMPAZDWFI22XI76FC67YF2MDRUXLBS2T",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR::version::[]",
+    "type": "readNative",
+    "contractId": "CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE::version::[]",
+    "type": "readNative",
+    "contractId": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO::version::[]",
+    "type": "readNative",
+    "contractId": "CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO",
+    "method": "version",
+    "args": [],
+    "result": 1
+  },
+  {
+    "key": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE::get_deposit_count::[]",
+    "type": "readNative",
+    "contractId": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+    "method": "get_deposit_count",
+    "args": [],
+    "result": 42
+  },
+  {
+    "key": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE::get_latest_root::[{\"type\":\"bool\",\"value\":true}]",
+    "type": "readNative",
+    "contractId": "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
+    "method": "get_latest_root",
+    "args": [],
+    "result": null
+  },
+  {
+    "key": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q::version::[]",
+    "type": "readNative",
+    "contractId": "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
+    "method": "version",
+    "args": [],
+    "result": 1
+  }
+]

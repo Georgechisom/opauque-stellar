@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "Known network endpoints the @opaquecash/stellar SDK may contact during normal operation. Any egress to a host not in this list is a potential data exfiltration vector and must be investigated.",
+  "hosts": [
+    "soroban-testnet.stellar.org",
+    "horizon-testnet.stellar.org",
+    "rpc-futurenet.stellar.org",
+    "horizon-futurenet.stellar.org",
+    "g-stelar-relayer.opaque.cash",
+    "localhost"
+  ],
+  "notes": {
+    "g-stelar-relayer.opaque.cash": "Relayer marketplace gateway (testnet)"
+  }
+}

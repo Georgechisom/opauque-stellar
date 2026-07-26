@@ -20,6 +20,18 @@ export class SchemaRegistry {
     readonly contractId: string,
   ) {}
 
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
+
   /** Register a schema. The signer is the schema authority. */
   async registerSchema(opts: {
     schemaId: Uint8Array;
@@ -122,6 +134,18 @@ export class AttestationEngine {
     private readonly rpc: ContractInvoker,
     readonly contractId: string,
   ) {}
+
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
 
   /** Attest to a stealth identity under a schema. The signer is the issuer. */
   async attest(opts: {
