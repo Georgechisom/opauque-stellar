@@ -124,7 +124,12 @@ function loadCache(): Promise<void> {
         const db = await getDb();
         const key = await getOrCreateKey();
         const stored = (await db.getAll(ENTRY_STORE)) as StoredEntry[];
-        const decrypted = await Promise.all(stored.map((s) => decryptEntry(s, key)));
+        // Decrypt entries independently so one corrupt entry doesn't blank the
+        // whole log — it's simply dropped from the view.
+        const results = await Promise.allSettled(stored.map((s) => decryptEntry(s, key)));
+        const decrypted = results
+          .filter((r): r is PromiseFulfilledResult<SigningAuditEntry> => r.status === "fulfilled")
+          .map((r) => r.value);
         cache = decrypted.sort((a, b) => b.timestamp - a.timestamp);
       } catch {
         cache = [];
