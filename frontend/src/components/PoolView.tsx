@@ -38,6 +38,8 @@ import {
   type RelayerJobDraft,
   type VerifiedBid,
 } from "../lib/relayerMarket";
+import { fetchRelayerDirectory, type RelayerListing } from "../lib/relayerDirectory";
+import { RelayerComparison } from "./RelayerComparison";
 import { WithdrawFlowModal, type WithdrawStep, type WithdrawStepStatus } from "./WithdrawFlowModal";
 
 const STROOPS_PER_XLM = 10_000_000n;
@@ -200,6 +202,13 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [relayerBids, setRelayerBids] = useState<VerifiedBid[]>([]);
   const [selectedRelayer, setSelectedRelayer] = useState<string | null>(null);
 
+  // #559: relayer registry comparison. `preferredRelayer` is chosen BEFORE proving so
+  // it can be bound into the proof context; leaving it null keeps the open-bid flow.
+  const [directory, setDirectory] = useState<RelayerListing[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
+  const [preferredRelayer, setPreferredRelayer] = useState<string | null>(null);
+
   // Step-by-step withdrawal modal (wallet + relayer flows).
   const [flowOpen, setFlowOpen] = useState(false);
   const [flowMode, setFlowMode] = useState<"wallet" | "relayer">("wallet");
@@ -232,6 +241,33 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   useEffect(() => {
     if (submitMode === "relayer" && !relayerCfg) setSubmitMode("wallet");
   }, [relayerCfg, submitMode]);
+
+  const refreshDirectory = useCallback(async () => {
+    if (!relayerCfg || !publicKey) return;
+    setDirectoryLoading(true);
+    setDirectoryError(null);
+    try {
+      setDirectory(await fetchRelayerDirectory({ caller: publicKey }));
+    } catch (e) {
+      setDirectoryError((e as Error).message || "Could not read the relayer registry.");
+    } finally {
+      setDirectoryLoading(false);
+    }
+  }, [publicKey, relayerCfg]);
+
+  // Load the registry when the user switches into relayer mode, and drop a stale
+  // selection if that operator is no longer registered or has fallen below the bond.
+  useEffect(() => {
+    if (submitMode !== "relayer") return;
+    void refreshDirectory();
+  }, [submitMode, refreshDirectory]);
+
+  useEffect(() => {
+    if (!preferredRelayer) return;
+    if (directory.length === 0) return;
+    const still = directory.find((r) => r.operator === preferredRelayer);
+    if (!still || !still.eligible) setPreferredRelayer(null);
+  }, [directory, preferredRelayer]);
 
   useEffect(() => {
     setRelayerDraft(null);
@@ -454,10 +490,13 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     setBusy("refresh");
     updateStep("bids", "active");
     try {
-      const bids = await fetchRelayerBids(relayerDraft.jobIdHex, gateway);
+      const allBids = await fetchRelayerBids(relayerDraft.jobIdHex, gateway);
+      const bids = preferredRelayer
+        ? allBids.filter((bid) => bid.operator === preferredRelayer)
+        : allBids;
       setRelayerBids(bids);
       const picked = pickStakeWeightedBid(bids);
-      setSelectedRelayer((prev) => prev ?? picked?.operator ?? null);
+      setSelectedRelayer((prev) => prev ?? preferredRelayer ?? picked?.operator ?? null);
       updateStep("bids", "done", bids.length > 0 ? `${bids.length} verified bid(s)` : "no bids yet");
       updateStep("pick", "active");
       setAwaitingPick(true);
@@ -466,7 +505,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     } finally {
       setBusy(null);
     }
-  }, [gateway, relayerDraft, showToast, updateStep]);
+  }, [gateway, preferredRelayer, relayerDraft, showToast, updateStep]);
 
   const startRelayerWithdraw = useCallback(async () => {
     if (!cfg || !relayerCfg || !publicKey || !signTransaction) return;
@@ -491,11 +530,15 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     setBusy("relayer");
     try {
       updateStep("read-chain", "active");
+      // #559: when the user picked a relayer from the registry comparison, that
+      // operator — not the registry — is the address hashed into the proof context,
+      // so the proof is only usable by them.
+      const boundRelayer = preferredRelayer ?? relayerCfg.registryId;
       const proof = await generateWithdrawProof({
         note,
         recipient,
         fee: 0n,
-        relayer: relayerCfg.registryId,
+        relayer: boundRelayer,
         caller: publicKey,
         onProgress: onProveProgress,
       });
@@ -509,6 +552,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         registryId: relayerCfg.registryId,
         proof,
         recipient,
+        boundRelayer,
       });
       const draft = buildRelayerJobDraft({ payload, fee, deadlineLedger });
       const tx = await invokeRelayerCreateJob({
@@ -525,10 +569,25 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       await publishAdvert(draft.advert, gateway);
       updateStep("advert", "done");
       updateStep("bids", "active");
-      const bids = await fetchRelayerBids(draft.jobIdHex, gateway);
+      const allBids = await fetchRelayerBids(draft.jobIdHex, gateway);
+      // A bound proof is only submittable by the operator it names, so bids from
+      // anyone else are unusable and must not be offered as a choice.
+      const bids = preferredRelayer
+        ? allBids.filter((bid) => bid.operator === preferredRelayer)
+        : allBids;
       setRelayerBids(bids);
-      setSelectedRelayer(pickStakeWeightedBid(bids)?.operator ?? null);
-      updateStep("bids", "done", bids.length > 0 ? `${bids.length} verified bid(s)` : "no bids yet");
+      setSelectedRelayer(
+        preferredRelayer ?? pickStakeWeightedBid(bids)?.operator ?? null,
+      );
+      updateStep(
+        "bids",
+        "done",
+        bids.length > 0
+          ? `${bids.length} verified bid(s)${preferredRelayer ? " from your chosen relayer" : ""}`
+          : preferredRelayer
+            ? "your chosen relayer has not bid yet"
+            : "no bids yet",
+      );
       updateStep("pick", "active");
       setAwaitingPick(true);
     } catch (e) {
@@ -542,6 +601,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     cfg,
     gateway,
     publicKey,
+    preferredRelayer,
     recipient,
     relayerCfg,
     relayerFee,
@@ -914,9 +974,27 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
                         />
                       </label>
                     </div>
+
+                    <RelayerComparison
+                      listings={directory}
+                      selected={preferredRelayer}
+                      onSelect={setPreferredRelayer}
+                      onRefresh={() => void refreshDirectory()}
+                      loading={directoryLoading}
+                      error={directoryError}
+                      withdrawnStroops={
+                        selected != null
+                          ? BigInt(unspent.find((n) => n.leafIndex === selected)?.value ?? 0)
+                          : 0n
+                      }
+                    />
+
                     <p className="text-xs leading-relaxed text-mist/60">
                       The job-funding transaction is public. The selected relayer cannot alter the
                       recipient, amount, or proof; it only learns the payload when it submits.
+                      {preferredRelayer
+                        ? " Your chosen relayer is bound into the proof, so no one else can submit it."
+                        : " With no relayer chosen, the proof is bound to the registry and any staked relayer may bid."}
                     </p>
                     <button
                       type="button"

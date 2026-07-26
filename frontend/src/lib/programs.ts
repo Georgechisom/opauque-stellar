@@ -198,16 +198,28 @@ export async function invokeVerifyProofV2(opts: {
 
 import { getPoolConfig } from "../contracts/poolConfig";
 import { getRelayerConfig } from "../contracts/relayerConfig";
+import { getNetwork } from "./chain";
+import { PoolNotDeployedError, RelayerNotConfiguredError } from "./errors";
 
 function requirePoolId(): string {
   const cfg = getPoolConfig();
-  if (!cfg) throw new Error("Privacy pool is not deployed on this network.");
+  if (!cfg) {
+    throw new PoolNotDeployedError({
+      message: "Privacy pool is not deployed on this network.",
+      network: getNetwork(),
+    });
+  }
   return cfg.poolId;
 }
 
 function requireRelayerRegistryId(): string {
   const cfg = getRelayerConfig();
-  if (!cfg) throw new Error("Relayer market is not deployed on this network.");
+  if (!cfg) {
+    throw new RelayerNotConfiguredError({
+      message: "Relayer market is not deployed on this network.",
+      network: getNetwork(),
+    });
+  }
   return cfg.registryId;
 }
 
