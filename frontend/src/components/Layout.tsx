@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { TestnetBanner } from "./TestnetBanner";
+import { NetworkStatusBanner } from "./NetworkStatusBanner";
 import { isTabNavVisible } from "../lib/tabAccess";
 import { useTranslation } from "../lib/i18n";
 
@@ -224,6 +225,9 @@ export function Layout({
 }: LayoutProps) {
   return (
     <div className="min-h-dvh flex flex-col bg-ink-950">
+      {/* ── Network status banner (shows when offline) ── */}
+      <NetworkStatusBanner />
+      
       {/* ── Fixed header ── */}
       <div className="hidden md:flex flex-col fixed top-0 left-0 right-0 z-20">
         <TestnetBanner isConnected={isConnected} />
