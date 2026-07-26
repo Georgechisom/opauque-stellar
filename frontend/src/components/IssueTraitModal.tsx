@@ -16,6 +16,7 @@ import { getConfigForCluster } from "../contracts/contract-config";
 import { KNOWN_TRAITS } from "../lib/reputation";
 import { ModalShell } from "./ModalShell";
 import { useTxHistoryStore } from "../store/txHistoryStore";
+import { useNetworkConnectivity, useNetworkAwareAction } from "../hooks/useNetworkConnectivity";
 
 type IssueTraitModalProps = {
   onClose: () => void;
@@ -43,6 +44,7 @@ export function IssueTraitModal({ onClose }: IssueTraitModalProps) {
   const { publicKey, signTransaction } = useWallet();
   const cluster = getCluster();
   const pushTx = useTxHistoryStore((s) => s.push);
+  const { shouldBlockOperations } = useNetworkConnectivity();
   const [step, setStep] = useState<IssueStep>("form");
   const [recipientMeta, setRecipientMeta] = useState("");
   const [selectedTraitId, setSelectedTraitId] = useState<string>(
@@ -59,62 +61,58 @@ export function IssueTraitModal({ onClose }: IssueTraitModalProps) {
     ? parseInt(customAttestationId, 10) || 0
     : (selectedTrait?.attestationId ?? 0);
 
-  const canSubmit = recipientMeta.length >= 132 && attestationId > 0;
+  const canSubmit = recipientMeta.length >= 132 && attestationId > 0 && !shouldBlockOperations;
 
-  const handleIssue = useCallback(async () => {
+  // Create the base issue function
+  const issueTraitBase = useCallback(async () => {
     if (!canSubmit || !publicKey) {
-      if (!publicKey) setError("Connect your wallet first.");
+      if (!publicKey) throw new Error("Connect your wallet first.");
       return;
     }
 
     setStep("confirming");
     setError(null);
 
-    try {
-      const config = getConfigForCluster(cluster);
-      if (!config) throw new Error("Cluster not supported");
+    const config = getConfigForCluster(cluster);
+    if (!config) throw new Error("Cluster not supported");
 
-      const { stealthAddress, ephemeralPubKey, viewTag } =
-        computeStealthAddressAndViewTag(recipientMeta as `0x${string}`);
+    const { stealthAddress, ephemeralPubKey, viewTag } =
+      computeStealthAddressAndViewTag(recipientMeta as `0x${string}`);
 
-      const metadata = encodeAttestationMetadata(viewTag, attestationId);
+    const metadata = encodeAttestationMetadata(viewTag, attestationId);
 
-      const stealthAddrBytes = Uint8Array.from(
-        Buffer.from(stealthAddress.replace(/^0x/i, ""), "hex"),
-      );
-      const sig = await announceStealthTransfer({
-        sourcePublicKey: publicKey,
-        schemeId: SCHEME_ID_SECP256K1,
-        stealthAddress: stealthAddrBytes,
-        ephemeralPubKey,
-        metadata,
-        signTransaction,
-      });
+    const stealthAddrBytes = Uint8Array.from(
+      Buffer.from(stealthAddress.replace(/^0x/i, ""), "hex"),
+    );
+    const sig = await announceStealthTransfer({
+      sourcePublicKey: publicKey,
+      schemeId: SCHEME_ID_SECP256K1,
+      stealthAddress: stealthAddrBytes,
+      ephemeralPubKey,
+      metadata,
+      signTransaction,
+    });
 
-      const traitLabel = useCustom
-        ? customLabel.trim() || `Trait #${attestationId}`
-        : (selectedTrait?.label ?? `Trait #${attestationId}`);
-      const recipientLabel =
-        recipientMeta.length > 14
-          ? `${recipientMeta.slice(0, 10)}…${recipientMeta.slice(-4)}`
-          : recipientMeta;
-      pushTx({
-        cluster,
-        kind: "trait",
-        counterparty: recipientLabel,
-        amountStroops: "0",
-        tokenSymbol: "TRAIT",
-        tokenAddress: null,
-        amount: traitLabel,
-        txHash: sig,
-      });
+    const traitLabel = useCustom
+      ? customLabel.trim() || `Trait #${attestationId}`
+      : (selectedTrait?.label ?? `Trait #${attestationId}`);
+    const recipientLabel =
+      recipientMeta.length > 14
+        ? `${recipientMeta.slice(0, 10)}…${recipientMeta.slice(-4)}`
+        : recipientMeta;
+    pushTx({
+      cluster,
+      kind: "trait",
+      counterparty: recipientLabel,
+      amountStroops: "0",
+      tokenSymbol: "TRAIT",
+      tokenAddress: null,
+      amount: traitLabel,
+      txHash: sig,
+    });
 
-      setTxHash(sig);
-      setStep("success");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transaction failed");
-      setStep("error");
-    }
+    setTxHash(sig);
+    setStep("success");
   }, [
     canSubmit,
     cluster,
@@ -127,6 +125,17 @@ export function IssueTraitModal({ onClose }: IssueTraitModalProps) {
     customLabel,
     selectedTrait,
   ]);
+
+  // Wrap with network awareness
+  const handleIssue = useNetworkAwareAction(issueTraitBase, "issue_trait", {
+    onBlocked: () => {
+      setError("Network connectivity issues detected. Please check your internet connection.");
+    },
+    onNetworkError: (error) => {
+      setError(error.message);
+      setStep("error");
+    },
+  });
 
   return (
     <ModalShell
@@ -256,9 +265,18 @@ export function IssueTraitModal({ onClose }: IssueTraitModalProps) {
               type="button"
               onClick={handleIssue}
               disabled={!canSubmit}
-              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-black bg-white border border-white hover:bg-black hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-black bg-white border border-white hover:bg-black hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed relative group"
+              title={shouldBlockOperations ? "Network connectivity issues detected. Please check your internet connection." : ""}
             >
+              {shouldBlockOperations && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-white"></span>
+              )}
               Issue Trait
+              {shouldBlockOperations && (
+                <span className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-600 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                  Network issues detected
+                </span>
+              )}
             </button>
           </div>
         </div>
