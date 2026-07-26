@@ -95,6 +95,71 @@ export class PoolService {
     return txHash;
   }
 
+  /**
+   * Withdraw several notes to one recipient in a coordinated call: proves and
+   * submits each note's withdrawal in turn — still one proof and one
+   * transaction per note, so per-note nullifier semantics are unchanged —
+   * and continues past individual failures so partial success is possible.
+   * Requires an artifact resolver (`new OpaqueClient({ artifacts })`).
+   *
+   * The pool leaves are reconstructed from chain once and reused across every
+   * note's proof (all notes prove against the same published state root);
+   * withdrawals themselves are still submitted sequentially, one at a time,
+   * since they share the signer's account and Stellar sequence numbers.
+   */
+  async withdrawBatch(opts: {
+    notes: PoolNote[];
+    recipient: string;
+    relayer?: string;
+    fee?: bigint;
+  }): Promise<{
+    succeeded: Array<{ note: PoolNote; txHash: string }>;
+    /** Notes whose withdrawal failed and therefore remain unspent. */
+    failed: Array<{ note: PoolNote; error: unknown }>;
+  }> {
+    if (opts.notes.length === 0) return { succeeded: [], failed: [] };
+    if (!this.ctx.artifacts) {
+      throw new NotWiredError(
+        "Pool withdrawal proof generation",
+        "Construct OpaqueClient with { artifacts } to enable proving, or withdraw() each note individually with a precomputed bundle.",
+      );
+    }
+
+    const { stateLeaves, depositIndices } = await this.ctx.contracts.privacyPool.reconstructState({
+      startLedger: this.ctx.config.startLedger,
+    });
+
+    const succeeded: Array<{ note: PoolNote; txHash: string }> = [];
+    const failed: Array<{ note: PoolNote; error: unknown }> = [];
+
+    for (const note of opts.notes) {
+      try {
+        const proof = await provePoolWithdraw({
+          note,
+          recipient: opts.recipient,
+          relayer: opts.relayer ?? opts.recipient,
+          fee: opts.fee ?? 0n,
+          scope: this.ctx.config.pool.scope,
+          stateLeaves,
+          depositIndices,
+          artifacts: this.ctx.artifacts,
+        });
+        const txHash = await this.withdraw({
+          proof,
+          recipient: opts.recipient,
+          fee: opts.fee,
+          relayer: opts.relayer,
+          noteCommitment: note.commitment,
+        });
+        succeeded.push({ note, txHash });
+      } catch (error) {
+        failed.push({ note, error });
+      }
+    }
+
+    return { succeeded, failed };
+  }
+
   /** Read the next deposit leaf index. */
   async getDepositCount(opts?: { source?: string }): Promise<number> {
     return this.ctx.contracts.privacyPool.getDepositCount(await this.source(opts?.source));

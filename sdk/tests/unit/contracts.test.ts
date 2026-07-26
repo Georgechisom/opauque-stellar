@@ -16,12 +16,19 @@ import {
   RelayerRegistry,
   keypairSigner,
   fromScVal,
+  addressToScVal,
+  bytesToScVal,
+  u64ToScVal,
   type ContractInvoker,
   type InvokeOptions,
 } from "../../src/index";
 
 class CaptureInvoker implements ContractInvoker {
   last?: InvokeOptions;
+  /** Canned `getEvents` responses, consumed in order; errors thrown as-is. */
+  eventPages: Array<rpc.Api.GetEventsResponse | Error> = [];
+  eventsCallCount = 0;
+  latestLedgerValue = 0;
   async invoke(opts: InvokeOptions): Promise<string> {
     this.last = opts;
     return "TXHASH";
@@ -33,10 +40,13 @@ class CaptureInvoker implements ContractInvoker {
     throw new Error("not used");
   }
   async getEvents(): Promise<rpc.Api.GetEventsResponse> {
-    return { events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse;
+    this.eventsCallCount++;
+    const next = this.eventPages.shift();
+    if (next instanceof Error) throw next;
+    return next ?? ({ events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse);
   }
   async getLatestLedger(): Promise<number> {
-    return 0;
+    return this.latestLedgerValue;
   }
 }
 
@@ -83,6 +93,81 @@ describe("payments bindings", () => {
     expect((a[2] as Uint8Array).length).toBe(20);
     expect((a[3] as Uint8Array).length).toBe(33);
     expect(Array.from(a[4] as Uint8Array)).toEqual([0x2a]);
+  });
+
+  const announcementEvent = (opts: { stealthAddress: number; ephemeralPubKey: number; viewTag: number; ledger: number }) =>
+    ({
+      value: xdr.ScVal.scvVec([
+        u64ToScVal(1n),
+        bytesToScVal(bytes(20, opts.stealthAddress)),
+        addressToScVal(PK),
+        bytesToScVal(bytes(33, opts.ephemeralPubKey)),
+        bytesToScVal(new Uint8Array([opts.viewTag])),
+      ]),
+      ledger: opts.ledger,
+    }) as unknown as rpc.Api.EventResponse;
+
+  it("scanEvents decodes Announcement events into pages with a ledger cursor", async () => {
+    inv.eventPages = [
+      {
+        events: [
+          announcementEvent({ stealthAddress: 1, ephemeralPubKey: 2, viewTag: 0x2a, ledger: 100 }),
+          announcementEvent({ stealthAddress: 3, ephemeralPubKey: 4, viewTag: 0x2b, ledger: 105 }),
+        ],
+        latestLedger: 105,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+
+    const pages = [];
+    for await (const page of new StealthAnnouncer(inv, C).scanEvents({ startLedger: 1 })) {
+      pages.push(page);
+    }
+    expect(pages.length).toBe(1);
+    expect(pages[0].ledger).toBe(105);
+    expect(pages[0].announcements.length).toBe(2);
+    expect(pages[0].announcements[0].stealthAddress).toBe("0x" + "01".repeat(20));
+    expect(pages[0].announcements[0].ephemeralPubKey.length).toBe(33);
+    expect(pages[0].announcements[1].viewTag).toBe(0x2b);
+  });
+
+  it("scanEvents retries with the retained-window start ledger on a range error", async () => {
+    inv.eventPages = [
+      new Error("startLedger must be within the ledger range: 900 - 2000"),
+      {
+        events: [announcementEvent({ stealthAddress: 5, ephemeralPubKey: 6, viewTag: 1, ledger: 950 })],
+        latestLedger: 950,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+
+    const pages = [];
+    for await (const page of new StealthAnnouncer(inv, C).scanEvents({ startLedger: 1 })) {
+      pages.push(page);
+    }
+    expect(inv.eventsCallCount).toBe(2);
+    expect(pages.length).toBe(1);
+    expect(pages[0].ledger).toBe(950);
+  });
+
+  it("scanEvents stops paging once the consumer breaks early", async () => {
+    inv.eventPages = [
+      {
+        events: [announcementEvent({ stealthAddress: 7, ephemeralPubKey: 8, viewTag: 1, ledger: 100 })],
+        latestLedger: 100,
+        cursor: "page1",
+      } as unknown as rpc.Api.GetEventsResponse,
+      {
+        events: [announcementEvent({ stealthAddress: 9, ephemeralPubKey: 10, viewTag: 1, ledger: 200 })],
+        latestLedger: 200,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+
+    for await (const _page of new StealthAnnouncer(inv, C).scanEvents({ startLedger: 1 })) {
+      break;
+    }
+    expect(inv.eventsCallCount).toBe(1);
   });
 });
 
