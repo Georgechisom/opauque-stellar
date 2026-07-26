@@ -87,10 +87,6 @@ export type SignTxFn = (xdr: string) => Promise<string>;
 const TX_POLL_TIMEOUT_MS = 60_000; // 60 seconds max polling
 const TX_POLL_INTERVAL_MS = 1_000; // 1 second between polls
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
