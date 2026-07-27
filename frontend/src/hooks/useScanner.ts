@@ -31,6 +31,7 @@ import {
   logSyncError,
 } from "../lib/syncErrorUtils";
 import { getStoredGhostEntries } from "../store/ghostAddressStore";
+import { getPollingBackoff, type BackoffState } from "../lib/horizonBackoff";
 
 /**
  * Minimal chain-read surface the scanner needs. Backed by the Horizon-derived
@@ -95,6 +96,8 @@ export type UseScannerResult = {
   refresh: () => Promise<void>;
   /** Call when WASM matching has finished (e.g. after indexer path) so progress can move to "done" */
   markSyncComplete: () => void;
+  /** Adaptive backoff state for Horizon balance polling (#542). */
+  pollingBackoff: BackoffState;
 };
 
 function getStartBlock(cluster: StellarNetwork): bigint {
@@ -305,6 +308,10 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
   });
   const [isBackfilling, setIsBackfilling] = useState(false);
   const refreshKeyRef = useRef(0);
+  const [pollingBackoff, setPollingBackoff] = useState<BackoffState>(() =>
+    getPollingBackoff(30_000).getState()
+  );
+  const backoffRef = useRef(getPollingBackoff(30_000));
 
   const runChunkedRpcSync = useCallback(
     async (
@@ -550,6 +557,14 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
     });
   }, []);
 
+  // Subscribe to adaptive backoff state changes for the diagnostics view (#542).
+  useEffect(() => {
+    const unsub = backoffRef.current.onStateChange((state) => {
+      setPollingBackoff(state);
+    });
+    return unsub;
+  }, []);
+
   // State-polling: check watchlist + ghost addresses + opaque-ghost-addresses (current chain only)
   const ghostAddrKey = ghostAddresses.join(",");
   const watchlistAddrKey = watchlistAddresses.join(",");
@@ -611,7 +626,9 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
           setGhostBalances(next);
           setGhostTokenBalances({});
         }
+        backoffRef.current.recordSuccess();
       } catch {
+        backoffRef.current.recordFailure();
         if (!cancelled) {
           setGhostBalances({});
           setGhostTokenBalances({});
@@ -639,6 +656,7 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
       retrySync,
       refresh,
       markSyncComplete,
+      pollingBackoff,
     }),
     [
       announcements,
@@ -649,6 +667,7 @@ export function useScanner(opts: UseScannerOptions): UseScannerResult {
       retrySync,
       refresh,
       markSyncComplete,
+      pollingBackoff,
     ],
   );
 }

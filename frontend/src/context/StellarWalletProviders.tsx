@@ -10,6 +10,10 @@ import {
 import { getNetworkPassphrase } from "../lib/chain";
 import type { SignTxFn } from "../lib/stellar";
 import { logSigningEvent } from "../lib/signingAuditLog";
+import {
+  classifyWalletError,
+  type WalletConnectionErrorDetails,
+} from "../lib/walletErrors";
 
 export type StellarWalletContextValue = {
   publicKey: string | null;
@@ -19,22 +23,20 @@ export type StellarWalletContextValue = {
   disconnect: () => void;
   signTransaction: SignTxFn;
   signMessage: ((message: Uint8Array) => Promise<Uint8Array>) | null;
+  connectionError: WalletConnectionErrorDetails | null;
 };
 
 export const StellarWalletContext = createContext<StellarWalletContextValue | null>(null);
-
-/** Extract a human message from a Freighter API error object (v3+ returns { code, message }). */
-function freighterErrorMessage(error: { message?: string } | undefined, fallback: string): string {
-  return error?.message?.trim() || fallback;
-}
 
 export function StellarWalletProviders({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<WalletConnectionErrorDetails | null>(null);
   const connectInFlightRef = useRef(false);
 
   const connect = useCallback(async (): Promise<string> => {
+    setConnectionError(null);
     if (connectInFlightRef.current) {
       const { address } = await getAddress();
       return address;
@@ -42,13 +44,20 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
     connectInFlightRef.current = true;
     setConnecting(true);
     try {
-      // Authorization = isAllowed() (the app has been granted access). isConnected() only
-      // reports whether the extension is installed. Request access explicitly if not allowed.
+      const installed = await freighterIsConnected();
+      if (!installed.isConnected) {
+        const error = classifyWalletError("Freighter extension is not installed");
+        setConnectionError(error);
+        throw new Error(error.message);
+      }
+
       const allowed = await isAllowed();
       if (!allowed.isAllowed) {
         const access = await requestAccess();
         if (access.error) {
-          throw new Error(freighterErrorMessage(access.error, "Freighter access was denied."));
+          const classified = classifyWalletError(access.error);
+          setConnectionError(classified);
+          throw new Error(classified.message);
         }
         if (access.address) {
           setPublicKey(access.address);
@@ -57,20 +66,35 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
         }
       }
       const { address, error } = await getAddress();
-      if (error) throw new Error(freighterErrorMessage(error, "Could not read the wallet address."));
-      if (!address) throw new Error("Freighter returned no address. Make sure it is unlocked.");
+      if (error) {
+        const classified = classifyWalletError(error);
+        setConnectionError(classified);
+        throw new Error(classified.message);
+      }
+      if (!address) {
+        const error = classifyWalletError("locked");
+        setConnectionError(error);
+        throw new Error(error.message);
+      }
       setPublicKey(address);
       setConnected(true);
       return address;
+    } catch (err) {
+      if (!connectionError && err instanceof Error) {
+        const classified = classifyWalletError(err);
+        setConnectionError(classified);
+      }
+      throw err;
     } finally {
       setConnecting(false);
       connectInFlightRef.current = false;
     }
-  }, []);
+  }, [connectionError]);
 
   const disconnect = useCallback(() => {
     setPublicKey(null);
     setConnected(false);
+    setConnectionError(null);
   }, []);
 
   const signTx: SignTxFn = useCallback(
@@ -112,8 +136,9 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
       disconnect,
       signTransaction: signTx,
       signMessage,
+      connectionError,
     }),
-    [publicKey, connected, connecting, connect, disconnect, signTx, signMessage],
+    [publicKey, connected, connecting, connect, disconnect, signTx, signMessage, connectionError],
   );
 
   return <StellarWalletContext.Provider value={value}>{children}</StellarWalletContext.Provider>;

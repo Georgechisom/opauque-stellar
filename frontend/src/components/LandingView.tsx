@@ -18,7 +18,7 @@ type Phase = "idle" | "connecting" | "signing" | "checking" | "register" | "regi
 
 export function LandingView() {
   const { setFromSignature, isSetup, stealthMetaAddressHex } = useKeys();
-  const { publicKey, connected, connecting, connect, signMessage, signTransaction } = useWallet();
+  const { publicKey, connected, connecting, connect, signMessage, signTransaction, connectionError } = useWallet();
   const cluster = getCluster();
   const currentConfig = getConfigForCluster(cluster);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -256,7 +256,10 @@ export function LandingView() {
         {phase === "error" && error && (
           <div className="mt-6 space-y-4">
             <div className="rounded-xl border border-error/40 bg-error/10 px-4 py-3 text-left text-sm text-neutral-200">
-              {error}
+              <p>{connectionError?.message ?? error}</p>
+              {connectionError?.guidance && (
+                <p className="mt-2 text-xs text-neutral-400">{connectionError.guidance}</p>
+              )}
             </div>
             <button
               type="button"
@@ -266,7 +269,7 @@ export function LandingView() {
               }}
               className="w-full rounded-full border border-border px-6 py-3 text-sm font-medium text-mist transition-colors hover:border-white/40 hover:text-white"
             >
-              Try again
+              {connectionError?.canRetry ? "Try again" : "Dismiss"}
             </button>
           </div>
         )}

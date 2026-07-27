@@ -149,3 +149,13 @@ export async function getAnnouncementCountForCluster(cluster: string): Promise<n
   const index = db.transaction("announcements").store.index("by-cluster");
   return index.count(cluster);
 }
+
+export async function clearAllData(): Promise<void> {
+  const db = await getDB();
+  const txAnnouncements = db.transaction("announcements", "readwrite");
+  await txAnnouncements.store.clear();
+  await txAnnouncements.done;
+  const txSync = db.transaction("syncState", "readwrite");
+  await txSync.store.clear();
+  await txSync.done;
+}
