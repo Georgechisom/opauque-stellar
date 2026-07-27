@@ -13,6 +13,7 @@ import {
 import {
   DEPLOYMENTS,
   type ContractAddresses,
+  type ContractVersions,
   type NetworkDeployment,
   type PoolWiring,
   type RelayerWiring,
