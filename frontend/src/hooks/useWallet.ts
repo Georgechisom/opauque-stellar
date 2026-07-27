@@ -17,6 +17,7 @@ export function useWallet() {
     disconnect,
     signTransaction,
     signMessage,
+    connectionError,
   } = ctx;
 
   const network = getNetwork();
@@ -74,5 +75,6 @@ export function useWallet() {
     wallets: [] as never[],
     wallet: null,
     select: () => {},
+    connectionError,
   };
 }

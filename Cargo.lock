@@ -890,6 +890,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "multisig-admin"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1013,6 +1021,7 @@ dependencies = [
 name = "privacy-pool"
 version = "0.1.0"
 dependencies = [
+ "multisig-admin",
  "soroban-sdk",
 ]
 

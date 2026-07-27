@@ -2,7 +2,9 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { TestnetBanner } from "./TestnetBanner";
+import { NetworkStatusBanner } from "./NetworkStatusBanner";
 import { isTabNavVisible } from "../lib/tabAccess";
+import { useTranslation } from "../lib/i18n";
 
 export type Tab =
   | "dashboard"
@@ -11,6 +13,7 @@ export type Tab =
   | "balance"
   | "history"
   | "profile"
+  | "security"
   | "reputation"
   // V2 tabs
   | "schemas"
@@ -50,6 +53,7 @@ function DesktopNav({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -110,7 +114,7 @@ function DesktopNav({
               disabled={isConnecting}
               className="rounded-full bg-glow px-4 py-1.5 text-sm font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {isConnecting ? "Connecting…" : "Connect"}
+              {isConnecting ? t("wallet.connecting") : t("wallet.connect")}
             </button>
           )}
           {isConnected && address && (
@@ -137,11 +141,11 @@ function DesktopNav({
               {dropdownOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl border border-ink-700 bg-ink-900/95 py-1.5 shadow-2xl backdrop-blur-lg z-30">
                   {([
-                    { id: "balance" as Tab, label: "Private balance" },
-                    ...(isTabNavVisible("pool") ? [{ id: "pool" as Tab, label: "Privacy pool" }] : []),
-                    { id: "history" as Tab, label: "Transaction history" },
-                    ...(isTabNavVisible("manage") ? [{ id: "manage" as Tab, label: "Manage" }] : []),
-                    { id: "profile" as Tab, label: "Profile" },
+                    { id: "balance" as Tab, label: t("wallet.menu.privateBalance") },
+                    ...(isTabNavVisible("pool") ? [{ id: "pool" as Tab, label: t("wallet.menu.privacyPool") }] : []),
+                    { id: "history" as Tab, label: t("wallet.menu.transactionHistory") },
+                    ...(isTabNavVisible("manage") ? [{ id: "manage" as Tab, label: t("wallet.menu.manage") }] : []),
+                    { id: "profile" as Tab, label: t("wallet.menu.profile") },
                   ]).map((item) => (
                     <button
                       key={item.id}
@@ -158,7 +162,7 @@ function DesktopNav({
                     onClick={() => { onDisconnect(); setDropdownOpen(false); }}
                     className="w-full px-4 py-2 text-left text-sm text-mist transition-colors hover:bg-black/15 hover:text-white"
                   >
-                    Disconnect
+                    {t("wallet.disconnect")}
                   </button>
                 </div>
               )}
@@ -221,6 +225,9 @@ export function Layout({
 }: LayoutProps) {
   return (
     <div className="min-h-dvh flex flex-col bg-ink-950">
+      {/* ── Network status banner (shows when offline) ── */}
+      <NetworkStatusBanner />
+      
       {/* ── Fixed header ── */}
       <div className="hidden md:flex flex-col fixed top-0 left-0 right-0 z-20">
         <TestnetBanner isConnected={isConnected} />

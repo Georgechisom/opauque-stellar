@@ -1,0 +1,59 @@
+{
+  "_note": "Baseline R1CS constraint counts per circuit version (circom 2.1.6, circomlib 2.0.5, BN254 scalar field). The regression test reads the compiled R1CS and fails if the count differs from the value here. Update this file in the same commit as any intentional circuit change.",
+  "_howToUpdate": "Compile the circuit (npm run build in the circuit dir), then read nConstraints from the R1CS: `node -e \"const s=require('snarkjs'); s.r1cs.info('path/to/circuit.r1cs').then(i=>console.log(i.nConstraints))\"`",
+  "_parameterSources": {
+    "Poseidon(n)_formula": "sigma_count = N_ROUNDS_F * (n+1) + N_ROUNDS_P; constraints = sigma_count * 3",
+    "N_ROUNDS_F": 8,
+    "N_ROUNDS_P_by_t": { "t2": 57, "t3": 57, "t4": 56, "t5": 60, "t6": 60 },
+    "Mux1": "1 constraint",
+    "Num2Bits_n": "n constraints",
+    "LessEqThan_n": "n+1 constraints (via internal Num2Bits(n+1))",
+    "IsEqual": "2 constraints (IsZero: out*in===0 and in*inv===1-out)",
+    "EscalarMulAny_253": "dominant cost for V1; README documents ~50000 total"
+  },
+  "v1": {
+    "circuit": "circuits/stealth_attestation.circom",
+    "template": "StealthAttestation(20)",
+    "nConstraints": 50016,
+    "_source": "circuits/README.md states ~50,000 constraints; exact value needs one-time verification via compiled R1CS",
+    "_breakdown": "Dominated by 2× EscalarMulAny(253) (BabyJubJub scalar mul), 20-level Merkle tree, and Poseidon hash instances"
+  },
+  "v2": {
+    "circuit": "circuits/v2/stealth_reputation.circom",
+    "template": "StealthReputation(20)",
+    "nConstraints": 5492,
+    "_source": "analytical: Poseidon(5)=324 + 20×Poseidon(2)=4860 + 20×2×Mux1=40 + 20 binary checks + IsEqual=2 + schema===1 + Poseidon(2)=243 + 2 linear equality constraints",
+    "_breakdown": {
+      "leaf_hasher_Poseidon5": 324,
+      "merkle_hashers_20xPoseidon2": 4860,
+      "mux_left_20xMux1": 20,
+      "mux_right_20xMux1": 20,
+      "binary_path_index_checks": 20,
+      "schema_IsEqual": 2,
+      "schema_eq1_assertion": 1,
+      "nullifier_hasher_Poseidon2": 243,
+      "nullifier_hash_equality_assertion": 1,
+      "root_equality_assertion": 1
+    }
+  },
+  "v3": {
+    "circuit": "circuits/v3/privacy_pool_withdraw.circom",
+    "template": "PrivacyPoolWithdraw(20, 64)",
+    "nConstraints": 11272,
+    "_source": "analytical: pre=Poseidon(2)=243, commit=Poseidon(3)=264, 2×MerkleInclusion(20)=2×4920, nh=Poseidon(1)=219, 2×Num2Bits(64)=128, LessEqThan(64)=65, newPre=243, newCommit=264, contextSq=1, 5 linear equality assertions",
+    "_breakdown": {
+      "pre_Poseidon2": 243,
+      "commit_Poseidon3": 264,
+      "stateProof_MerkleInclusion20": 4920,
+      "aspProof_MerkleInclusion20": 4920,
+      "nh_Poseidon1": 219,
+      "valueRange_Num2Bits64": 64,
+      "wRange_Num2Bits64": 64,
+      "le_LessEqThan64": 65,
+      "newPre_Poseidon2": 243,
+      "newCommit_Poseidon3": 264,
+      "contextSq_quadratic": 1,
+      "linear_equality_assertions": 5
+    }
+  }
+}

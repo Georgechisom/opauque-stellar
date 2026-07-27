@@ -1,7 +1,7 @@
 import { buildRoot } from "./merkle.ts";
 import { computeDatasetHash, rootManifest, writeRootManifest } from "./publish.ts";
 import type { Store } from "./store.ts";
-import type { ChainAdapter, LeafCommitment, PublisherState } from "./types.ts";
+import type { ChainAdapter, LeafCommitment, PublisherMetrics, PublisherState } from "./types.ts";
 
 export interface PublisherTickConfig {
   verifierId: string;
@@ -21,6 +21,7 @@ export interface PublisherTickResult {
   datasetHash: string | null;
   published: boolean;
   txHash?: string;
+  latencyMs: number;
 }
 
 function initState(verifierId: string, now: string): PublisherState {
@@ -37,6 +38,8 @@ function initState(verifierId: string, now: string): PublisherState {
 function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
   leaves: LeafCommitment[];
   acceptedIds: string[];
+  duplicateResubmissions: number;
+  identityCollisions: LeafCommitment[];
 } {
   const byId = new Map<string, LeafCommitment>();
   const byLeaf = new Set<string>();
@@ -45,8 +48,21 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
     byLeaf.add(leaf.leaf);
   }
   const acceptedIds: string[] = [];
+  let duplicateResubmissions = 0;
+  const identityCollisions: LeafCommitment[] = [];
   for (const leaf of incoming) {
-    if (byId.has(leaf.id) || byLeaf.has(leaf.leaf)) continue;
+    const existingById = byId.get(leaf.id);
+    const existingByLeaf = byLeaf.has(leaf.leaf);
+    if (existingById && existingById.leaf === leaf.leaf) {
+      duplicateResubmissions++;
+      continue;
+    }
+    if (existingById || existingByLeaf) {
+      identityCollisions.push(leaf);
+      const reason = existingById ? `id "${leaf.id}" already in tree` : `leaf "${leaf.leaf.slice(0, 14)}..." already in tree`;
+      console.warn(`identity collision: ${reason} — incoming leaf flagged, not inserted`);
+      continue;
+    }
     byId.set(leaf.id, leaf);
     byLeaf.add(leaf.leaf);
     acceptedIds.push(leaf.id);
@@ -56,23 +72,51 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
     const bKey = `${String(b.ledger ?? 0).padStart(12, "0")}:${b.id}`;
     return aKey.localeCompare(bKey);
   });
-  return { leaves, acceptedIds };
+  return { leaves, acceptedIds, duplicateResubmissions, identityCollisions };
 }
 
-export async function runPublisherTick(cfg: PublisherTickConfig): Promise<PublisherTickResult> {
+export function createMetrics(): PublisherMetrics {
+  return {
+    totalSubmitted: 0,
+    totalAccepted: 0,
+    totalRejected: 0,
+    totalPublished: 0,
+    currentInboxDepth: 0,
+    currentLeafCount: 0,
+    lastPublishAt: null,
+    lastPublishLatencyMs: null,
+    startedAt: new Date().toISOString(),
+    totalDuplicateResubmissions: 0,
+    totalIdentityCollisions: 0,
+  };
+}
+
+export async function runPublisherTick(cfg: PublisherTickConfig, metrics?: PublisherMetrics): Promise<PublisherTickResult> {
+  const tickStart = Date.now();
   const now = cfg.now ?? (() => new Date().toISOString());
   const at = now();
   const state = cfg.store.load(cfg.verifierId) ?? initState(cfg.verifierId, at);
   const inbox = cfg.store.readInbox(now);
   const processedIds = inbox.map((leaf) => leaf.id);
-  const { leaves, acceptedIds } = mergeLeaves(state.leaves, inbox);
+  const { leaves, acceptedIds, duplicateResubmissions, identityCollisions } = mergeLeaves(state.leaves, inbox);
   state.leaves = leaves;
   state.updatedAt = at;
+
+  if (metrics) {
+    metrics.currentInboxDepth = cfg.store.inboxSize();
+    metrics.currentLeafCount = leaves.length;
+    metrics.totalDuplicateResubmissions += duplicateResubmissions;
+    metrics.totalIdentityCollisions += identityCollisions.length;
+    if (identityCollisions.length > 0) {
+      console.warn(`tick: ${identityCollisions.length} identity collision(s) flagged this tick`);
+    }
+  }
 
   const minLeaves = cfg.minLeavesToPublish ?? 1;
   if (leaves.length < minLeaves) {
     cfg.store.archiveInbox(processedIds);
     cfg.store.save(state);
+    const latencyMs = Date.now() - tickStart;
     return {
       verifierId: cfg.verifierId,
       leafCount: leaves.length,
@@ -81,6 +125,7 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
       onChainRoot: await cfg.adapter.currentRoot(),
       datasetHash: null,
       published: false,
+      latencyMs,
     };
   }
 
@@ -110,10 +155,18 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
     state.lastPublishedRoot = localRoot;
     state.lastPublishedLedger = res.ledger ?? null;
     state.lastDatasetHash = datasetHash;
+    if (metrics) {
+      metrics.totalPublished += 1;
+      metrics.lastPublishAt = at;
+    }
   }
 
   cfg.store.archiveInbox(processedIds);
   cfg.store.save(state);
+  const latencyMs = Date.now() - tickStart;
+  if (metrics) {
+    metrics.lastPublishLatencyMs = latencyMs;
+  }
   return {
     verifierId: cfg.verifierId,
     leafCount: leaves.length,
@@ -123,5 +176,6 @@ export async function runPublisherTick(cfg: PublisherTickConfig): Promise<Publis
     datasetHash,
     published,
     txHash,
+    latencyMs,
   };
 }

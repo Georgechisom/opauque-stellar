@@ -14,12 +14,15 @@ export type PoolConfig = {
   nativeSac: string;
   /** Label domain separator (Poseidon(scope, depositIndex)). */
   scope: number;
+  /** One-tap deposit amount presets (XLM), configured per deployment. */
+  depositPresetsXlm: number[];
 };
 
 type PoolWiring = {
   groth16Verifier?: string;
   nativeSac?: string;
   scope?: number;
+  depositPresetsXlm?: number[];
 };
 
 export function getPoolConfig(): PoolConfig | null {
@@ -35,7 +38,14 @@ export function getPoolConfig(): PoolConfig | null {
   const wiring = manifest.wiring?.privacyPool;
   if (!poolId || !wiring?.nativeSac) return null;
 
-  return { poolId, nativeSac: wiring.nativeSac, scope: wiring.scope ?? 1 };
+  return {
+    poolId,
+    nativeSac: wiring.nativeSac,
+    scope: wiring.scope ?? 1,
+    depositPresetsXlm: Array.isArray(wiring.depositPresetsXlm)
+      ? wiring.depositPresetsXlm.filter((v) => typeof v === "number" && v > 0)
+      : [],
+  };
 }
 
 export function isPoolDeployed(): boolean {

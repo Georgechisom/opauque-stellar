@@ -29,6 +29,7 @@ import {
   type PoolWithdrawPayload,
 } from "@relayer/shared/payload";
 import { bytesToScVal, getSorobanServer } from "./stellar";
+import { RelayerGatewayError } from "./errors";
 import type { WithdrawProof } from "./poolProver";
 
 const DEFAULT_GATEWAYS = ["http://127.0.0.1:8787"];
@@ -113,6 +114,13 @@ export function buildRelayedWithdrawPayload(args: {
   registryId: string;
   proof: WithdrawProof;
   recipient: string;
+  /**
+   * Address bound into the proof's context hash. When the user picked a specific
+   * relayer up front (#559) this is that operator's address, and only they can
+   * submit the payload. Falls back to the registry address for the
+   * pick-after-bidding flow, where the relayer is not known at proving time.
+   */
+  boundRelayer?: string;
 }): PoolWithdrawPayload {
   return {
     poolId: args.poolId,
@@ -127,8 +135,9 @@ export function buildRelayedWithdrawPayload(args: {
     recipient: args.recipient,
     poolFee: 0n,
     // The pool fee is zero in Phase 6 MVP; registry escrow pays the selected relayer.
-    // Binding the registry address keeps the proof payload deterministic before bidding.
-    poolRelayer: args.registryId,
+    // `poolRelayer` MUST equal the address the proof's context was computed over,
+    // or the pool contract rejects the withdrawal.
+    poolRelayer: args.boundRelayer ?? args.registryId,
   };
 }
 
@@ -169,7 +178,14 @@ export async function publishAdvert(advert: JobAdvert, gateway = relayerGatewayU
     headers: { "content-type": "application/json" },
     body: JSON.stringify(advert),
   });
-  if (!res.ok) throw new Error(`Relayer gateway rejected advert (${res.status}).`);
+  if (!res.ok) {
+    throw new RelayerGatewayError({
+      message: `Relayer gateway rejected advert (${res.status}).`,
+      gateway,
+      operation: "advert",
+      status: res.status,
+    });
+  }
 }
 
 export async function fetchRelayerBids(
@@ -179,7 +195,14 @@ export async function fetchRelayerBids(
   const res = await fetch(
     gatewayUrl(`v1/jobs/${encodeURIComponent(jobIdHex)}/bids`, gateway),
   );
-  if (!res.ok) throw new Error(`Could not fetch relayer bids (${res.status}).`);
+  if (!res.ok) {
+    throw new RelayerGatewayError({
+      message: `Could not fetch relayer bids (${res.status}).`,
+      gateway,
+      operation: "bids",
+      status: res.status,
+    });
+  }
   const body = (await res.json()) as { bids?: unknown[] };
   const signed = (body.bids ?? [])
     .map((raw) => validateBid(raw))
@@ -218,7 +241,14 @@ export async function deliverPayloadToRelayer(args: {
       }),
     },
   );
-  if (!res.ok) throw new Error(`Relayer gateway rejected payload (${res.status}).`);
+  if (!res.ok) {
+    throw new RelayerGatewayError({
+      message: `Relayer gateway rejected payload (${res.status}).`,
+      gateway: args.gateway ?? relayerGatewayUrl(),
+      operation: "payload",
+      status: res.status,
+    });
+  }
   const body = (await res.json()) as {
     result?: { acceptedTx?: string; submittedTx?: string } | null;
   };

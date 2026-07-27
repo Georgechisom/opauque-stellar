@@ -2,18 +2,43 @@
  * Bindings for the stealth-registry and stealth-announcer contracts: publish a
  * meta-address and announce a one-time stealth transfer.
  */
+import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import type { ContractInvoker } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
 import { addressToScVal, bytesToScVal, u64ToScVal } from "../rpc/scval";
+import { parseOldestLedgerFromRangeError } from "../rpc/diagnostics";
+import type { StealthAnnouncement } from "../crypto/index";
 
 /** secp256k1 stealth scheme id, as registered on-chain. */
 export const SCHEME_ID_SECP256K1 = 1n;
+
+const ANNOUNCEMENT_EVENT_LOOKBACK = 16_000;
+const ANNOUNCEMENT_TOPIC = xdr.ScVal.scvSymbol("Announcement").toXDR("base64");
+
+/** A page of `Announcement` events, plus the highest ledger it covered. */
+export interface AnnouncementPage {
+  announcements: StealthAnnouncement[];
+  /** Highest ledger seen in this page — a resumable cursor for the next scan. */
+  ledger: number;
+}
 
 export class StealthRegistry {
   constructor(
     private readonly rpc: ContractInvoker,
     readonly contractId: string,
   ) {}
+
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
 
   /** Register a stealth meta-address for the signer's account. */
   async registerKeys(opts: {
@@ -43,6 +68,18 @@ export class StealthAnnouncer {
     readonly contractId: string,
   ) {}
 
+  /** Read the deployed contract interface version. */
+  async version(source: string): Promise<number> {
+    return Number(
+      await this.rpc.readNative<number>({
+        source,
+        contractId: this.contractId,
+        method: "version",
+        args: [],
+      }),
+    );
+  }
+
   /** Announce a one-time stealth transfer (stealth id + ephemeral key + view tag). */
   async announce(opts: {
     stealthAddress: Uint8Array;
@@ -66,5 +103,72 @@ export class StealthAnnouncer {
       ],
       signer: opts.signer,
     });
+  }
+
+  /**
+   * Stream `Announcement` events page-by-page instead of resolving only after
+   * scanning the full range. `startLedger` is inclusive (as with the
+   * underlying `getEvents` call) — pass `ledger + 1` from a previous page to
+   * resume without re-reading (and re-yielding) its events. Stopping
+   * iteration early (`break` in a `for await`, or calling `.return()`) stops
+   * further `getEvents` calls — no dangling requests keep running after the
+   * consumer walks away.
+   */
+  async *scanEvents(opts?: {
+    startLedger?: number;
+  }): AsyncGenerator<AnnouncementPage, void, unknown> {
+    const latest = await this.rpc.getLatestLedger();
+    let startLedger =
+      opts?.startLedger && opts.startLedger > 0
+        ? opts.startLedger
+        : Math.max(1, latest - ANNOUNCEMENT_EVENT_LOOKBACK);
+
+    const filters = [
+      {
+        type: "contract" as const,
+        contractIds: [this.contractId],
+        topics: [[ANNOUNCEMENT_TOPIC, "*"]],
+      },
+    ];
+
+    let cursor: string | undefined;
+    let prevCursor: string | undefined;
+    for (let page = 0; page < 200; page++) {
+      let res;
+      try {
+        res = await this.rpc.getEvents(
+          cursor ? { cursor, filters, limit: 100 } : { startLedger, filters, limit: 100 },
+        );
+      } catch (err) {
+        const oldest = parseOldestLedgerFromRangeError(err);
+        if (!cursor && oldest != null && startLedger < oldest) {
+          startLedger = oldest;
+          res = await this.rpc.getEvents({ startLedger, filters, limit: 100 });
+        } else {
+          throw err;
+        }
+      }
+
+      const announcements: StealthAnnouncement[] = [];
+      let ledger = startLedger;
+      for (const ev of res.events ?? []) {
+        const data = scValToNative(ev.value) as unknown[];
+        const stealthAddress = Buffer.from(data[1] as Uint8Array).toString("hex");
+        const ephemeralPubKey = Uint8Array.from(data[3] as Uint8Array);
+        const metadata = data[4] as Uint8Array;
+        announcements.push({
+          stealthAddress: "0x" + stealthAddress,
+          ephemeralPubKey,
+          viewTag: metadata[0] ?? 0,
+        });
+        ledger = Math.max(ledger, ev.ledger);
+      }
+
+      if (announcements.length > 0) yield { announcements, ledger };
+
+      cursor = res.cursor;
+      if (!cursor || cursor === prevCursor) break;
+      prevCursor = cursor;
+    }
   }
 }

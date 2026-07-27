@@ -1,0 +1,17 @@
+{
+  "_note": "SHA-256 hashes of the canonical witness JSON (array of field-element strings, index-ordered) for fixed inputs. Committed as cross-platform determinism fixtures. Generate with: npm run test:witness-hashes from circuits/. Test fails if the hash diverges; first differing signal index is reported.",
+  "_howToGenerate": "Run `tsx circuits/scripts/generate-witness-hashes.ts` after building the circuit WASM. Paste the printed hashes below and commit in the same PR.",
+  "_canonicalisation": "witness = snarkjs.wtns.exportJson(wtnsPath) returns BigInt[]; hash input = JSON.stringify(witness.map(x => x.toString())); algorithm = SHA-256; encoding = hex.",
+  "v2": {
+    "circuit": "v2/stealth_reputation.circom",
+    "fixtureRef": "circuits/fixtures/v2/valid-input.json",
+    "witnessHash": "PENDING",
+    "_pendingNote": "Run `tsx circuits/scripts/generate-witness-hashes.ts` with the compiled v2 WASM to populate this value."
+  },
+  "v3": {
+    "circuit": "v3/privacy_pool_withdraw.circom",
+    "fixtureRef": "circuits/fixtures/v3/valid-input.json",
+    "witnessHash": "PENDING",
+    "_pendingNote": "Run `tsx circuits/scripts/generate-witness-hashes.ts` with the compiled v3 WASM to populate this value."
+  }
+}

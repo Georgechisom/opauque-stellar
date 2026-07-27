@@ -99,6 +99,27 @@ export class ArtifactError extends OpaqueError {
   }
 }
 
+/** A serialized note failed to decode: unknown schema version or a missing/malformed field. */
+export class NoteSchemaError extends OpaqueError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, "NOTE_SCHEMA", options);
+  }
+}
+
+/** A deposit amount violates a pool constraint (bounds or precision). */
+export class PoolValidationError extends OpaqueError {
+  /** Name of the violated constraint, e.g. "non-positive" or "precision". */
+  readonly constraint: string;
+  constructor(
+    message: string,
+    constraint: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, "POOL_VALIDATION", options);
+    this.constraint = constraint;
+  }
+}
+
 /**
  * A capability that depends on a layer not yet wired in this build (e.g. the
  * proving layer, the WASM scanner, or the relayer gateway client). Thrown so the
@@ -114,21 +135,42 @@ export class NotWiredError extends OpaqueError {
 }
 
 /**
+ * A Soroban contract interface version does not match the SDK's expected
+ * version. Thrown at initialization so the caller can surface actionable
+ * guidance before any transaction is built.
+ */
+export class CompatibilityError extends OpaqueError {
+  readonly mismatches: Array<{ contract: string; contractId: string; expected: number; deployed: number }>;
+
+  constructor(
+    mismatches: Array<{ contract: string; contractId: string; expected: number; deployed: number }>,
+  ) {
+    const detail = mismatches
+      .map(
+        (m) =>
+          `${m.contract} (${m.contractId}): expected v${m.expected}, deployed v${m.deployed}`,
+      )
+      .join("; ");
+    super(`Contract version mismatch: ${detail}`, "COMPATIBILITY");
+    this.mismatches = mismatches;
+  }
+}
+
+/**
  * Known contract error enums, keyed by contract package name. Populated as the
  * SDK binds each contract; an unknown code still surfaces as a numeric
  * {@link ContractError}. Source of truth is each contract's `#[contracterror]`.
+ *
+ * Regenerate after contract error changes:
+ *   npx tsx scripts/generate-error-mapping.ts
  */
-export const CONTRACT_ERROR_NAMES: Record<string, Record<number, string>> = {
-  "reputation-verifier": {
-    2: "RootExpired",
-    4: "NullifierReplay",
-  },
-};
+import { CONTRACT_ERROR_NAMES as _CONTRACT_ERROR_NAMES } from "./contract-errors.generated";
+export { _CONTRACT_ERROR_NAMES as CONTRACT_ERROR_NAMES };
 
 /** Look up a contract error name for a code, if the SDK knows the enum. */
 export function contractErrorName(
   contractPackage: string,
   code: number,
 ): string | undefined {
-  return CONTRACT_ERROR_NAMES[contractPackage]?.[code];
+  return _CONTRACT_ERROR_NAMES[contractPackage]?.[code];
 }

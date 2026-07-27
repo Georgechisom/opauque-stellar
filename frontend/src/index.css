@@ -311,3 +311,20 @@ body {
     box-shadow: 0 0 0 2px #fcdb25;
   }
 }
+
+/*
+ * Reduced motion (#550): resolved by `usePrefersReducedMotion` (OS preference,
+ * overridable by the in-app Motion setting) and stamped onto <html> by
+ * `MotionPreferenceEffect` in App.tsx. Disables CSS animation/transition
+ * everywhere without touching per-component markup — data-driven UI (e.g.
+ * progress-bar width, elapsed-time text) is unaffected since it's not driven
+ * by these properties.
+ */
+html[data-reduce-motion="true"] * ,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

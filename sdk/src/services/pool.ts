@@ -15,6 +15,8 @@ import {
 } from "../crypto/index";
 import { NotWiredError } from "../errors/index";
 import { provePoolWithdraw, type PoolWithdrawProof } from "../prove/pool";
+import type { SimulationReport } from "../rpc/client";
+import { validateDepositAmount } from "./pool-validation";
 import type { OpaqueClientContext } from "./context";
 
 /** A withdrawal proof bundle (everything except the public recipient/fee/relayer). */
@@ -35,11 +37,18 @@ export class PoolService {
     amountXlm: string;
     secrets?: { nullifier: string; secret: string };
     createdAt?: number;
+    /** Skip the pre-flight amount validation (default false). */
+    skipValidation?: boolean;
   }): Promise<{ note: PoolNote; txHash: string }> {
     const signer = this.ctx.requireSigner();
     const source = await signer.publicKey();
     const scope = this.ctx.config.pool.scope;
     const value = parseXlmToStroops(opts.amountXlm);
+
+    if (!opts.skipValidation) {
+      const decimals = await this.ctx.contracts.privacyPool.getNativeAssetDecimals(source);
+      validateDepositAmount({ amountXlm: opts.amountXlm, valueStroops: value, decimals });
+    }
 
     const expectedIndex = await this.ctx.contracts.privacyPool.getDepositCount(source);
     const secrets = opts.secrets ?? newNoteSecrets();
@@ -95,6 +104,71 @@ export class PoolService {
     return txHash;
   }
 
+  /**
+   * Withdraw several notes to one recipient in a coordinated call: proves and
+   * submits each note's withdrawal in turn — still one proof and one
+   * transaction per note, so per-note nullifier semantics are unchanged —
+   * and continues past individual failures so partial success is possible.
+   * Requires an artifact resolver (`new OpaqueClient({ artifacts })`).
+   *
+   * The pool leaves are reconstructed from chain once and reused across every
+   * note's proof (all notes prove against the same published state root);
+   * withdrawals themselves are still submitted sequentially, one at a time,
+   * since they share the signer's account and Stellar sequence numbers.
+   */
+  async withdrawBatch(opts: {
+    notes: PoolNote[];
+    recipient: string;
+    relayer?: string;
+    fee?: bigint;
+  }): Promise<{
+    succeeded: Array<{ note: PoolNote; txHash: string }>;
+    /** Notes whose withdrawal failed and therefore remain unspent. */
+    failed: Array<{ note: PoolNote; error: unknown }>;
+  }> {
+    if (opts.notes.length === 0) return { succeeded: [], failed: [] };
+    if (!this.ctx.artifacts) {
+      throw new NotWiredError(
+        "Pool withdrawal proof generation",
+        "Construct OpaqueClient with { artifacts } to enable proving, or withdraw() each note individually with a precomputed bundle.",
+      );
+    }
+
+    const { stateLeaves, depositIndices } = await this.ctx.contracts.privacyPool.reconstructState({
+      startLedger: this.ctx.config.startLedger,
+    });
+
+    const succeeded: Array<{ note: PoolNote; txHash: string }> = [];
+    const failed: Array<{ note: PoolNote; error: unknown }> = [];
+
+    for (const note of opts.notes) {
+      try {
+        const proof = await provePoolWithdraw({
+          note,
+          recipient: opts.recipient,
+          relayer: opts.relayer ?? opts.recipient,
+          fee: opts.fee ?? 0n,
+          scope: this.ctx.config.pool.scope,
+          stateLeaves,
+          depositIndices,
+          artifacts: this.ctx.artifacts,
+        });
+        const txHash = await this.withdraw({
+          proof,
+          recipient: opts.recipient,
+          fee: opts.fee,
+          relayer: opts.relayer,
+          noteCommitment: note.commitment,
+        });
+        succeeded.push({ note, txHash });
+      } catch (error) {
+        failed.push({ note, error });
+      }
+    }
+
+    return { succeeded, failed };
+  }
+
   /** Read the next deposit leaf index. */
   async getDepositCount(opts?: { source?: string }): Promise<number> {
     return this.ctx.contracts.privacyPool.getDepositCount(await this.source(opts?.source));
@@ -126,6 +200,8 @@ export class PoolService {
     scope?: number;
     stateLeaves?: bigint[];
     depositIndices?: number[];
+    /** Testing only: inject a stub in place of `snarkjs`. */
+    snarkjs?: Parameters<typeof provePoolWithdraw>[0]["snarkjs"];
   }): Promise<PoolWithdrawProof> {
     if (!this.ctx.artifacts) {
       throw new NotWiredError(
@@ -150,6 +226,70 @@ export class PoolService {
       stateLeaves,
       depositIndices,
       artifacts: this.ctx.artifacts,
+      snarkjs: opts.snarkjs,
     });
   }
+
+  /**
+   * Dry-run a full withdrawal for a note: generates the proof and simulates the
+   * withdrawal transaction, but never signs or submits it. Lets an integrator
+   * validate a withdrawal end-to-end — including the real payout and resource
+   * cost — without spending the note's nullifier.
+   */
+  async dryRunWithdraw(opts: {
+    note: PoolNote;
+    recipient: string;
+    relayer?: string;
+    fee?: bigint;
+    scope?: number;
+    stateLeaves?: bigint[];
+    depositIndices?: number[];
+    /** Account to simulate the transaction from (defaults to the connected signer). */
+    source?: string;
+    /** Testing only: inject a stub in place of `snarkjs`. */
+    snarkjs?: Parameters<typeof provePoolWithdraw>[0]["snarkjs"];
+  }): Promise<DryRunWithdrawResult> {
+    const fee = opts.fee ?? 0n;
+    const relayer = opts.relayer ?? opts.recipient;
+    const source = await this.source(opts.source);
+
+    const proof = await this.proveWithdraw({
+      note: opts.note,
+      recipient: opts.recipient,
+      relayer,
+      fee,
+      scope: opts.scope,
+      stateLeaves: opts.stateLeaves,
+      depositIndices: opts.depositIndices,
+      snarkjs: opts.snarkjs,
+    });
+
+    const simulation = await this.ctx.contracts.privacyPool.simulateWithdraw({
+      ...proof,
+      recipient: opts.recipient,
+      fee,
+      relayer,
+      source,
+    });
+
+    return {
+      proof,
+      recipient: opts.recipient,
+      relayer,
+      fee,
+      expectedPayout: proof.withdrawnValue - fee,
+      simulation,
+    };
+  }
+}
+
+export interface DryRunWithdrawResult {
+  proof: PoolWithdrawProof;
+  recipient: string;
+  relayer: string;
+  fee: bigint;
+  /** `proof.withdrawnValue - fee`: what `recipient` would actually receive. */
+  expectedPayout: bigint;
+  /** Simulated fee + resource usage; nothing here was submitted on-chain. */
+  simulation: SimulationReport;
 }

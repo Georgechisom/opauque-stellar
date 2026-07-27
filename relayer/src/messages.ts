@@ -34,6 +34,7 @@ export type EncryptedPayload = {
   jobId: string;
   to: string;
   box: string;
+  idempotencyKey?: string;
 };
 
 export type RelayerMessage = JobAdvert | RelayerBid | EncryptedPayload;

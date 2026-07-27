@@ -45,6 +45,28 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
+ * Extract the stable machine-readable token from a simulation error, e.g.
+ * `Contract#5` or `HostError`. Returned alongside the human message so callers
+ * can branch on the code instead of the copy (#562).
+ */
+export function extractErrorCode(
+  sim: rpc.Api.SimulateTransactionResponse,
+): string | null {
+  const errorStr =
+    "error" in sim && sim.error
+      ? sim.error
+      : ((sim as { results?: Array<{ error?: string }> }).results?.[0]?.error ??
+        "");
+  if (!errorStr) return null;
+  const contractErrorMatch = errorStr.match(/Contract#(\d+)/);
+  if (contractErrorMatch) return `Contract#${contractErrorMatch[1]}`;
+  for (const code of Object.keys(ERROR_MESSAGES)) {
+    if (errorStr.includes(code)) return code;
+  }
+  return null;
+}
+
+/**
  * Decode Soroban simulation error into user-readable message.
  */
 export function decodeSimulationError(
@@ -138,6 +160,7 @@ export async function simulateAndDecode(
     return {
       success: false,
       error: decodeSimulationError(sim),
+      errorCode: extractErrorCode(sim) ?? undefined,
     };
   } catch (err) {
     return {

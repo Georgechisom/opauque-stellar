@@ -29,8 +29,11 @@ export class RelayerHub {
   private bids = new Map<string, RelayerBid[]>();
   private subscribers = new Set<(message: RelayerMessage) => Promise<void> | void>();
   private started = false;
+  private startedAt: number;
 
-  constructor(private readonly transport: GossipTransport) {}
+  constructor(private readonly transport: GossipTransport) {
+    this.startedAt = Date.now();
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -86,6 +89,18 @@ export class RelayerHub {
       list.push(bid);
       this.bids.set(key, list);
     }
+  }
+
+  async healthCheck(): Promise<{
+    ok: boolean;
+    uptime: number;
+    stats: RelayerHubStats;
+  }> {
+    return {
+      ok: true,
+      uptime: Date.now() - this.startedAt,
+      stats: { ...this.stats },
+    };
   }
 }
 

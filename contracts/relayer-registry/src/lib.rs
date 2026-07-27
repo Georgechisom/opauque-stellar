@@ -471,6 +471,13 @@ impl RelayerRegistry {
             .ok_or(RegistryError::JobNotAccepted)?;
         let mut relayer = read_relayer(&env, &operator)?;
         relayer.bonded_stake -= job.fee;
+        if relayer.pending_unstake > 0 {
+            let slash_from_pending = core::cmp::min(relayer.pending_unstake, job.fee);
+            relayer.pending_unstake -= slash_from_pending;
+            if relayer.pending_unstake == 0 {
+                relayer.unstake_unlock_ledger = 0;
+            }
+        }
         write_relayer(&env, &relayer);
 
         job.status = STATUS_SLASHED;
@@ -511,6 +518,20 @@ impl RelayerRegistry {
 
     pub fn get_relayer(env: Env, operator: Address) -> Result<RelayerRecord, RegistryError> {
         read_relayer(&env, &operator)
+    }
+
+    pub fn get_unbonding_status(
+        env: Env,
+        operator: Address,
+    ) -> Result<(i128, u32, bool), RegistryError> {
+        let relayer = read_relayer(&env, &operator)?;
+        let is_unlockable =
+            relayer.pending_unstake > 0 && env.ledger().sequence() >= relayer.unstake_unlock_ledger;
+        Ok((
+            relayer.pending_unstake,
+            relayer.unstake_unlock_ledger,
+            is_unlockable,
+        ))
     }
 
     pub fn get_job(env: Env, job_id: BytesN<32>) -> Result<JobRecord, RegistryError> {
@@ -579,6 +600,21 @@ impl RelayerRegistry {
         config.minimum_stake = minimum_stake;
         config.unstake_cooldown_ledgers = unstake_cooldown_ledgers;
         config.max_deadline_ledgers = max_deadline_ledgers;
+        env.storage().instance().set(&config_key(&env), &config);
+        Ok(())
+    }
+
+    /// Moves admin authority to `new_admin` (Issue #589) — the migration path
+    /// from a single-key admin to a deployed `multisig-admin` contract's
+    /// address, with no redeployment. Once this call succeeds, the current
+    /// `admin` can no longer authorize any admin-gated operation.
+    pub fn transfer_admin(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+    ) -> Result<(), RegistryError> {
+        let mut config = require_admin(&env, &admin)?;
+        config.admin = new_admin;
         env.storage().instance().set(&config_key(&env), &config);
         Ok(())
     }

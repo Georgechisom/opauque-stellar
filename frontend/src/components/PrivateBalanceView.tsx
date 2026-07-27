@@ -360,6 +360,10 @@ const DUST_CEILING_STROOPS = 10_000_000n + 100n; // 1 XLM reserve + 0.00001 fee
 
 const SHOW_DUST_STORAGE_KEY = "opaque-show-dust";
 
+// Initial render is capped to one page; "Load more" grows it incrementally
+// instead of rendering the full (potentially thousands-long) history at once.
+const ANNOUNCEMENT_PAGE_SIZE = 20;
+
 export function PrivateBalanceView() {
   const [found, setFound] = useState<FoundTx[]>([]);
   const [loading, setLoading] = useState(true);
@@ -411,6 +415,8 @@ export function PrivateBalanceView() {
     null,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(ANNOUNCEMENT_PAGE_SIZE);
   const [showDust, setShowDust] = useState<boolean>(() => {
     try {
       return localStorage.getItem(SHOW_DUST_STORAGE_KEY) === "1";
@@ -899,11 +905,30 @@ export function PrivateBalanceView() {
 
   const claimableEntries = portfolio.claimable;
   const dustEntries = portfolio.dust;
-  const visibleEntries = showDust
-    ? [...claimableEntries, ...dustEntries]
-    : claimableEntries;
+  const allEntries = useMemo(
+    () => (showDust ? [...claimableEntries, ...dustEntries] : claimableEntries),
+    [showDust, claimableEntries, dustEntries],
+  );
   // Headline reflects what is actually withdrawable; dust sits below the reserve.
   const totalSol = portfolio.claimableTotalRaw;
+
+  // Search runs over the full in-memory list before pagination slices it, so
+  // matches outside the currently loaded page are still found.
+  const filteredEntries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allEntries;
+    return allEntries.filter(({ tx, balanceRaw }) => {
+      const address = (stellarAddressForTx(tx) ?? tx.address).toLowerCase();
+      return address.includes(q) || formatXlm(balanceRaw).toLowerCase().includes(q);
+    });
+  }, [allEntries, searchQuery]);
+
+  useEffect(() => {
+    setVisibleCount(ANNOUNCEMENT_PAGE_SIZE);
+  }, [searchQuery, showDust]);
+
+  const visibleEntries = filteredEntries.slice(0, visibleCount);
+  const hasMoreEntries = filteredEntries.length > visibleEntries.length;
 
   return (
     <div className="w-full flex flex-col">
@@ -1079,9 +1104,24 @@ export function PrivateBalanceView() {
           )}
 
           {/* List of stealth addresses */}
-          <h3 className="font-display text-xl font-bold text-white">
-            XLM Stealth addresses
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-display text-xl font-bold text-white">
+              XLM Stealth addresses
+            </h3>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by address or amount"
+              className="w-full max-w-xs rounded-xl border border-ink-700 bg-ink-950 px-3 py-1.5 text-xs text-white placeholder:text-mist/40 focus:border-glow focus:outline-none sm:w-auto"
+            />
+          </div>
+          {searchQuery.trim() && (
+            <p className="text-xs text-mist/60">
+              {filteredEntries.length} match{filteredEntries.length !== 1 ? "es" : ""} across all
+              loaded payments
+            </p>
+          )}
           <div className="space-y-3">
             {visibleEntries
               .filter((e) => e.balanceRaw > 0n)
@@ -1305,6 +1345,18 @@ export function PrivateBalanceView() {
                 );
               }) ?? null}
           </div>
+
+          {hasMoreEntries && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((n) => n + ANNOUNCEMENT_PAGE_SIZE)}
+                className="rounded-xl border border-ink-600 bg-ink-950/30 px-4 py-2 text-sm font-medium text-mist transition-colors hover:border-white/30 hover:text-white"
+              >
+                Load more ({filteredEntries.length - visibleEntries.length} remaining)
+              </button>
+            </div>
+          )}
         </div>
       )}
 

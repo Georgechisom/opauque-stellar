@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { isAllowed, getNetworkDetails } from "@stellar/freighter-api";
 import { getNetwork, getNetworkPassphrase } from "../../lib/chain";
+import { useWallet } from "../../hooks/useWallet";
 import { ModalShell } from "../ModalShell";
 
 /**
  * Blocks the app when the connected Freighter wallet is on a different network than
  * the one the app is configured for. Freighter (v2 API) has no programmatic network
- * switch, so we guide the user to switch in the extension and re-check, automatically
- * when they return to the tab, or via the button.
+ * switch, so we guide the user to switch in the extension and re-check: immediately
+ * when the wallet connects (#548), automatically when the user returns to the tab
+ * (the practical proxy for a network-change event given the API's limits), or via
+ * the button.
  *
  * Important: this only reads the wallet network when access is already granted and
  * never prompts for access (no setAllowed/requestAccess on a timer), otherwise the
@@ -15,6 +18,7 @@ import { ModalShell } from "../ModalShell";
  */
 export function NetworkMismatchModal() {
   const expected = getNetwork(); // the app's configured network (VITE_STELLAR_NETWORK)
+  const { isConnected } = useWallet();
   const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
   const [mismatch, setMismatch] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -59,6 +63,12 @@ export function NetworkMismatchModal() {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [check]);
+
+  // Re-check as soon as the wallet connects, rather than relying on the focus/
+  // visibility listeners above to happen to fire afterwards (#548).
+  useEffect(() => {
+    if (isConnected) void check();
+  }, [isConnected, check]);
 
   if (!mismatch) return null;
 

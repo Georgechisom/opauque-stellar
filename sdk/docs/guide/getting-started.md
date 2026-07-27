@@ -87,3 +87,10 @@ await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment }
   these throw `NotWiredError`; you can always pass a precomputed proof to
   `verifyOnChain` / `withdraw`.
 - **Relayer payload encryption** needs the optional `tweetnacl` peer dependency.
+
+## Building a payout/custody integration
+
+If you're a platform (exchange, custodial wallet) sending private payouts to
+users at scale rather than a single sender/recipient, see
+[Custodial Platforms](/integrate/custodial-platforms) for the write-path
+flow, batch detection, compliance touchpoints, and key custody patterns.

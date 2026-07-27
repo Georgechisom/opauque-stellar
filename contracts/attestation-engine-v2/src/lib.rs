@@ -209,6 +209,43 @@ impl AttestationEngineV2 {
         Ok(())
     }
 
+    /// Moves admin authority to `new_admin` (Issue #589) — the migration path
+    /// from a single-key admin to a deployed `multisig-admin` contract's
+    /// address, with no redeployment. Once this call succeeds, the old admin
+    /// key no longer satisfies `require_governance` through the admin slot
+    /// (the governance slot, if still a single key, remains a separate path —
+    /// migrate it too via `transfer_governance` to fully remove single-key
+    /// admin access).
+    pub fn transfer_admin(
+        env: Env,
+        caller: Address,
+        new_admin: Address,
+    ) -> Result<(), AttestationError> {
+        caller.require_auth();
+        let mut cfg = load_config(&env)?;
+        Self::require_governance(&cfg, &caller)?;
+        cfg.admin = new_admin;
+        save_config(&env, &cfg);
+        Ok(())
+    }
+
+    /// Moves governance authority to `new_governance` (Issue #589) — the
+    /// governance-slot counterpart to `transfer_admin`. Both slots satisfy
+    /// `require_governance` identically, so migrate both to fully remove
+    /// single-key admin access.
+    pub fn transfer_governance(
+        env: Env,
+        caller: Address,
+        new_governance: Address,
+    ) -> Result<(), AttestationError> {
+        caller.require_auth();
+        let mut cfg = load_config(&env)?;
+        Self::require_governance(&cfg, &caller)?;
+        cfg.governance = new_governance;
+        save_config(&env, &cfg);
+        Ok(())
+    }
+
     /// One-time initialiser. Stores the trusted schema registry address.
     /// Must be called before `attest` or `revoke_attestation`.
     pub fn initialize(
@@ -1549,5 +1586,63 @@ mod test {
         assert_eq!(engine_client.get_config().upgrade_info, None);
         // suppress unused warning
         let _ = schema_client;
+    }
+
+    // ── Issue #589: multisig admin migration ──────────────────────
+
+    #[test]
+    fn test_transfer_admin_moves_authority() {
+        let (env, authority, _engine_id, _schema_client, engine_client) = setup();
+        let new_admin = Address::generate(&env);
+        engine_client.transfer_admin(&authority, &new_admin);
+        assert_eq!(engine_client.get_config().admin, new_admin);
+
+        // Governance (still `authority`, untouched by transfer_admin) can
+        // still act, since require_governance accepts either slot.
+        engine_client.pause_attestation(&authority);
+        assert!(engine_client.get_config().paused_attestation);
+        engine_client.unpause_attestation(&authority);
+    }
+
+    #[test]
+    fn test_transfer_governance_moves_authority() {
+        let (env, authority, _engine_id, _schema_client, engine_client) = setup();
+        let new_governance = Address::generate(&env);
+        engine_client.transfer_governance(&authority, &new_governance);
+        assert_eq!(engine_client.get_config().governance, new_governance);
+    }
+
+    #[test]
+    fn test_transfer_admin_and_governance_removes_single_key_path() {
+        let (env, authority, _engine_id, _schema_client, engine_client) = setup();
+        let new_authority = Address::generate(&env);
+        engine_client.transfer_admin(&authority, &new_authority);
+        engine_client.transfer_governance(&authority, &new_authority);
+
+        // The original single key satisfies neither slot anymore.
+        let result = engine_client.try_pause_attestation(&authority);
+        assert_eq!(result, Err(Ok(AttestationError::Unauthorized)));
+
+        // The new (e.g. multisig-admin contract) address does.
+        engine_client.pause_attestation(&new_authority);
+        assert!(engine_client.get_config().paused_attestation);
+    }
+
+    #[test]
+    fn test_transfer_admin_unauthorized_rejected() {
+        let (env, _authority, _engine_id, _schema_client, engine_client) = setup();
+        let stranger = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let result = engine_client.try_transfer_admin(&stranger, &new_admin);
+        assert_eq!(result, Err(Ok(AttestationError::Unauthorized)));
+    }
+
+    #[test]
+    fn test_transfer_governance_unauthorized_rejected() {
+        let (env, _authority, _engine_id, _schema_client, engine_client) = setup();
+        let stranger = Address::generate(&env);
+        let new_governance = Address::generate(&env);
+        let result = engine_client.try_transfer_governance(&stranger, &new_governance);
+        assert_eq!(result, Err(Ok(AttestationError::Unauthorized)));
     }
 }
