@@ -10,7 +10,12 @@ import {
   type RelayerMessage,
 } from "./messages.ts";
 
-import { createRateLimiterFromEnv, type RateLimiter } from "./rate-limit.ts";
+import {
+  createGlobalRateLimiterFromEnv,
+  createRateLimiterFromEnv,
+  type RateLimiter,
+  type RateLimitResult,
+} from "./rate-limit.ts";
 
 import type { PayoutReconciler } from "./reconciler.ts";
 
@@ -25,6 +30,9 @@ export type RelayerHttpBackend = {
   healthCheck?(): Promise<unknown>;
   /** Optional reconciler — enables GET /v1/reconcile and POST /v1/reconcile endpoints. */
   reconciler?: PayoutReconciler;
+  /** Optional completion-rate scoring — enables GET /v1/relayers/scores(/:operator). */
+  scoreFor?(operator: string): unknown;
+  allScores?(): unknown[];
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -52,8 +60,15 @@ function readGossipEnvelope(value: unknown): RelayerMessage {
   return validateRelayerMessage(env.message);
 }
 
-export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter?: RateLimiter) {
+export function createRelayerHttpServer(
+  backend: RelayerHttpBackend,
+  rateLimiter?: RateLimiter,
+  globalRateLimiter?: RateLimiter,
+) {
+  // Layered: `global` is a loose per-source cap applied to every request (catches a
+  // flood spread across endpoints); `limiter` is a tight cap on state-mutating routes.
   const limiter = rateLimiter ?? createRateLimiterFromEnv();
+  const globalLimiter = globalRateLimiter ?? createGlobalRateLimiterFromEnv();
 
   function extractSource(req: IncomingMessage): string {
     const forwarded = req.headers["x-forwarded-for"];
@@ -61,23 +76,41 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
     return req.socket.remoteAddress ?? "unknown";
   }
 
-  function rateLimited(req: IncomingMessage, res: ServerResponse): boolean {
+  function applyRateLimitHeaders(res: ServerResponse, rl: RateLimitResult): void {
+    res.setHeader("X-RateLimit-Limit", String(rl.limit));
+    res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
+    res.setHeader("X-RateLimit-Reset", String(Math.ceil(rl.resetMs / 1000)));
+  }
+
+  function rejectRateLimited(res: ServerResponse, rl: RateLimitResult): void {
+    const retryAfter = Math.max(0, Math.ceil((rl.resetMs - Date.now()) / 1000));
+    res.writeHead(429, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "content-type",
+      "content-type": "application/json",
+      "X-RateLimit-Limit": String(rl.limit),
+      "X-RateLimit-Remaining": String(rl.remaining),
+      "X-RateLimit-Reset": String(Math.ceil(rl.resetMs / 1000)),
+      "Retry-After": String(retryAfter),
+    });
+    res.end(JSON.stringify({ ok: false, error: "rate limit exceeded", retryAfterSeconds: retryAfter }));
+  }
+
+  /**
+   * Checks each layer in order for this source, stamping standard rate-limit headers
+   * onto `res` regardless of outcome. Stops and sends 429 on the first layer that
+   * denies the request. Returns true if the request was rejected (caller must stop).
+   */
+  function rateLimited(req: IncomingMessage, res: ServerResponse, layers: RateLimiter[] = [globalLimiter, limiter]): boolean {
     const source = extractSource(req);
-    const rl = limiter.consume(source);
-    if (!rl.allowed) {
-      const retryAfter = Math.ceil((rl.resetMs - Date.now()) / 1000);
-      res.writeHead(429, {
-        "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET,POST,OPTIONS",
-        "access-control-allow-headers": "content-type",
-        "content-type": "application/json",
-        "X-RateLimit-Limit": String(rl.limit),
-        "X-RateLimit-Remaining": String(rl.remaining),
-        "X-RateLimit-Reset": String(Math.ceil(rl.resetMs / 1000)),
-        "Retry-After": String(retryAfter),
-      });
-      res.end(JSON.stringify({ ok: false, error: "rate limit exceeded", retryAfterSeconds: retryAfter }));
-      return true;
+    for (const layer of layers) {
+      const rl = layer.consume(source);
+      applyRateLimitHeaders(res, rl);
+      if (!rl.allowed) {
+        rejectRateLimited(res, rl);
+        return true;
+      }
     }
     return false;
   }
@@ -89,6 +122,10 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
         send(res, 204, {});
         return;
       }
+      // Loose layer, every request: catches a flood spread across endpoints that a
+      // per-route check would never see. Write routes additionally check the tight
+      // layer below, so this one is only consumed once per request.
+      if (rateLimited(req, res, [globalLimiter])) return;
       if (req.method === "GET" && url.pathname === "/v1/gossip/stream") {
         if (!backend.subscribeGossip) {
           send(res, 404, { error: "gossip unavailable" });
@@ -108,7 +145,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/gossip/messages") {
-        if (rateLimited(req, res)) return;
+        if (rateLimited(req, res, [limiter])) return;
         if (!backend.publishGossipMessage) {
           send(res, 404, { error: "gossip unavailable" });
           return;
@@ -118,7 +155,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
         return;
       }
       if (req.method === "POST" && url.pathname === "/v1/jobs") {
-        if (rateLimited(req, res)) return;
+        if (rateLimited(req, res, [limiter])) return;
         const advert = validateAdvert(await readJson(req));
         const bid = await backend.handleAdvert(advert);
         send(res, 202, { ok: true, bid });
@@ -132,7 +169,7 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
       }
       const payloadMatch = /^\/v1\/jobs\/([^/]+)\/payload$/.exec(url.pathname);
       if (req.method === "POST" && payloadMatch) {
-        if (rateLimited(req, res)) return;
+        if (rateLimited(req, res, [limiter])) return;
         const payload = validatePayload(await readJson(req));
         const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
         if (idempotencyKey) {
@@ -144,6 +181,24 @@ export function createRelayerHttpServer(backend: RelayerHttpBackend, rateLimiter
         }
         const result = await backend.handlePayload(payload);
         send(res, 202, { ok: true, result });
+        return;
+      }
+      // GET /v1/relayers/scores — market-wide completion-rate scores, for the selection UI.
+      if (req.method === "GET" && url.pathname === "/v1/relayers/scores") {
+        if (!backend.allScores) {
+          send(res, 404, { error: "scoring unavailable" });
+          return;
+        }
+        send(res, 200, { scores: backend.allScores() });
+        return;
+      }
+      const scoreMatch = /^\/v1\/relayers\/([^/]+)\/score$/.exec(url.pathname);
+      if (req.method === "GET" && scoreMatch) {
+        if (!backend.scoreFor) {
+          send(res, 404, { error: "scoring unavailable" });
+          return;
+        }
+        send(res, 200, { score: backend.scoreFor(decodeURIComponent(scoreMatch[1])) });
         return;
       }
       if (req.method === "GET" && url.pathname === "/health") {

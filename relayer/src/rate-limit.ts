@@ -74,9 +74,23 @@ export class RateLimiter {
   }
 }
 
+/** Tight tier: applied only to state-mutating endpoints (job creation, payload delivery, gossip). */
 export function createRateLimiterFromEnv(): RateLimiter {
   const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
   const maxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 120);
   const burstSize = Number(process.env.RATE_LIMIT_BURST ?? 20);
+  return new RateLimiter(windowMs, maxRequests, burstSize);
+}
+
+/**
+ * Loose tier: applied to every request regardless of route, including reads. Catches a
+ * flood that spreads across endpoints (e.g. hammering /bids and /health) that the tight,
+ * write-only tier above would never see. Generous enough that a single legitimate user
+ * — polling bids, checking health, etc. — will not come close to it.
+ */
+export function createGlobalRateLimiterFromEnv(): RateLimiter {
+  const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
+  const maxRequests = Number(process.env.RATE_LIMIT_GLOBAL_MAX_REQUESTS ?? 600);
+  const burstSize = Number(process.env.RATE_LIMIT_GLOBAL_BURST ?? 200);
   return new RateLimiter(windowMs, maxRequests, burstSize);
 }
