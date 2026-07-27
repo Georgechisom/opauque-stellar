@@ -72,6 +72,7 @@
   },
   "scripts": {
     "build": "tsup && npm run check:size",
+    "check:examples": "npm install --prefix examples/react-quickstart && npm run build --prefix examples/react-quickstart",
     "check:size": "node scripts/check-bundle-size.mjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
@@ -87,7 +88,7 @@
     "docs:dev": "typedoc && vitepress dev docs",
     "docs:build": "typedoc && vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build && npm run check:examples"
   },
   "peerDependencies": {
     "@noble/curves": "^1.9.7",

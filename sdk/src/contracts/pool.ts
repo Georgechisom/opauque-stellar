@@ -18,20 +18,6 @@ import { parseOldestLedgerFromRangeError } from "../rpc/diagnostics";
 
 const POOL_EVENT_LOOKBACK = 16_000;
 
-/** Parse the "ledger range: X - Y" hint from a getEvents range error. */
-function parseOldestLedgerFromRangeError(err: unknown): number | null {
-  const msg =
-    err instanceof Error
-      ? err.message
-      : typeof err === "string"
-        ? err
-        : typeof (err as { message?: unknown })?.message === "string"
-          ? (err as { message: string }).message
-          : "";
-  const m = /ledger range:\s*(\d+)\s*-\s*(\d+)/.exec(msg);
-  return m ? Number(m[1]) : null;
-}
-
 /** Live on-chain pool configuration, as read by `get_config`. */
 export interface PoolConfig {
   admin: string;

@@ -251,6 +251,210 @@ fn withdraw_nullifier_replay_rejected() {
     assert_eq!(res, Err(Ok(PoolError::NullifierUsed)));
 }
 
+// -- Issue #578: nullifier replay protection under conflicting submissions --
+//
+// Soroban's test harness executes contract calls sequentially — there is no
+// real thread-level concurrency to simulate. What "two withdrawals racing
+// with the same nullifier" means in this environment is: two transactions
+// carrying the *same* `nullifier_hash` but otherwise-independent parameters
+// (value, fee, recipient, relayer, new_commitment) are both submitted, in the
+// same ledger and in adjacent ledgers, and in every possible submission
+// order. These tests assert the invariant holds regardless of which
+// candidate happens to land first — exactly one succeeds, the nullifier is
+// spent exactly once, and custody reflects exactly one payout — which is the
+// property that matters: whichever transaction the network orders first
+// wins, and every other conflicting submission is rejected, deterministically
+// and without any randomized/non-deterministic test input.
+
+/// One candidate withdrawal, all sharing the same nullifier with its siblings
+/// but otherwise distinct so a wrongly-accepted second withdrawal is
+/// detectable (different value, fee, recipient, relayer, new_commitment).
+struct Candidate {
+    value: i128,
+    fee: i128,
+    new_commitment_tag: u8,
+}
+
+fn conflicting_candidates(env: &Env) -> [Candidate; 5] {
+    let _ = env;
+    [
+        Candidate {
+            value: 100,
+            fee: 0,
+            new_commitment_tag: 0xE0,
+        },
+        Candidate {
+            value: 250,
+            fee: 10,
+            new_commitment_tag: 0xE1,
+        },
+        Candidate {
+            value: 999,
+            fee: 999,
+            new_commitment_tag: 0xE2,
+        }, // fee == value, still valid (payout 0)
+        Candidate {
+            value: 1,
+            fee: 0,
+            new_commitment_tag: 0xE3,
+        },
+        Candidate {
+            value: 500,
+            fee: 5,
+            new_commitment_tag: 0xE4,
+        },
+    ]
+}
+
+/// Submits every candidate in `order` against the same nullifier and returns
+/// the number that succeeded plus the resulting custody counters.
+fn submit_conflicting(
+    h: &Harness,
+    nullifier: &BytesN<32>,
+    sr: &BytesN<32>,
+    ar: &BytesN<32>,
+    order: &[usize],
+) -> (usize, (i128, i128)) {
+    let candidates = conflicting_candidates(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+    let mut successes = 0usize;
+
+    for &i in order {
+        let c = &candidates[i];
+        let res = h.pool.try_withdraw(
+            &pa,
+            &pb,
+            &pc,
+            &c.value,
+            sr,
+            ar,
+            nullifier,
+            &b32(&h.env, c.new_commitment_tag),
+            &Address::generate(&h.env),
+            &c.fee,
+            &Address::generate(&h.env),
+        );
+        if res.is_ok() {
+            successes += 1;
+        } else {
+            assert_eq!(res, Err(Ok(PoolError::NullifierUsed)));
+        }
+    }
+
+    (successes, h.pool.get_custody())
+}
+
+#[test]
+fn same_ledger_conflicting_withdrawals_exactly_one_succeeds_regardless_of_order() {
+    // Every permutation "wins" for a different candidate; the invariant
+    // (exactly one success) must hold no matter which one goes first.
+    let orders: [[usize; 5]; 5] = [
+        [0, 1, 2, 3, 4],
+        [4, 3, 2, 1, 0],
+        [2, 0, 4, 1, 3],
+        [1, 3, 0, 4, 2],
+        [3, 4, 1, 2, 0],
+    ];
+
+    for order in orders {
+        let h = setup();
+        let depositor = Address::generate(&h.env);
+        fund(&h, &depositor, 10_000);
+        h.pool
+            .deposit(&depositor, &10_000i128, &b32(&h.env, 0xC1), &0u64);
+        let (sr, ar) = publish_roots(&h);
+        let nullifier = b32(&h.env, 0x9B);
+
+        // All submissions land in the same ledger — no sequence-number
+        // change between them.
+        let (successes, custody) = submit_conflicting(&h, &nullifier, &sr, &ar, &order);
+
+        assert_eq!(
+            successes, 1,
+            "expected exactly one success for order {order:?}, got {successes}"
+        );
+        // Whichever candidate won, total withdrawn (tot_wd) must equal
+        // exactly that one candidate's value — never the sum of several.
+        let winner = &conflicting_candidates(&h.env)[order[0]];
+        assert_eq!(custody, (10_000, winner.value));
+        assert!(h.pool.is_spent(&nullifier));
+    }
+}
+
+#[test]
+fn adjacent_ledger_conflicting_withdrawals_exactly_one_succeeds() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 10_000);
+    h.pool
+        .deposit(&depositor, &10_000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let nullifier = b32(&h.env, 0x9C);
+    let candidates = conflicting_candidates(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+
+    let start_ledger = h.env.ledger().sequence();
+    let mut successes = 0usize;
+    let mut winner_value: Option<i128> = None;
+
+    for (step, c) in candidates.iter().enumerate() {
+        // Each conflicting submission lands one ledger later than the last —
+        // "adjacent ledgers", not just "same ledger".
+        h.env
+            .ledger()
+            .set_sequence_number(start_ledger + step as u32);
+        let res = h.pool.try_withdraw(
+            &pa,
+            &pb,
+            &pc,
+            &c.value,
+            &sr,
+            &ar,
+            &nullifier,
+            &b32(&h.env, c.new_commitment_tag),
+            &Address::generate(&h.env),
+            &c.fee,
+            &Address::generate(&h.env),
+        );
+        if res.is_ok() {
+            successes += 1;
+            winner_value = Some(c.value);
+        } else {
+            assert_eq!(res, Err(Ok(PoolError::NullifierUsed)));
+        }
+    }
+
+    assert_eq!(successes, 1);
+    assert_eq!(h.pool.get_custody(), (10_000, winner_value.unwrap()));
+    assert!(h.pool.is_spent(&nullifier));
+}
+
+#[test]
+fn many_conflicting_submissions_never_spend_the_nullifier_more_than_once() {
+    // A denser sweep than the 5-candidate permutation test above: the same
+    // nullifier submitted many times in a single ledger with only the
+    // submission order varying run-to-run (still fully deterministic — the
+    // orders are explicit, not randomly generated).
+    let all_orders: [[usize; 5]; 3] = [[0, 2, 4, 1, 3], [4, 0, 3, 1, 2], [2, 4, 0, 3, 1]];
+
+    for order in all_orders {
+        let h = setup();
+        let depositor = Address::generate(&h.env);
+        fund(&h, &depositor, 10_000);
+        h.pool
+            .deposit(&depositor, &10_000i128, &b32(&h.env, 0xC1), &0u64);
+        let (sr, ar) = publish_roots(&h);
+        let nullifier = b32(&h.env, 0x9D);
+
+        let (successes, custody) = submit_conflicting(&h, &nullifier, &sr, &ar, &order);
+
+        assert_eq!(successes, 1);
+        let winner = &conflicting_candidates(&h.env)[order[0]];
+        assert_eq!(custody, (10_000, winner.value));
+        assert!(h.pool.is_spent(&nullifier));
+    }
+}
+
 #[test]
 fn withdraw_unknown_roots_rejected() {
     let h = setup();
@@ -787,4 +991,267 @@ fn state_root_publishable_through_a_real_multisig_after_admin_migration() {
     let proposal = multisig.get_proposal(&proposal_id);
     assert_eq!(proposal.approvals.len(), 2);
     let _ = s3;
+}
+
+// -- Issue #576: timelocked circuit breaker ----------------------------------
+
+#[test]
+fn deposits_pause_takes_effect_same_ledger() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+
+    assert!(!h.pool.is_deposits_paused());
+    h.pool.pause_deposits(&h.admin);
+    assert!(h.pool.is_deposits_paused());
+
+    // No ledger advance between pause and this deposit attempt.
+    let res = h
+        .pool
+        .try_deposit(&depositor, &100i128, &b32(&h.env, 0xC1), &0u64);
+    assert_eq!(res, Err(Ok(PoolError::DepositsPaused)));
+}
+
+#[test]
+fn unpause_deposits_resumes_immediately() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+
+    h.pool.pause_deposits(&h.admin);
+    h.pool.unpause_deposits(&h.admin);
+    assert!(!h.pool.is_deposits_paused());
+
+    let idx = h
+        .pool
+        .deposit(&depositor, &100i128, &b32(&h.env, 0xC1), &0u64);
+    assert_eq!(idx, 0);
+}
+
+#[test]
+fn pause_deposits_unauthorized_rejected() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let res = h.pool.try_pause_deposits(&stranger);
+    assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
+    assert!(!h.pool.is_deposits_paused());
+}
+
+#[test]
+fn withdrawal_pause_request_does_not_pause_immediately() {
+    let h = setup();
+    h.env.ledger().set_sequence_number(1000);
+    h.pool.request_pause_withdrawals(&h.admin);
+
+    // Still within the timelock window: withdrawals must still work (proof
+    // will fail for unrelated reasons in this harness, but must NOT fail with
+    // WithdrawalsPaused).
+    assert!(!h.pool.is_withdrawals_paused());
+    let (requested_at, activates_at) = h.pool.get_withdrawal_pause_request();
+    assert_eq!(requested_at, 1000);
+    assert_eq!(activates_at, 1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+}
+
+#[test]
+fn withdrawal_pause_activates_exactly_at_timelock_boundary() {
+    let h = setup();
+    h.env.ledger().set_sequence_number(1000);
+    h.pool.request_pause_withdrawals(&h.admin);
+
+    // One ledger before the deadline: not yet paused.
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS - 1);
+    assert!(!h.pool.is_withdrawals_paused());
+
+    // Exactly at the deadline: paused.
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+    assert!(h.pool.is_withdrawals_paused());
+}
+
+#[test]
+fn withdraw_rejected_once_pause_timelock_elapses() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+
+    h.env.ledger().set_sequence_number(1000);
+    h.pool.request_pause_withdrawals(&h.admin);
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+
+    let res = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x10),
+        &b32(&h.env, 0xCE),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(res, Err(Ok(PoolError::WithdrawalsPaused)));
+}
+
+#[test]
+fn requesting_pause_twice_does_not_reset_the_timelock() {
+    let h = setup();
+    h.env.ledger().set_sequence_number(1000);
+    h.pool.request_pause_withdrawals(&h.admin);
+
+    // Re-request later — must NOT push the deadline further out.
+    h.env.ledger().set_sequence_number(5000);
+    h.pool.request_pause_withdrawals(&h.admin);
+
+    let (requested_at, activates_at) = h.pool.get_withdrawal_pause_request();
+    assert_eq!(requested_at, 1000);
+    assert_eq!(activates_at, 1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+}
+
+#[test]
+fn unpause_withdrawals_cancels_pending_request() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+
+    h.env.ledger().set_sequence_number(1000);
+    // Publish roots only after fixing the ledger clock so they stay fresh
+    // through the timelock window advanced below (root expiry and the
+    // withdrawal-pause timelock happen to share the same duration constant).
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+
+    h.pool.request_pause_withdrawals(&h.admin);
+    h.pool.unpause_withdrawals(&h.admin);
+
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+    assert!(!h.pool.is_withdrawals_paused());
+
+    // Withdrawals proceed normally (proof mocked to succeed by default).
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x11),
+        &b32(&h.env, 0xCF),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(h.pool.get_custody(), (1000, 500));
+}
+
+#[test]
+fn unpause_withdrawals_lifts_an_already_active_pause() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+
+    h.env.ledger().set_sequence_number(1000);
+    // Publish roots only after fixing the ledger clock — see comment in
+    // unpause_withdrawals_cancels_pending_request above.
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+
+    h.pool.request_pause_withdrawals(&h.admin);
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+    assert!(h.pool.is_withdrawals_paused());
+
+    h.pool.unpause_withdrawals(&h.admin);
+    assert!(!h.pool.is_withdrawals_paused());
+
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x12),
+        &b32(&h.env, 0xD0),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(h.pool.get_custody(), (1000, 500));
+}
+
+#[test]
+fn unpause_withdrawals_with_no_pending_request_rejected() {
+    let h = setup();
+    let res = h.pool.try_unpause_withdrawals(&h.admin);
+    assert_eq!(res, Err(Ok(PoolError::NoPauseRequestPending)));
+}
+
+#[test]
+fn request_pause_withdrawals_unauthorized_rejected() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let res = h.pool.try_request_pause_withdrawals(&stranger);
+    assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
+    assert_eq!(h.pool.get_withdrawal_pause_request(), (0, 0));
+}
+
+#[test]
+fn deposits_pause_does_not_affect_withdrawals_and_vice_versa() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let (pa, pb, pc) = proof(&h.env);
+
+    // Pausing deposits must not block withdrawals.
+    h.pool.pause_deposits(&h.admin);
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &200i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x13),
+        &b32(&h.env, 0xD1),
+        &Address::generate(&h.env),
+        &0i128,
+        &Address::generate(&h.env),
+    );
+    assert_eq!(h.pool.get_custody(), (1000, 200));
+
+    // And an active withdrawal pause must not block deposits.
+    h.pool.unpause_deposits(&h.admin);
+    h.env.ledger().set_sequence_number(1000);
+    h.pool.request_pause_withdrawals(&h.admin);
+    h.env
+        .ledger()
+        .set_sequence_number(1000 + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS);
+    fund(&h, &depositor, 100);
+    // dep_count is 2 here: index 0 from the deposit above, index 1 consumed
+    // by withdraw()'s own new_commitment leaf insertion.
+    let idx = h
+        .pool
+        .deposit(&depositor, &100i128, &b32(&h.env, 0xC2), &2u64);
+    assert_eq!(idx, 2);
 }

@@ -1,0 +1,25 @@
+{
+  "name": "@opaquecash/react-quickstart-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Minimal React example wiring connect/receive/deposit/withdraw through @opaquecash/stellar (#575).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@opaquecash/stellar": "file:../..",
+    "@stellar/freighter-api": "^6.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.0.7"
+  }
+}

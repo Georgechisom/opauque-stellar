@@ -1,5 +1,12 @@
 # Contributing Guide
 
+## Event ABI Changes
+
+Before changing what a contract publishes via `env.events().publish(...)`,
+read [ADR-0006: Contract event ABI versioning policy](adr/0006_event_abi_versioning_policy.md).
+It defines when bumping that contract's `EVENT_VERSION` is mandatory and the
+required update order across the scanner, SDK, and frontend.
+
 ## Scanner WASM Rebuilds
 
 When modifying scanner code, contributors must verify their rebuild is byte-identical to the pinned artifact before pushing.

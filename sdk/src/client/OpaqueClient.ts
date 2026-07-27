@@ -4,7 +4,12 @@
  * (`payments`, `pool`, `reputation`, `schemas`, `relayer`). Low-level escape
  * hatches (`rpc`, `contracts`, `soroban`) are exposed for advanced use.
  */
-import { resolveConfig, type OpaqueConfig, type ResolvedConfig } from "../config/index";
+import {
+  resolveConfig,
+  type ContractVersions,
+  type OpaqueConfig,
+  type ResolvedConfig,
+} from "../config/index";
 import { RpcClient, type ContractInvoker } from "../rpc/client";
 import type { OpaqueSigner } from "../signer/index";
 import type { Logger } from "../logger/index";
@@ -122,7 +127,7 @@ export class OpaqueClient implements OpaqueClientContext {
     const source = "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU";
     const mismatches: Array<{ contract: string; contractId: string; expected: number; deployed: number }> = [];
 
-    const checks: Array<{ contract: string; contractId: string; fn: () => Promise<number> }> = [
+    const checks: Array<{ contract: keyof ContractVersions; contractId: string; fn: () => Promise<number> }> = [
       { contract: "stealthRegistry", contractId: this.config.contracts.stealthRegistry, fn: () => this.contracts.stealthRegistry.version(source) },
       { contract: "stealthAnnouncer", contractId: this.config.contracts.stealthAnnouncer, fn: () => this.contracts.stealthAnnouncer.version(source) },
       { contract: "schemaRegistry", contractId: this.config.contracts.schemaRegistry, fn: () => this.contracts.schemaRegistry.version(source) },
@@ -134,7 +139,7 @@ export class OpaqueClient implements OpaqueClientContext {
     ];
 
     for (const check of checks) {
-      const expectedVersion = (expected as Record<string, number>)[check.contract];
+      const expectedVersion = expected[check.contract];
       if (expectedVersion === undefined) continue;
       try {
         const deployed = await check.fn();

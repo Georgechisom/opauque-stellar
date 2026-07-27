@@ -11,6 +11,7 @@ This index tracks major architecture decisions for Opaque Stellar. Each ADR docu
 | [ADR-0003](0003_relayer_market_gossip_hub.md) | Relayer market with shared gossip hub | Accepted | 2024-02-01 |
 | [ADR-0004](0004_non_custodial_wallet.md) | Non-custodial Freighter wallet requirement | Accepted | 2024-01-10 |
 | [ADR-0005](0005_soroban_privacy_pool.md) | Soroban smart contracts for privacy pool enforcement | Accepted | 2024-01-25 |
+| [ADR-0006](0006_event_abi_versioning_policy.md) | Contract event ABI versioning policy | Accepted | 2026-07-27 |
 
 ## Deprecated ADRs
 

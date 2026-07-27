@@ -34,6 +34,19 @@ const DEFAULT_ROOT_EXPIRY_LEDGERS: u32 = 17_280;
 const MAX_ROOT_HISTORY: u32 = 100;
 const EVENT_VERSION: u32 = 1;
 
+/// Public delay (~1 day at 5 s/ledger) between an admin *requesting* a
+/// withdrawal pause and it actually taking effect (#576). Deposits pause
+/// immediately on admin action — there's no fund-safety reason to delay
+/// stopping new deposits — but an instant withdrawal pause would itself be a
+/// rug vector (a compromised or malicious admin could freeze user funds with
+/// no warning). The timelock gives depositors a public window to withdraw
+/// before the pause activates.
+const WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS: u32 = 17_280;
+
+/// Sentinel meaning "no withdrawal pause request pending" (ledger 0 never
+/// occurs in practice — Soroban ledger sequence numbers start well above it).
+const NO_PAUSE_REQUEST: u32 = 0;
+
 /// TTL management for persistent storage entries.
 ///
 /// Persistent entries default to Soroban's maximum TTL (~120 days / 2,073,600 ledgers).
@@ -100,6 +113,9 @@ pub enum PoolError {
     BadAmount = 8,
     IndexMismatch = 9,
     CustodyViolation = 10,
+    DepositsPaused = 11,
+    WithdrawalsPaused = 12,
+    NoPauseRequestPending = 13,
 }
 
 // Which root namespace an entry belongs to.
@@ -139,6 +155,43 @@ fn nullifier_key(env: &Env, n: &BytesN<32>) -> (Symbol, BytesN<32>) {
 
 fn commitment_key(env: &Env, c: &BytesN<32>) -> (Symbol, BytesN<32>) {
     (Symbol::new(env, "commit"), c.clone())
+}
+
+fn deposits_paused_key(env: &Env) -> Symbol {
+    Symbol::new(env, "dep_paused")
+}
+
+fn wd_pause_request_key(env: &Env) -> Symbol {
+    Symbol::new(env, "wd_pause_req")
+}
+
+fn deposits_paused_flag(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&deposits_paused_key(env))
+        .unwrap_or(false)
+}
+
+/// Ledger at which a pending withdrawal-pause request was made, or
+/// `NO_PAUSE_REQUEST` if none is pending / it was cancelled.
+fn wd_pause_requested_at(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&wd_pause_request_key(env))
+        .unwrap_or(NO_PAUSE_REQUEST)
+}
+
+/// Withdrawals are paused once `WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS` have
+/// elapsed since a pause was requested — computed on every call rather than
+/// latched by a separate "finalize" transaction, so the pause activates
+/// exactly at the deadline with no extra step required.
+fn withdrawals_pause_active(env: &Env) -> bool {
+    let requested_at = wd_pause_requested_at(env);
+    if requested_at == NO_PAUSE_REQUEST {
+        return false;
+    }
+    let now = env.ledger().sequence();
+    now.saturating_sub(requested_at) >= WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS
 }
 
 /// Extend the TTL of a persistent storage entry to prevent archival expiry.
@@ -227,6 +280,9 @@ impl PrivacyPool {
         expected_index: u64,
     ) -> Result<u64, PoolError> {
         depositor.require_auth();
+        if deposits_paused_flag(&env) {
+            return Err(PoolError::DepositsPaused);
+        }
         if value <= 0 {
             return Err(PoolError::BadAmount);
         }
@@ -366,6 +422,117 @@ impl PrivacyPool {
         Ok(())
     }
 
+    // ── Circuit breaker: timelocked pause (#576) ────────────────────────────
+
+    /// Halts new deposits immediately (same ledger as this call). There is no
+    /// fund-safety reason to delay this — unlike withdrawals, pausing deposits
+    /// cannot itself be used to trap user funds.
+    pub fn pause_deposits(env: Env, admin: Address) -> Result<(), PoolError> {
+        admin.require_auth();
+        let config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&deposits_paused_key(&env), &true);
+        env.events().publish(
+            (Symbol::new(&env, "DepositsPaused"), EVENT_VERSION),
+            (env.ledger().sequence(),),
+        );
+        Ok(())
+    }
+
+    /// Resumes deposits.
+    pub fn unpause_deposits(env: Env, admin: Address) -> Result<(), PoolError> {
+        admin.require_auth();
+        let config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&deposits_paused_key(&env), &false);
+        env.events().publish(
+            (Symbol::new(&env, "DepositsUnpaused"), EVENT_VERSION),
+            (env.ledger().sequence(),),
+        );
+        Ok(())
+    }
+
+    /// Starts the public timelock for a withdrawal pause. Withdrawals keep
+    /// working until `WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS` have elapsed from
+    /// this call — there is no separate "finalize" step; `withdraw()` itself
+    /// checks elapsed time on every call. Re-requesting while a request is
+    /// already pending is a no-op (the original timestamp is preserved, so an
+    /// admin can't reset the clock by calling this repeatedly).
+    pub fn request_pause_withdrawals(env: Env, admin: Address) -> Result<(), PoolError> {
+        admin.require_auth();
+        let config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        if wd_pause_requested_at(&env) != NO_PAUSE_REQUEST {
+            return Ok(());
+        }
+        let now = env.ledger().sequence();
+        env.storage()
+            .instance()
+            .set(&wd_pause_request_key(&env), &now);
+        env.events().publish(
+            (Symbol::new(&env, "WithdrawalPauseRequested"), EVENT_VERSION),
+            (now, now + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS),
+        );
+        Ok(())
+    }
+
+    /// Cancels a pending withdrawal-pause request before it activates, or
+    /// lifts an already-active pause. Either way, withdrawals work again
+    /// immediately after this call.
+    pub fn unpause_withdrawals(env: Env, admin: Address) -> Result<(), PoolError> {
+        admin.require_auth();
+        let config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        if wd_pause_requested_at(&env) == NO_PAUSE_REQUEST {
+            return Err(PoolError::NoPauseRequestPending);
+        }
+        env.storage()
+            .instance()
+            .set(&wd_pause_request_key(&env), &NO_PAUSE_REQUEST);
+        env.events().publish(
+            (Symbol::new(&env, "WithdrawalsUnpaused"), EVENT_VERSION),
+            (env.ledger().sequence(),),
+        );
+        Ok(())
+    }
+
+    /// Whether new deposits are currently accepted.
+    pub fn is_deposits_paused(env: Env) -> bool {
+        deposits_paused_flag(&env)
+    }
+
+    /// Whether withdrawals are currently paused (timelock elapsed).
+    pub fn is_withdrawals_paused(env: Env) -> bool {
+        withdrawals_pause_active(&env)
+    }
+
+    /// `(requested_at, activates_at)` for a pending/active withdrawal pause
+    /// request, or `(0, 0)` if none is pending — lets the frontend show a
+    /// countdown to when withdrawals will actually stop.
+    pub fn get_withdrawal_pause_request(env: Env) -> (u32, u32) {
+        let requested_at = wd_pause_requested_at(&env);
+        if requested_at == NO_PAUSE_REQUEST {
+            (0, 0)
+        } else {
+            (
+                requested_at,
+                requested_at + WITHDRAWAL_PAUSE_TIMELOCK_LEDGERS,
+            )
+        }
+    }
+
     /// Withdraw `withdrawn_value` XLM from the pool to `recipient` (minus `fee` to `relayer`),
     /// proving in zero knowledge that an unspent deposit (clean per the ASP) backs it.
     pub fn withdraw(
@@ -382,6 +549,9 @@ impl PrivacyPool {
         fee: i128,
         relayer: Address,
     ) -> Result<(), PoolError> {
+        if withdrawals_pause_active(&env) {
+            return Err(PoolError::WithdrawalsPaused);
+        }
         let config = cfg(&env);
         if withdrawn_value <= 0 || fee < 0 || fee > withdrawn_value {
             return Err(PoolError::BadAmount);
