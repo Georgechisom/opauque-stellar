@@ -139,16 +139,126 @@ function parseOldestLedgerFromRangeError(err: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
-async function fetchLogsAdaptive(
+/** Ledger range per `getEvents` call. */
+const BATCH_SIZE = 10000n;
+
+/**
+ * Default number of page ranges fetched concurrently by {@link fetchLogsAdaptive} (#603).
+ * Configurable via the `concurrency` parameter for callers that want to tune
+ * network parallelism (e.g. lower it for rate-limited RPC endpoints).
+ */
+export const DEFAULT_FETCH_CONCURRENCY = 4;
+
+/** A single `[from, to]` ledger range to fetch one page of events for. */
+export interface PageRange {
+  from: bigint;
+  to: bigint;
+}
+
+/**
+ * Splits `[fromBlock, toBlock]` into consecutive, non-overlapping `BATCH_SIZE`
+ * ledger ranges in ascending order. Pure and exported for unit testing.
+ */
+export function buildPageRanges(
+  fromBlock: bigint,
+  toBlock: bigint,
+  batchSize: bigint = BATCH_SIZE,
+): PageRange[] {
+  const ranges: PageRange[] = [];
+  let currentFrom = fromBlock;
+  while (currentFrom <= toBlock) {
+    const currentTo =
+      currentFrom + batchSize > toBlock ? toBlock : currentFrom + batchSize;
+    ranges.push({ from: currentFrom, to: currentTo });
+    currentFrom = currentTo + 1n;
+  }
+  return ranges;
+}
+
+function mapAnnouncementEvents(
+  events: Awaited<ReturnType<ReturnType<typeof getSorobanServer>["getEvents"]>>["events"],
+  cluster: StellarNetwork,
+): CachedAnnouncement[] {
+  return events.map((ev) => {
+    // Event value is (scheme_id, stealth_address, caller, ephemeral_pub_key, metadata)
+    const val = scValToNative(ev.value) as Uint8Array[];
+    return {
+      id: `${ev.txHash}:${ev.ledger}`,
+      cluster,
+      transactionSignature: ev.txHash,
+      logIndex: 0,
+      slot: ev.ledger,
+      args: {
+        stealthAddress: "0x" + Buffer.from(val[1]).toString("hex"),
+        ephemeralPubKey: "0x" + Buffer.from(val[3]).toString("hex"),
+        metadata: "0x" + Buffer.from(val[4]).toString("hex"),
+      },
+    };
+  });
+}
+
+/** Fetches a single page range, retrying once from the RPC's reported lower bound on a range error. */
+async function fetchPage(
+  publicClient: ReturnType<typeof getSorobanServer>,
+  announcerAddress: string,
+  range: PageRange,
+  cluster: StellarNetwork,
+): Promise<{ from: bigint; to: bigint; logs: CachedAnnouncement[] }> {
+  const getEventsArgs = {
+    startLedger: Number(range.from),
+    filters: [
+      {
+        type: "contract" as const,
+        contractIds: [announcerAddress],
+        // The announcer publishes a two-segment topic:
+        // (Symbol("Announcement"), EVENT_VERSION). Soroban getEvents matches
+        // topic filters positionally and requires the filter length to equal
+        // the event's topic length, so a single-segment ["Announcement"]
+        // filter matches nothing. The trailing "*" wildcard matches the
+        // version segment and stays correct across EVENT_VERSION bumps.
+        topics: [[xdr.ScVal.scvSymbol("Announcement").toXDR("base64"), "*"]],
+      },
+    ],
+  };
+
+  let response;
+  try {
+    response = await publicClient.getEvents(getEventsArgs);
+  } catch (err) {
+    // The retention window can slide forward between the getHealth clamp
+    // in fetchLogsAdaptive and this call, so getEvents may still report a
+    // startLedger below its range. Retry once from the authoritative lower
+    // bound it reports.
+    const oldest = parseOldestLedgerFromRangeError(err);
+    if (oldest != null && Number(range.from) < oldest) {
+      getEventsArgs.startLedger = oldest;
+      response = await publicClient.getEvents(getEventsArgs);
+    } else {
+      throw err;
+    }
+  }
+
+  return { from: range.from, to: range.to, logs: mapAnnouncementEvents(response.events, cluster) };
+}
+
+/**
+ * Fetches announcement pages with bounded concurrency while preserving
+ * in-order delivery to `onChunk` (#603). Ranges are dispatched up to
+ * `concurrency` at a time; completed pages that arrive out of order are
+ * buffered and flushed to `onChunk` strictly in ascending range order, so
+ * downstream consumers (cache writes, sync-state, progress) see identical
+ * results to the previous fully-sequential implementation.
+ */
+export async function fetchLogsAdaptive(
   announcerAddress: string,
   fromBlock: bigint,
   toBlock: bigint,
   _cluster: StellarNetwork,
-  onChunk: (from: bigint, to: bigint, logs: CachedAnnouncement[]) => Promise<void>
+  onChunk: (from: bigint, to: bigint, logs: CachedAnnouncement[]) => Promise<void>,
+  concurrency: number = DEFAULT_FETCH_CONCURRENCY,
 ): Promise<void> {
   const publicClient = getSorobanServer();
-  let currentFrom = fromBlock;
-  const BATCH_SIZE = 10000n; // Ledger range per call
+  let effectiveFrom = fromBlock;
 
   // Soroban RPC only retains a sliding window of ledgers. Asking for events
   // from a startLedger older than the oldest retained ledger fails with
@@ -156,75 +266,64 @@ async function fetchLogsAdaptive(
   try {
     const health = await publicClient.getHealth();
     const oldest = BigInt(health.oldestLedger);
-    if (currentFrom < oldest) {
+    if (effectiveFrom < oldest) {
       console.warn(
         "[useScanner] startLedger below RPC retention window, clamping",
-        { requested: String(currentFrom), oldestLedger: String(oldest) },
+        { requested: String(effectiveFrom), oldestLedger: String(oldest) },
       );
-      currentFrom = oldest;
+      effectiveFrom = oldest;
     }
   } catch {
     // Health unavailable, proceed with the requested start ledger.
   }
 
-  while (currentFrom <= toBlock) {
-    const currentTo =
-      currentFrom + BATCH_SIZE > toBlock ? toBlock : currentFrom + BATCH_SIZE;
+  if (effectiveFrom > toBlock) return;
 
-    const getEventsArgs = {
-      startLedger: Number(currentFrom),
-      filters: [
-        {
-          type: "contract" as const,
-          contractIds: [announcerAddress],
-          // The announcer publishes a two-segment topic:
-          // (Symbol("Announcement"), EVENT_VERSION). Soroban getEvents matches
-          // topic filters positionally and requires the filter length to equal
-          // the event's topic length, so a single-segment ["Announcement"]
-          // filter matches nothing. The trailing "*" wildcard matches the
-          // version segment and stays correct across EVENT_VERSION bumps.
-          topics: [[xdr.ScVal.scvSymbol("Announcement").toXDR("base64"), "*"]],
-        },
-      ],
-    };
+  const ranges = buildPageRanges(effectiveFrom, toBlock);
+  const results = new Map<number, { from: bigint; to: bigint; logs: CachedAnnouncement[] }>();
+  let nextToFlush = 0;
+  let nextToDispatch = 0;
+  let firstError: unknown = null;
 
-    let response;
-    try {
-      response = await publicClient.getEvents(getEventsArgs);
-    } catch (err) {
-      // The retention window can slide forward between the getHealth clamp
-      // above and this call, so getEvents may still report a startLedger below
-      // its range. Retry once from the authoritative lower bound it reports.
-      const oldest = parseOldestLedgerFromRangeError(err);
-      if (oldest != null && Number(currentFrom) < oldest) {
-        currentFrom = BigInt(oldest);
-        getEventsArgs.startLedger = oldest;
-        response = await publicClient.getEvents(getEventsArgs);
-      } else {
-        throw err;
+  // Flush any buffered results that have become the next-in-order chunk.
+  async function drainReady(): Promise<void> {
+    while (results.has(nextToFlush)) {
+      const result = results.get(nextToFlush)!;
+      results.delete(nextToFlush);
+      await onChunk(result.from, result.to, result.logs);
+      nextToFlush += 1;
+    }
+  }
+
+  async function worker(): Promise<void> {
+    while (true) {
+      if (firstError) return;
+      const index = nextToDispatch;
+      if (index >= ranges.length) return;
+      nextToDispatch += 1;
+      try {
+        const result = await fetchPage(publicClient, announcerAddress, ranges[index], _cluster);
+        results.set(index, result);
+        // Only the worker that completes the current in-order chunk needs to
+        // drain; others just buffer their result and return to pick up more work.
+        if (index === nextToFlush) {
+          await drainReady();
+        }
+      } catch (err) {
+        if (!firstError) firstError = err;
+        return;
       }
     }
-
-    const mapped: CachedAnnouncement[] = response.events.map((ev) => {
-      // Event value is (scheme_id, stealth_address, caller, ephemeral_pub_key, metadata)
-      const val = scValToNative(ev.value) as Uint8Array[];
-      return {
-        id: `${ev.txHash}:${ev.ledger}`,
-        cluster: _cluster,
-        transactionSignature: ev.txHash,
-        logIndex: 0,
-        slot: ev.ledger,
-        args: {
-          stealthAddress: "0x" + Buffer.from(val[1]).toString("hex"),
-          ephemeralPubKey: "0x" + Buffer.from(val[3]).toString("hex"),
-          metadata: "0x" + Buffer.from(val[4]).toString("hex"),
-        },
-      };
-    });
-
-    await onChunk(currentFrom, currentTo, mapped);
-    currentFrom = currentTo + 1n;
   }
+
+  const workerCount = Math.max(1, Math.min(concurrency, ranges.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  if (firstError) throw firstError;
+  // Safety net: if the chunk that completes each in-order step never ends up
+  // being the one that calls drainReady (e.g. a later worker fills a gap),
+  // flush whatever became ready afterward.
+  await drainReady();
 }
 
 async function checkWatchlistBalances(
