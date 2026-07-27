@@ -60,6 +60,14 @@ export interface OpaqueWasmModule {
     view_tag: number,
     attestation_id: bigint
   ) => string;
+  get_scanner_metadata: () => string;
+  check_announcement_view_only_wasm: (
+    announcement_stealth_address: string,
+    view_tag: number,
+    view_privkey_bytes: Uint8Array,
+    spend_pubkey_bytes: Uint8Array,
+    ephemeral_pubkey_bytes: Uint8Array
+  ) => boolean;
 }
 
 interface UseOpaqueWasmReturn {

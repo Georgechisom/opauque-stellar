@@ -1,6 +1,7 @@
 // @ts-nocheck
 /**
- * Validates deployment manifests and optionally checks env / WASM hashes.
+ * Validates deployment manifests against the declared JSON Schema and
+ * optionally checks env / WASM hashes.
  *
  * Usage:
  *   node scripts/verify-deployment-manifest.mjs
@@ -51,10 +52,53 @@ const PASSPHRASES = {
   mainnet: "Public Global Stellar Network ; September 2015",
 };
 
+const SCHEMA_PATH = join(ROOT, "deployments", "manifest.schema.json");
+
 const STELLAR_CONTRACT_ID = /^C[A-Z2-7]{55}$/;
 const STELLAR_ACCOUNT_ID = /^G[A-Z2-7]{55}$/;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 const SOLANA_LIKE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+function loadSchema() {
+  return JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+}
+
+function validateAgainstSchema(manifest, schema) {
+  const errors = [];
+  const required = schema.required ?? [];
+  for (const key of required) {
+    if (!(key in manifest)) {
+      errors.push(`missing required field: ${key}`);
+    }
+  }
+  const props = schema.properties ?? {};
+  for (const [key, propSchema] of Object.entries(props)) {
+    if (!(key in manifest)) continue;
+    const val = manifest[key];
+    const def = propSchema;
+    if (def.const !== undefined && val !== def.const) {
+      errors.push(`${key} must be ${JSON.stringify(def.const)} (got ${JSON.stringify(val)})`);
+    }
+    if (def.type === "string" && typeof val === "string") {
+      if (def.minLength !== undefined && val.length < def.minLength) {
+        errors.push(`${key} must be at least ${def.minLength} characters`);
+      }
+      if (def.pattern !== undefined && !new RegExp(def.pattern).test(val)) {
+        errors.push(`${key} does not match pattern ${def.pattern}`);
+      }
+    }
+    if (def.enum !== undefined && !def.enum.includes(val)) {
+      errors.push(`${key} must be one of [${def.enum.join(", ")}] (got ${JSON.stringify(val)})`);
+    }
+    if (def.type === "object" && typeof val === "object" && val !== null && def.properties) {
+      const subRequired = def.required ?? [];
+      for (const r of subRequired) {
+        if (!(r in val)) errors.push(`${key}.${r} is required`);
+      }
+    }
+  }
+  return errors;
+}
 
 const WASM_PATHS = {
   "stealth-registry": "target/wasm32v1-none/release/stealth_registry.wasm",
@@ -343,12 +387,14 @@ function main() {
 
   allErrors.push(...checkLegacyAddresses());
 
+  const schema = loadSchema();
   for (const network of networks) {
     if (network !== "testnet" && network !== "mainnet") {
       allErrors.push(`Unknown network: ${network}`);
       continue;
     }
     const manifest = loadManifest(network);
+    allErrors.push(...validateAgainstSchema(manifest, schema));
     allErrors.push(...validateManifest(manifest, opts));
     if (opts.checkEnv) {
       allErrors.push(...checkEnvMatchesManifest(manifest));

@@ -23,6 +23,7 @@ export default defineConfig({
             { text: "Getting Started", link: "/guide/getting-started" },
             { text: "Node (server keypair)", link: "/guide/node" },
             { text: "Browser (Freighter)", link: "/guide/browser" },
+            { text: "Hardware wallet (Ledger)", link: "/guide/hardware-wallet" },
           ],
         },
         {
@@ -32,6 +33,7 @@ export default defineConfig({
             { text: "Privacy Pool", link: "/integrate/privacy-pool" },
             { text: "ZK Reputation", link: "/integrate/reputation" },
             { text: "Relayer Market", link: "/integrate/relayer-market" },
+            { text: "Custodial Platforms", link: "/integrate/custodial-platforms" },
           ],
         },
         {

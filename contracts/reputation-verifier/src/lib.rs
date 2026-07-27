@@ -17,6 +17,10 @@ const MAX_ROOT_HISTORY: u32 = 100;
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
 
+/// TTL for persistent storage entries (~120 days at 5 s/ledger).
+/// Prevents state archival from expiring roots and nullifiers.
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 #[contract]
 pub struct ReputationVerifier;
 
@@ -106,6 +110,21 @@ fn history_key(env: &Env) -> Symbol {
     Symbol::new(env, "root_history")
 }
 
+/// Extend the TTL of a persistent storage entry to prevent archival expiry.
+fn bump_root_ttl(env: &Env, root: &BytesN<32>) {
+    let key = root_key(root);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
+fn bump_nullifier_ttl(env: &Env, n: &BytesN<32>) {
+    let key = nullifier_key(n);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 #[contractimpl]
 impl ReputationVerifier {
     pub fn initialize(
@@ -164,6 +183,31 @@ impl ReputationVerifier {
         Ok(())
     }
 
+    /// Moves admin authority to `new_admin` (Issue #589) — the migration path
+    /// from a single-key admin to a deployed `multisig-admin` contract's
+    /// address, with no redeployment. Once this call succeeds, the current
+    /// `admin` can no longer authorize any admin-gated operation.
+    pub fn transfer_admin(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+    ) -> Result<(), ReputationError> {
+        admin.require_auth();
+        let mut config: VerifierConfig = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "config"))
+            .expect("config");
+        if config.admin != admin {
+            return Err(ReputationError::Unauthorized);
+        }
+        config.admin = new_admin;
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "config"), &config);
+        Ok(())
+    }
+
     /// Return a paginated slice of the root history (oldest-first).
     /// `offset` is the index of the first element to return; `limit` caps the count.
     pub fn get_root_history(env: Env, offset: u32, limit: u32) -> Vec<BytesN<32>> {
@@ -203,14 +247,16 @@ impl ReputationVerifier {
             return Err(ReputationError::Unauthorized);
         }
         let ledger = env.ledger().sequence();
+        let rkey = root_key(&root);
         env.storage().persistent().set(
-            &root_key(&root),
+            &rkey,
             &MerkleRootEntry {
                 root: root.clone(),
                 ledger,
                 dataset_hash: dataset_hash.clone(),
             },
         );
+        bump_root_ttl(&env, &root);
         let mut history: Vec<BytesN<32>> = env
             .storage()
             .instance()
@@ -316,9 +362,11 @@ impl ReputationVerifier {
             return Err(ReputationError::InvalidProof);
         }
 
+        let nkey = nullifier_key(&nullifier);
         env.storage()
             .persistent()
-            .set(&nullifier_key(&nullifier), &NullifierEntry { used: true });
+            .set(&nkey, &NullifierEntry { used: true });
+        bump_nullifier_ttl(&env, &nullifier);
 
         env.events().publish(
             (Symbol::new(&env, "ReputationVerified"), EVENT_VERSION),
@@ -907,6 +955,34 @@ mod test {
         let stranger = Address::generate(&env);
         let result = client.try_set_root_expiry(&stranger, &500u32);
         assert_eq!(result, Err(Ok(ReputationError::Unauthorized)));
+    }
+
+    // ── Issue #589: multisig admin migration ──────────────────────
+
+    #[test]
+    fn test_transfer_admin_moves_authority() {
+        let (env, admin, _, client, _mock_id) = setup_with_mock();
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&admin, &new_admin);
+        assert_eq!(client.get_config().admin, new_admin);
+
+        // The old admin can no longer perform admin-gated operations.
+        let result = client.try_set_root_expiry(&admin, &500u32);
+        assert_eq!(result, Err(Ok(ReputationError::Unauthorized)));
+
+        // The new admin can.
+        client.set_root_expiry(&new_admin, &500u32);
+        assert_eq!(client.get_config().root_expiry_ledgers, 500u32);
+    }
+
+    #[test]
+    fn test_transfer_admin_unauthorized_rejected() {
+        let (env, admin, _, client, _mock_id) = setup_with_mock();
+        let stranger = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let result = client.try_transfer_admin(&stranger, &new_admin);
+        assert_eq!(result, Err(Ok(ReputationError::Unauthorized)));
+        assert_eq!(client.get_config().admin, admin);
     }
 
     // ── Issue #81: paginated root history ─────────────────────────

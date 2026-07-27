@@ -28,7 +28,10 @@ Mainnet requires explicit `rpcUrls`, `horizonUrls`, and `contracts`.
 | Adapter | Use |
 |---------|-----|
 | `keypairSigner(secretOrKeypair)` | server / Node |
-| `callbackSigner({ publicKey, signTransaction })` | Freighter or any wallet |
+| `callbackSigner({ publicKey, signTransaction })` | Freighter, a hardware wallet, or any custom backend |
+
+See the [hardware wallet guide](/guide/hardware-wallet) for a Ledger-backed
+signer, including the blind-signing limitations of Soroban invocations.
 
 ## Services
 
@@ -38,11 +41,13 @@ Mainnet requires explicit `rpcUrls`, `horizonUrls`, and `contracts`.
 - `prepareTransfer(metaHex)` — one-time address + announcement params
 - `send({ to, amountXlm })`
 - `scan({ announcements, identity })` — pure-TS, returns matches
+- `scanIterator({ identity, startLedger? })` — async generator, streams matches from chain with a resumable cursor
 - `sweep({ stealthPrivKey, destination, amountStroops })`
 
 ### `pool`
 - `deposit({ amountXlm })` — reads index, derives commitment, persists note
 - `withdraw({ proof, recipient, fee?, relayer?, noteCommitment? })`
+- `withdrawBatch({ notes, recipient, fee?, relayer? })` — proves + submits multiple notes to one recipient, reports per-note success/failure *(needs `artifacts`)*
 - `proveWithdraw({ note, recipient })` — reconstructs leaves from chain *(needs `artifacts`)*
 - `getDepositCount()`, `getRoots()`
 - `contracts.privacyPool.reconstructState({ startLedger })` — raw leaf reconstruction

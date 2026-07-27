@@ -10,6 +10,11 @@ import {
   OpaqueClient,
   keypairSigner,
   fromScVal,
+  hexToBytes,
+  addressToScVal,
+  bytesToScVal,
+  u64ToScVal,
+  computeStealthAddressAndViewTag,
   NotWiredError,
   SignerError,
   RpcError,
@@ -23,6 +28,11 @@ class StubInvoker implements ContractInvoker {
   last?: InvokeOptions;
   calls: InvokeOptions[] = [];
   reads: unknown[] = [];
+  /** Canned `getEvents` pages, consumed in order (one per call). */
+  eventPages: rpc.Api.GetEventsResponse[] = [];
+  eventsCallCount = 0;
+  eventsRequests: rpc.Server.GetEventsRequest[] = [];
+  latestLedgerValue = 0;
   async invoke(opts: InvokeOptions): Promise<string> {
     this.last = opts;
     this.calls.push(opts);
@@ -34,15 +44,40 @@ class StubInvoker implements ContractInvoker {
   async simulateRead(): Promise<xdr.ScVal | undefined> {
     return undefined;
   }
-  async getEvents(): Promise<rpc.Api.GetEventsResponse> {
-    return { events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse;
+  async getEvents(request: rpc.Server.GetEventsRequest): Promise<rpc.Api.GetEventsResponse> {
+    this.eventsCallCount++;
+    this.eventsRequests.push(request);
+    return (
+      this.eventPages.shift() ??
+      ({ events: [], latestLedger: 0, cursor: "" } as unknown as rpc.Api.GetEventsResponse)
+    );
   }
   async getLatestLedger(): Promise<number> {
-    return 0;
+    return this.latestLedgerValue;
   }
 }
 
-const signer = keypairSigner(Keypair.random());
+/** Build a fake `Announcement` event matching the on-chain (scheme, stealth_address, caller, ephemeral_pub_key, metadata) tuple. */
+function announcementEvent(opts: {
+  stealthAddress: string;
+  ephemeralPubKey: Uint8Array;
+  viewTag: number;
+  ledger: number;
+  caller: string;
+}): rpc.Api.EventResponse {
+  const value = xdr.ScVal.scvVec([
+    u64ToScVal(1n),
+    bytesToScVal(hexToBytes(opts.stealthAddress)),
+    addressToScVal(opts.caller),
+    bytesToScVal(opts.ephemeralPubKey),
+    bytesToScVal(new Uint8Array([opts.viewTag])),
+  ]);
+  return { value, ledger: opts.ledger } as unknown as rpc.Api.EventResponse;
+}
+
+const keypair = Keypair.random();
+const signer = keypairSigner(keypair);
+const PK = keypair.publicKey();
 const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
 
 let inv: StubInvoker;
@@ -111,6 +146,103 @@ describe("payments service", () => {
   it("scan returns no matches for empty announcements", () => {
     const identity = client.payments.deriveIdentity("0x" + "ab".repeat(64));
     expect(client.payments.scan({ announcements: [], identity })).toEqual([]);
+  });
+
+  it("scanIterator streams matches page-by-page and persists a resumable cursor", async () => {
+    const identity = client.payments.deriveIdentity("0x" + "11".repeat(64));
+    const other = client.payments.deriveIdentity("0x" + "22".repeat(64));
+    const mine1 = computeStealthAddressAndViewTag(identity.metaHex);
+    const notMine = computeStealthAddressAndViewTag(other.metaHex);
+    const mine2 = computeStealthAddressAndViewTag(identity.metaHex);
+
+    inv.eventPages = [
+      {
+        events: [
+          announcementEvent({ ...mine1, ledger: 100, caller: PK }),
+          announcementEvent({ ...notMine, ledger: 100, caller: PK }),
+        ],
+        latestLedger: 100,
+        cursor: "page1",
+      } as unknown as rpc.Api.GetEventsResponse,
+      {
+        events: [announcementEvent({ ...mine2, ledger: 200, caller: PK })],
+        latestLedger: 200,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+
+    const matches = [];
+    for await (const match of client.payments.scanIterator({ identity })) {
+      matches.push(match);
+    }
+    expect(matches.length).toBe(2);
+    expect(matches[0].stealthStellarAddress).toBe(mine1.stealthStellarAddress);
+    expect(matches[0].ledger).toBe(100);
+    expect(matches[1].stealthStellarAddress).toBe(mine2.stealthStellarAddress);
+    expect(matches[1].ledger).toBe(200);
+    // Cursor persisted after each page, so a later scan can resume from here.
+    expect(await client.scanStore.getCursor()).toBe(200);
+  });
+
+  it("scanIterator resumes from the persisted cursor without re-yielding the same page", async () => {
+    const identity = client.payments.deriveIdentity("0x" + "44".repeat(64));
+    const mine1 = computeStealthAddressAndViewTag(identity.metaHex);
+    const mine2 = computeStealthAddressAndViewTag(identity.metaHex);
+
+    inv.eventPages = [
+      {
+        events: [announcementEvent({ ...mine1, ledger: 100, caller: PK })],
+        latestLedger: 100,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+    const firstRun = [];
+    for await (const match of client.payments.scanIterator({ identity })) firstRun.push(match);
+    expect(firstRun.length).toBe(1);
+    expect(await client.scanStore.getCursor()).toBe(100);
+
+    // Resuming should request events starting after ledger 100, not at it —
+    // otherwise ledger 100's announcement would be re-fetched and re-yielded.
+    inv.eventPages = [
+      {
+        events: [announcementEvent({ ...mine2, ledger: 200, caller: PK })],
+        latestLedger: 200,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+    const secondRun = [];
+    for await (const match of client.payments.scanIterator({ identity })) secondRun.push(match);
+    expect(secondRun.length).toBe(1);
+    expect(secondRun[0].stealthStellarAddress).toBe(mine2.stealthStellarAddress);
+    expect(await client.scanStore.getCursor()).toBe(200);
+    const secondRequest = inv.eventsRequests[inv.eventsRequests.length - 1] as { startLedger?: number };
+    expect(secondRequest.startLedger).toBe(101);
+  });
+
+  it("scanIterator stops reading further pages once the consumer breaks early", async () => {
+    const identity = client.payments.deriveIdentity("0x" + "33".repeat(64));
+    const mine1 = computeStealthAddressAndViewTag(identity.metaHex);
+    const mine2 = computeStealthAddressAndViewTag(identity.metaHex);
+
+    inv.eventPages = [
+      {
+        events: [announcementEvent({ ...mine1, ledger: 100, caller: PK })],
+        latestLedger: 100,
+        cursor: "page1",
+      } as unknown as rpc.Api.GetEventsResponse,
+      {
+        events: [announcementEvent({ ...mine2, ledger: 200, caller: PK })],
+        latestLedger: 200,
+        cursor: "",
+      } as unknown as rpc.Api.GetEventsResponse,
+    ];
+
+    for await (const _match of client.payments.scanIterator({ identity })) {
+      break;
+    }
+    // Only the first page was fetched; breaking early released the scan
+    // before a second `getEvents` call was made.
+    expect(inv.eventsCallCount).toBe(1);
   });
 });
 
@@ -209,6 +341,83 @@ describe("pool service", () => {
         depositIndices: [],
       }),
     ).rejects.toBeInstanceOf(NotWiredError);
+  });
+
+  it("withdrawBatch() rejects when no artifact resolver is configured", async () => {
+    await expect(
+      client.pool.withdrawBatch({
+        notes: [
+          {
+            cluster: "testnet",
+            value: "1000000",
+            scope: 1,
+            leafIndex: 0,
+            nullifier: "1",
+            secret: "2",
+            commitment: "0x00",
+            spent: false,
+            createdAt: 0,
+          },
+        ],
+        recipient: "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+      }),
+    ).rejects.toBeInstanceOf(NotWiredError);
+  });
+
+  it("withdrawBatch() is a no-op for an empty note list, even without artifacts", async () => {
+    const result = await client.pool.withdrawBatch({
+      notes: [],
+      recipient: "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+    });
+    expect(result).toEqual({ succeeded: [], failed: [] });
+  });
+
+  it("withdrawBatch() reports each failing note individually and leaves them unspent", async () => {
+    const withArtifacts = new OpaqueClient({
+      network: "testnet",
+      signer,
+      invoker: inv,
+      artifacts: {
+        resolve: async () => {
+          throw new Error("must not be reached: proving fails before artifact resolution");
+        },
+      },
+    });
+    // No Deposit events reconstructed -> every note's leafIndex lookup fails
+    // fast in provePoolWithdraw, before it ever touches artifacts/snarkjs.
+    const notes = [
+      {
+        cluster: "testnet" as const,
+        value: "1000000",
+        scope: 1,
+        leafIndex: 0,
+        nullifier: "1",
+        secret: "2",
+        commitment: "0x00",
+        spent: false,
+        createdAt: 0,
+      },
+      {
+        cluster: "testnet" as const,
+        value: "2000000",
+        scope: 1,
+        leafIndex: 1,
+        nullifier: "3",
+        secret: "4",
+        commitment: "0x01",
+        spent: false,
+        createdAt: 0,
+      },
+    ];
+
+    const result = await withArtifacts.pool.withdrawBatch({
+      notes,
+      recipient: "GCMPINZMMQVQ7MWIJLB34F5JRAHLQQTWCP6XB5HEZR353PPPWRUWHLPU",
+    });
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed.map((f) => f.note.commitment).sort()).toEqual(["0x00", "0x01"]);
+    for (const f of result.failed) expect(f.error).toBeInstanceOf(Error);
   });
 });
 

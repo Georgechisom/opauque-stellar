@@ -14,6 +14,7 @@ import {
   type JobAdvert,
   type RelayerBid,
 } from "./messages.ts";
+import type { JobLedger } from "./reconciler.ts";
 
 export type OnChainJob = {
   exists: boolean;
@@ -45,6 +46,8 @@ export interface RelayerEngineConfig {
   endpoint?: string;
   minFee: bigint;
   chain: RelayerChainAdapter;
+  /** Optional ledger that records each successfully submitted job for reconciliation. */
+  jobLedger?: JobLedger;
 }
 
 export type RelayerEngineStats = {
@@ -56,6 +59,24 @@ export type RelayerEngineStats = {
   rejected: number;
   lastError: string | null;
 };
+
+export type HealthReport = {
+  ok: boolean;
+  uptime: number;
+  queueDepth: number;
+  oldestPendingJobAge: number | null;
+  stats: RelayerEngineStats;
+  dependencies: {
+    rpc: { ok: boolean; latencyMs?: number };
+  };
+};
+
+type IdempotencyEntry = {
+  result: { acceptedTx: string; submittedTx: string };
+  expiresAt: number;
+};
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 export class RelayerEngine {
   readonly stats: RelayerEngineStats = {
@@ -69,11 +90,50 @@ export class RelayerEngine {
   };
 
   private bids = new Map<string, RelayerBid[]>();
+  private idempotencyStore = new Map<string, IdempotencyEntry>();
+  private pendingIdempotency = new Map<string, Promise<{ acceptedTx: string; submittedTx: string } | null>>();
+  private pendingJobs = new Map<string, number>();
+  private startedAt: number;
 
-  constructor(private cfg: RelayerEngineConfig) {}
+  constructor(private cfg: RelayerEngineConfig) {
+    this.startedAt = Date.now();
+  }
 
   bidsFor(jobId: string): RelayerBid[] {
     return this.bids.get(jobId.toLowerCase()) ?? [];
+  }
+
+  async healthCheck(): Promise<HealthReport> {
+    const queueDepth = this.pendingJobs.size;
+    let oldestPendingJobAge: number | null = null;
+    const now = Date.now();
+    for (const submittedAt of this.pendingJobs.values()) {
+      const age = now - submittedAt;
+      if (oldestPendingJobAge === null || age > oldestPendingJobAge) {
+        oldestPendingJobAge = age;
+      }
+    }
+
+    let rpcOk = true;
+    let rpcLatency: number | undefined;
+    try {
+      const start = Date.now();
+      await this.cfg.chain.getRelayer(this.cfg.operator.publicKey());
+      rpcLatency = Date.now() - start;
+    } catch {
+      rpcOk = false;
+    }
+
+    return {
+      ok: rpcOk,
+      uptime: now - this.startedAt,
+      queueDepth,
+      oldestPendingJobAge,
+      stats: { ...this.stats },
+      dependencies: {
+        rpc: { ok: rpcOk, latencyMs: rpcLatency },
+      },
+    };
   }
 
   async handleAdvert(raw: unknown): Promise<RelayerBid | null> {
@@ -126,25 +186,71 @@ export class RelayerEngine {
     this.stats.payloadsSeen += 1;
     const ownPk = bytesToHex(this.cfg.x25519PublicKey).toLowerCase();
     if (payloadMsg.to.toLowerCase() !== ownPk) return null;
-    try {
-      const plaintext = openBox(payloadMsg.box, this.cfg.x25519SecretKey);
-      const payload = decodePoolWithdrawPayload(plaintext);
-      const job = await this.cfg.chain.getJob(payloadMsg.jobId);
-      if (!job?.exists || job.status !== "open") return null;
-      if (hashPoolWithdrawPayloadHex(payload).toLowerCase() !== job.payloadHash.toLowerCase()) {
-        throw new Error("Payload hash mismatch.");
+
+    if (payloadMsg.idempotencyKey) {
+      const existing = this.idempotencyStore.get(payloadMsg.idempotencyKey);
+      if (existing && existing.expiresAt > Date.now()) {
+        return existing.result;
       }
-      await this.cfg.chain.simulatePoolWithdraw(payload);
-      const acceptedTx = await this.cfg.chain.acceptJob(payloadMsg.jobId);
-      this.stats.accepted += 1;
-      const submittedTx = await this.cfg.chain.submitPoolWithdraw(payloadMsg.jobId, payload);
-      this.stats.submitted += 1;
-      return { acceptedTx, submittedTx };
-    } catch (err) {
-      this.stats.rejected += 1;
-      this.stats.lastError = err instanceof Error ? err.message : String(err);
-      throw err;
+      this.idempotencyStore.delete(payloadMsg.idempotencyKey);
+
+      const pending = this.pendingIdempotency.get(payloadMsg.idempotencyKey);
+      if (pending) {
+        return pending;
+      }
     }
+
+    const processPayload = async (): Promise<{ acceptedTx: string; submittedTx: string } | null> => {
+      this.pendingJobs.set(payloadMsg.jobId.toLowerCase(), Date.now());
+      try {
+        const plaintext = openBox(payloadMsg.box, this.cfg.x25519SecretKey);
+        const payload = decodePoolWithdrawPayload(plaintext);
+        const job = await this.cfg.chain.getJob(payloadMsg.jobId);
+        if (!job?.exists || job.status !== "open") return null;
+        if (hashPoolWithdrawPayloadHex(payload).toLowerCase() !== job.payloadHash.toLowerCase()) {
+          throw new Error("Payload hash mismatch.");
+        }
+        await this.cfg.chain.simulatePoolWithdraw(payload);
+        const acceptedTx = await this.cfg.chain.acceptJob(payloadMsg.jobId);
+        this.stats.accepted += 1;
+        const submittedTx = await this.cfg.chain.submitPoolWithdraw(payloadMsg.jobId, payload);
+        this.stats.submitted += 1;
+        const result = { acceptedTx, submittedTx };
+
+        this.cfg.jobLedger?.record({
+          jobId: payloadMsg.jobId,
+          acceptedTx,
+          submittedTx,
+          expectedFee: job.fee,
+          submittedAt: Date.now(),
+        });
+
+        if (payloadMsg.idempotencyKey) {
+          this.idempotencyStore.set(payloadMsg.idempotencyKey, {
+            result,
+            expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+          });
+        }
+
+        return result;
+      } catch (err) {
+        this.stats.rejected += 1;
+        this.stats.lastError = err instanceof Error ? err.message : String(err);
+        throw err;
+      } finally {
+        this.pendingJobs.delete(payloadMsg.jobId.toLowerCase());
+      }
+    };
+
+    if (payloadMsg.idempotencyKey) {
+      const promise = processPayload().finally(() => {
+        this.pendingIdempotency.delete(payloadMsg.idempotencyKey!);
+      });
+      this.pendingIdempotency.set(payloadMsg.idempotencyKey, promise);
+      return promise;
+    }
+
+    return processPayload();
   }
 }
 

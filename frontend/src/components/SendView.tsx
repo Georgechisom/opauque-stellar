@@ -34,6 +34,7 @@ import { useProtocolLog } from "../context/ProtocolLogContext";
 import { useTxHistoryStore } from "../store/txHistoryStore";
 import { PrivacyWarningCallout } from "./PrivacyWarningCallout";
 import { SEND_PRIVACY_WARNING } from "../lib/privacyThreatModel";
+import { QrScanner } from "./QrScanner";
 
 const STROOP_FEE_BUFFER = 100_000n;
 
@@ -70,6 +71,7 @@ export function SendView() {
   const [steps, setSteps] = useState<ProtocolStep[]>([]);
   const [activeBalance, setActiveBalance] = useState<bigint | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
 
   useEffect(() => {
     if (!address) {
@@ -129,6 +131,20 @@ export function SendView() {
   const handleMaxAmount = () => {
     if (maxSendableBalance == null || maxSendableBalance === 0n) return;
     setAmount(formattedMaxBalance ?? "0");
+  };
+
+  const handleQrScan = (scanned: string) => {
+    setShowQrScanner(false);
+    const trimmed = scanned.trim();
+    if (isMetaAddress(trimmed)) {
+      setRecipient(trimmed);
+      setError(null);
+    } else if (isGAddress(trimmed)) {
+      setRecipient(trimmed);
+      setError(null);
+    } else {
+      setError("Scanned value is not a valid Stellar address or stealth meta-address.");
+    }
   };
 
   const handleSend = async () => {
@@ -339,13 +355,23 @@ export function SendView() {
           <label className="block text-sm text-neutral-400 mb-1">
             Recipient address or meta-address
           </label>
-          <input
-            type="text"
-            value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
-            placeholder="G… Stellar address or 0x02… meta-address"
-            className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm text-white"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              placeholder="G… Stellar address or 0x02… meta-address"
+              className="flex-1 rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm text-white"
+            />
+            <button
+              type="button"
+              onClick={() => setShowQrScanner(true)}
+              className="px-3 py-2 text-sm rounded-lg border border-neutral-600 text-neutral-300 hover:bg-neutral-800"
+              title="Scan QR code"
+            >
+              QR
+            </button>
+          </div>
           {recipient && !isGAddress(recipient) && !isMetaAddress(recipient) && (
             <p className="text-xs text-neutral-400 mt-1">
               Enter a registered Stellar address (G…) or a stealth meta-address (0x + 132 hex chars).
@@ -408,6 +434,13 @@ export function SendView() {
           {sending ? "Sending…" : "Send privately"}
         </button>
       </motion.div>
+
+      {showQrScanner && (
+        <QrScanner
+          onScan={handleQrScan}
+          onClose={() => setShowQrScanner(false)}
+        />
+      )}
     </motion.div>
   );
 }

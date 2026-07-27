@@ -153,3 +153,10 @@ const txHash = await holder.reputation.proveAndVerify({
 - `ContractError` `#4` → nullifier replay (already proven in this context); `#2` →
   expired/stale root.
 - `attestationId` and `externalNullifier` must fit in `u64`.
+
+If proof generation or on-chain verification fails and the above doesn't
+cover it, see
+[Troubleshooting Proof Generation Failures](https://github.com/collinsadi/opauque-stellar/blob/main/docs/TROUBLESHOOTING_PROOF_GENERATION.md)
+for the full set of failure signatures (artifact fetch, memory, stale root,
+input mismatch) mapped to causes and fixes, including the on-chain
+`Groth16Verifier`/`ReputationVerifier` error code reference.

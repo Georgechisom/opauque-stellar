@@ -125,6 +125,9 @@ Privacy systems live or die by their assumptions, so here are Opaque's, stated p
 
 What is **always enforced on-chain**: proof verification, nullifier-replay protection, and the custody invariant.
 
+See [`docs/PRIVACY_GUARANTEES.md`](docs/PRIVACY_GUARANTEES.md) for the precise,
+per-property adversary model behind these trade-offs and their known weakenings.
+
 
 ## Use cases
 
@@ -168,6 +171,10 @@ The pool and reputation verifiers need published roots, and relayed withdrawals 
 | Reputation publisher | `cd publisher && npm run serve` | [Readme](publisher/) |
 | Relayer hub + node | `cd relayer && npm run hub` / `npm run relayer` | [Guide](docs/running-relayer.md) |
 
+Service level objectives for these three (latency, availability, and how they're
+measured) are defined in [docs/testnet-slos.md](docs/testnet-slos.md); `npm run
+slo:report` compares current operations against them.
+
 ## Architecture
 
 | Path | Purpose |
@@ -182,6 +189,7 @@ The pool and reputation verifiers need published roots, and relayed withdrawals 
 | [relayer/](relayer/) | Relayer gateway, hub, node engine, and market tests. |
 | [deployments/](deployments/) | Versioned on-chain address book and manifests. |
 | [docs/](docs/) | Operator guides, protocol internals, and security notes. |
+| [docs/MULTISIG_ADMIN.md](docs/MULTISIG_ADMIN.md) | On-chain N-of-M threshold admin contract and the registry migration path off single-key admins. |
 
 ## On-chain contracts (Stellar testnet)
 

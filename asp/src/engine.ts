@@ -12,6 +12,8 @@
 import { AssociationSet } from "./set.ts";
 import { MerkleTree, getPoseidon, toHex32 } from "./merkle.ts";
 import { computeDatasetHash, writeManifest } from "./publish.ts";
+import { PublicationMonitor } from "./monitor.ts";
+import { ReorgGuard } from "./reorg-guard.ts";
 import type { Store } from "./store.ts";
 import type { ChainAdapter, Policy, PoolState } from "./types.ts";
 
@@ -27,6 +29,10 @@ export interface TickConfig {
   confirmations?: number;
   /** Clock injection for deterministic tests. */
   now?: () => string;
+  /** Optional publication monitor — when set, the tick records publications and checks for staleness. */
+  publicationMonitor?: PublicationMonitor;
+  /** Optional reorg guard — when set, the tick validates ledger continuity before publishing. */
+  reorgGuard?: ReorgGuard;
 }
 
 export interface TickResult {
@@ -40,6 +46,10 @@ export interface TickResult {
   stateRoot?: string;
   onChainStateRoot?: string | null;
   statePublished?: boolean;
+  /** True when the reorg guard halted publication due to a continuity break. */
+  haltedForReorg?: boolean;
+  /** Publication staleness alert, if one fired. */
+  staleAlert?: { root: string; ageMs: number; thresholdMs: number } | null;
 }
 
 function initState(poolId: string, scope: number): PoolState {
@@ -60,8 +70,6 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
       state.approvedIndices.push(dep.index);
       newlyApproved++;
     }
-    // "reject"/"defer" are simply not added; rejected stay out, deferred can be
-    // re-surfaced by a future policy revision (v1 approveAll never defers).
     state.lastIndex = Math.max(state.lastIndex, dep.index);
     state.lastLedger = Math.max(state.lastLedger, dep.ledger);
   }
@@ -71,7 +79,28 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
   for (const idx of state.approvedIndices) set.add(idx);
   const localRoot = set.rootHex();
 
-  // 3. Compare to on-chain; publish only on mismatch (idempotent).
+  // 3. Reorg guard: verify ledger continuity before publishing.
+  let haltedForReorg = false;
+  if (cfg.reorgGuard && deposits.length > 0) {
+    const latestLedger = Math.max(...deposits.map((d) => d.ledger));
+    const check = cfg.reorgGuard.validate(state.lastLedger);
+    if (!check.ok) {
+      haltedForReorg = true;
+      cfg.store.save(state);
+      return {
+        poolId: cfg.poolId,
+        approvedCount: state.approvedIndices.length,
+        newlyApproved,
+        localRoot,
+        onChainRoot: await cfg.adapter.currentAspRoot(),
+        published: false,
+        haltedForReorg,
+      };
+    }
+    cfg.reorgGuard.commit(latestLedger);
+  }
+
+  // 4. Compare to on-chain; publish only on mismatch (idempotent).
   const onChainRoot = await cfg.adapter.currentAspRoot();
   let published = false;
   if (set.size > 0 && localRoot !== onChainRoot) {
@@ -79,6 +108,18 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
     if (cfg.dataDir) writeManifest(cfg.dataDir, manifest);
     await cfg.adapter.postAspRoot(localRoot, computeDatasetHash(manifest.labels));
     published = true;
+    if (cfg.publicationMonitor) {
+      cfg.publicationMonitor.recordPublication(localRoot, state.lastLedger);
+    }
+  }
+
+  // 5. Publication staleness check.
+  let staleAlert: TickResult["staleAlert"] = null;
+  if (cfg.publicationMonitor) {
+    const alert = cfg.publicationMonitor.check();
+    if (alert) {
+      staleAlert = { root: alert.lastRoot, ageMs: alert.ageMs, thresholdMs: alert.thresholdMs };
+    }
   }
 
   let stateLeafCount: number | undefined;
@@ -119,5 +160,7 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
     stateRoot,
     onChainStateRoot,
     statePublished,
+    haltedForReorg,
+    staleAlert,
   };
 }

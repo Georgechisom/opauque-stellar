@@ -12,9 +12,19 @@
  *   node circuits/test/regression.mjs
  *   node circuits/test/regression.mjs --version v1
  *   node circuits/test/regression.mjs --compile --witness-only
+ *
+ * Extended checks (all run automatically when artifacts are present):
+ *   - Constraint count regression: reads R1CS and compares nConstraints against
+ *     circuits/fixtures/constraint-counts.json; fails on unexplained growth.
+ *   - Negative proof vectors: each circuits/fixtures/<v>/negative/*.json must be
+ *     rejected by the circuit (constraint violation, is_valid=0, or expected signal change).
+ *   - Witness determinism: SHA-256 of the canonical witness JSON is compared against
+ *     circuits/fixtures/witness-hashes.json; first differing signal index is reported
+ *     on divergence.
  */
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -24,6 +34,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CIRCUITS_ROOT = resolve(__dirname, "..");
 const REPO_ROOT = resolve(CIRCUITS_ROOT, "..");
 const MANIFEST_PATH = join(REPO_ROOT, "artifacts", "manifest.json");
+const CONSTRAINT_COUNTS_PATH = join(CIRCUITS_ROOT, "fixtures", "constraint-counts.json");
+const WITNESS_HASHES_PATH = join(CIRCUITS_ROOT, "fixtures", "witness-hashes.json");
 const QUIET_SNARKJS_LOGGER = {
   debug() {},
   info() {},
@@ -66,6 +78,9 @@ const CIRCUIT_CONFIG = {
     buildWasm: join(CIRCUITS_ROOT, "build/stealth_attestation_js/stealth_attestation.wasm"),
     buildR1cs: join(CIRCUITS_ROOT, "build/stealth_attestation.r1cs"),
     buildVk: join(CIRCUITS_ROOT, "build/verification_key.json"),
+    // V1 uses soft constraints: the circuit always satisfies R1CS but outputs is_valid=0
+    // for invalid statements (no hard `===` assertions on root/attestation).
+    softConstraints: true,
     publicSignalOrder: [
       "nullifier",
       "is_valid",
@@ -80,6 +95,7 @@ const CIRCUIT_CONFIG = {
     buildWasm: join(CIRCUITS_ROOT, "v2/build/stealth_reputation_js/stealth_reputation.wasm"),
     buildR1cs: join(CIRCUITS_ROOT, "v2/build/stealth_reputation.r1cs"),
     buildVk: join(CIRCUITS_ROOT, "v2/build/verification_key.json"),
+    softConstraints: false,
     publicSignalOrder: [
       "merkle_root",
       "attestation_id",
@@ -93,6 +109,7 @@ const CIRCUIT_CONFIG = {
     buildWasm: join(CIRCUITS_ROOT, "v3/build/privacy_pool_withdraw_js/privacy_pool_withdraw.wasm"),
     buildR1cs: join(CIRCUITS_ROOT, "v3/build/privacy_pool_withdraw.r1cs"),
     buildVk: join(CIRCUITS_ROOT, "v3/build/verification_key.json"),
+    softConstraints: false,
     publicSignalOrder: [
       "withdrawnValue",
       "stateRoot",
@@ -151,6 +168,202 @@ function assertPublicOutputs(version, signals, expected) {
     }
   }
   return errors;
+}
+
+// =============================================================================
+// Issue: Constraint count regression tracking
+// Reads the compiled R1CS (when present) and compares nConstraints against the
+// committed baseline in fixtures/constraint-counts.json. Fails on any deviation.
+// To update: recompile the circuit and set the new nConstraints value in the
+// baseline file in the same commit as the circuit change.
+// =============================================================================
+async function checkConstraintCount(version, r1csPath) {
+  if (!existsSync(r1csPath)) return; // R1CS not built locally; skip
+  if (!existsSync(CONSTRAINT_COUNTS_PATH)) {
+    console.warn(`WARN: ${version}: constraint-counts.json not found; skipping constraint regression`);
+    return;
+  }
+  const baseline = loadJson(CONSTRAINT_COUNTS_PATH);
+  const entry = baseline[version];
+  if (!entry || entry.nConstraints == null) {
+    console.warn(`WARN: ${version}: no constraint baseline set; skipping (update constraint-counts.json after compilation)`);
+    return;
+  }
+  const info = await snarkjs.r1cs.info(r1csPath, QUIET_SNARKJS_LOGGER);
+  const actual = info.nConstraints;
+  const expected = entry.nConstraints;
+  if (actual !== expected) {
+    throw new Error(
+      `${version}: constraint count regression: expected ${expected}, got ${actual}. ` +
+      `If this change is intentional, update circuits/fixtures/constraint-counts.json ` +
+      `in the same commit as the circuit change.`
+    );
+  }
+  console.log(`OK: ${version} constraint count ${actual} matches baseline`);
+}
+
+// =============================================================================
+// Issue: Negative proof test vectors
+// Each fixtures/<version>/negative/*.json is a deterministic negative vector.
+// Every vector must include a "_expect" field:
+//   "constraint_violation" — witness generation or R1CS check must fail
+//   "is_valid_zero"        — witness generates but is_valid signal must be "0"
+//   "nullifier_changed"    — witness generates but nullifier output must differ
+//                            from the expected-public.json for the same version
+// Fields prefixed with "_" are stripped before passing inputs to snarkjs.
+// =============================================================================
+async function testNegativeVectors(version, paths, fixtureDir) {
+  const negativeDir = join(fixtureDir, "negative");
+  if (!existsSync(negativeDir)) return;
+
+  const files = readdirSync(negativeDir)
+    .filter((f) => f.endsWith(".json"))
+    .sort(); // deterministic order
+
+  if (files.length === 0) return;
+
+  const tmpDir = join(CIRCUITS_ROOT, "build", "test-tmp");
+  mkdirSync(tmpDir, { recursive: true });
+
+  if (!existsSync(paths.wasmPath)) {
+    console.warn(`WARN: ${version}: WASM missing; skipping negative vector tests`);
+    return;
+  }
+
+  const expectedPublicPath = join(fixtureDir, "expected-public.json");
+  const expectedPublic = existsSync(expectedPublicPath) ? loadJson(expectedPublicPath) : null;
+
+  for (const file of files) {
+    const vectorPath = join(negativeDir, file);
+    const raw = loadJson(vectorPath);
+    const name = file.replace(".json", "");
+    const expect = raw._expect ?? "constraint_violation";
+
+    // Strip "_"-prefixed metadata fields before passing to snarkjs
+    const input = Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith("_")));
+
+    const wtnsPath = join(tmpDir, `${version}-neg-${name}.wtns`);
+
+    let witnessGenerated = false;
+    try {
+      await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath, QUIET_SNARKJS_LOGGER);
+      witnessGenerated = true;
+    } catch (err) {
+      // Witness generation failed — acceptable for "constraint_violation"
+      if (expect === "constraint_violation") {
+        console.log(`OK: ${version} neg '${name}': witness generation rejected (${String(err.message).slice(0, 80)})`);
+        continue;
+      }
+      throw new Error(`${version} neg '${name}': unexpected witness generation failure: ${err.message}`);
+    }
+
+    // Witness generated — now check R1CS if available
+    if (witnessGenerated && existsSync(paths.r1csPath)) {
+      const ok = await snarkjs.wtns.check(paths.r1csPath, wtnsPath, QUIET_SNARKJS_LOGGER);
+      if (!ok) {
+        if (expect === "constraint_violation") {
+          console.log(`OK: ${version} neg '${name}': R1CS constraint violated`);
+          continue;
+        }
+        throw new Error(`${version} neg '${name}': unexpected R1CS constraint failure for expect="${expect}"`);
+      }
+      if (expect === "constraint_violation") {
+        throw new Error(
+          `${version} neg '${name}': expected constraint violation but witness satisfied R1CS. ` +
+          `Suite fails if any negative vector satisfies the circuit.`
+        );
+      }
+    }
+
+    // Witness satisfied constraints (or no R1CS to check) — inspect signals
+    const witness = await snarkjs.wtns.exportJson(wtnsPath);
+    const publicSignals = witness.slice(1, 1 + paths.cfg.publicSignalOrder.length);
+    const signals = publicSignalsToMap(paths.cfg.publicSignalOrder, publicSignals);
+
+    if (expect === "is_valid_zero") {
+      if (signals.is_valid !== "0") {
+        throw new Error(
+          `${version} neg '${name}': expected is_valid=0 but got is_valid=${signals.is_valid}. ` +
+          `Suite fails if any negative vector satisfies the circuit.`
+        );
+      }
+      console.log(`OK: ${version} neg '${name}': is_valid correctly = 0`);
+    } else if (expect === "nullifier_changed") {
+      const expectedNullifier = expectedPublic?.nullifier ?? expectedPublic?.nullifier_hash;
+      const actualNullifier = signals.nullifier ?? signals.nullifier_hash;
+      if (expectedNullifier != null && actualNullifier === expectedNullifier) {
+        throw new Error(
+          `${version} neg '${name}': expected nullifier to change but output matches expected-public.json. ` +
+          `The external_nullifier must produce a distinct nullifier for each action.`
+        );
+      }
+      console.log(`OK: ${version} neg '${name}': nullifier correctly differs from expected`);
+    } else if (expect === "constraint_violation" && !existsSync(paths.r1csPath)) {
+      // No R1CS; can only rely on WASM assertion — already survived witness generation
+      console.warn(
+        `WARN: ${version} neg '${name}': witness generated without error and no R1CS available ` +
+        `to verify constraint violation. Build the circuit to enable full negative-vector checking.`
+      );
+    }
+  }
+}
+
+// =============================================================================
+// Issue: Cross-platform witness determinism test
+// Computes SHA-256 of canonical witness JSON for fixed valid inputs and compares
+// against the committed hash in fixtures/witness-hashes.json.
+// On mismatch, finds and reports the first differing signal index.
+// =============================================================================
+async function checkWitnessDeterminism(version, paths, fixtureDir) {
+  if (!existsSync(WITNESS_HASHES_PATH)) return;
+  const hashes = loadJson(WITNESS_HASHES_PATH);
+  const entry = hashes[version];
+  if (!entry || entry.witnessHash === "PENDING" || !entry.witnessHash) {
+    console.log(
+      `SKIP: ${version} witness hash fixture not yet generated. ` +
+      `Run: tsx circuits/scripts/generate-witness-hashes.ts`
+    );
+    return;
+  }
+  if (!existsSync(paths.wasmPath)) {
+    console.warn(`WARN: ${version}: WASM missing; skipping witness determinism check`);
+    return;
+  }
+
+  const input = loadJson(join(fixtureDir, "valid-input.json"));
+  const tmpDir = join(CIRCUITS_ROOT, "build", "test-tmp");
+  mkdirSync(tmpDir, { recursive: true });
+  const wtnsPath = join(tmpDir, `${version}-determinism.wtns`);
+  await snarkjs.wtns.calculate(input, paths.wasmPath, wtnsPath, QUIET_SNARKJS_LOGGER);
+  const witness = await snarkjs.wtns.exportJson(wtnsPath);
+
+  const canonical = JSON.stringify(witness.map((x) => x.toString()));
+  const hash = createHash("sha256").update(canonical).digest("hex");
+
+  if (hash !== entry.witnessHash) {
+    // Find first differing signal to aid debugging
+    let firstDiff = null;
+    if (entry.witnessSignals) {
+      const committed = entry.witnessSignals;
+      const current = witness.map((x) => x.toString());
+      for (let i = 0; i < Math.min(committed.length, current.length); i++) {
+        if (committed[i] !== current[i]) {
+          firstDiff = `signal[${i}]: committed=${committed[i]}, current=${current[i]}`;
+          break;
+        }
+      }
+      if (firstDiff === null && committed.length !== current.length) {
+        firstDiff = `signal count differs: committed=${committed.length}, current=${current.length}`;
+      }
+    }
+    const detail = firstDiff ? ` First divergence: ${firstDiff}` : "";
+    throw new Error(
+      `${version}: witness determinism failure: hash mismatch on ${process.platform}. ` +
+      `Expected ${entry.witnessHash}, got ${hash}.${detail} ` +
+      `If the circuit WASM was rebuilt, regenerate with: tsx circuits/scripts/generate-witness-hashes.ts`
+    );
+  }
+  console.log(`OK: ${version} witness hash matches fixture (${witness.length} signals, platform=${process.platform})`);
 }
 
 async function testValidCase(version, paths, fixtureDir) {
@@ -262,8 +475,21 @@ async function main() {
       const paths = resolvePaths(version, manifest, opts);
       paths.witnessOnly = opts.witnessOnly;
       const fixtureDir = join(CIRCUITS_ROOT, "fixtures", version);
+
+      // Constraint count regression (runs when R1CS is present)
+      await checkConstraintCount(version, paths.r1csPath);
+
+      // Valid-case regression
       await testValidCase(version, paths, fixtureDir);
+
+      // Legacy invalid-case (single vector per fixture dir)
       await testInvalidCase(version, paths, fixtureDir);
+
+      // Negative proof vectors (deterministic per-public-input fixtures)
+      await testNegativeVectors(version, paths, fixtureDir);
+
+      // Cross-platform witness determinism
+      await checkWitnessDeterminism(version, paths, fixtureDir);
     } catch (err) {
       failures.push(`${version}: ${err.message}`);
     }

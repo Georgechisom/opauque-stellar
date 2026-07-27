@@ -51,6 +51,18 @@ export interface ScannerModule {
   ): string;
 
   encode_attestation_metadata_wasm(viewTag: number, attestationId: bigint): string;
+
+  get_scanner_metadata(): string;
+}
+
+/**
+ * View-only scan result — identifies incoming transfers without spend keys.
+ */
+export interface ViewOnlyScanResult {
+  /** Stealth address from the announcement. */
+  stealthAddress: string;
+  /** Whether the announcement belongs to this recipient. */
+  isOurs: boolean;
 }
 
 /** Lazily load and instantiate the scanner module. */

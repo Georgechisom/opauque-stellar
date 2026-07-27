@@ -392,6 +392,71 @@ fn deadline_and_double_accept_are_rejected() {
 }
 
 #[test]
+fn slashing_during_unbonding_reduces_pending_unstake() {
+    let h = setup();
+    let operator = register_relayer(&h, 1_000);
+    let creator = Address::generate(&h.env);
+    let job_id = b32(&h.env, 0x10);
+    let p = payload(&h, &operator);
+    create_job(&h, &creator, &job_id, &hash_payload(&h, &p), 100);
+    h.registry.accept_job(&operator, &job_id);
+
+    h.registry.request_unstake(&operator, &500i128);
+    let before = h.registry.get_relayer(&operator);
+    assert_eq!(before.pending_unstake, 500);
+    assert_eq!(before.unstake_unlock_ledger > 0, true);
+
+    h.env.ledger().with_mut(|li| li.sequence_number = 151);
+    h.registry.slash_job(&creator, &job_id);
+
+    let after = h.registry.get_relayer(&operator);
+    assert_eq!(after.pending_unstake, 400);
+    assert_eq!(after.bonded_stake, 0);
+}
+
+#[test]
+fn slashing_full_pending_unstake_clears_unlock_ledger() {
+    let h = setup();
+    let operator = register_relayer(&h, 200);
+    let creator = Address::generate(&h.env);
+    let job_id = b32(&h.env, 0x11);
+    let p = payload(&h, &operator);
+    create_job(&h, &creator, &job_id, &hash_payload(&h, &p), 100);
+    h.registry.accept_job(&operator, &job_id);
+
+    h.registry.request_unstake(&operator, &100i128);
+
+    h.env.ledger().with_mut(|li| li.sequence_number = 151);
+    h.registry.slash_job(&creator, &job_id);
+
+    let after = h.registry.get_relayer(&operator);
+    assert_eq!(after.pending_unstake, 0);
+    assert_eq!(after.unstake_unlock_ledger, 0);
+}
+
+#[test]
+fn unbonding_status_query_returns_correct_values() {
+    let h = setup();
+    let operator = register_relayer(&h, 500);
+    let (pending, unlock, unlockable) = h.registry.get_unbonding_status(&operator);
+    assert_eq!(pending, 0);
+    assert_eq!(unlock, 0);
+    assert_eq!(unlockable, false);
+
+    h.registry.request_unstake(&operator, &200i128);
+    let (pending, unlock, unlockable) = h.registry.get_unbonding_status(&operator);
+    assert_eq!(pending, 200);
+    assert_eq!(unlock, 110);
+    assert_eq!(unlockable, false);
+
+    h.env.ledger().with_mut(|li| li.sequence_number = 111);
+    let (pending, unlock, unlockable) = h.registry.get_unbonding_status(&operator);
+    assert_eq!(pending, 200);
+    assert_eq!(unlock, 110);
+    assert_eq!(unlockable, true);
+}
+
+#[test]
 fn pool_withdraw_payload_hash_matches_typescript_fixture() {
     let env = Env::default();
     let pool = addr(
@@ -428,4 +493,34 @@ fn pool_withdraw_payload_hash_matches_typescript_fixture() {
             "94f0acd43cc1f0b9afcc760a9a03699c5f18f52fdb6ec3044455feb3b39599d2",
         ),
     );
+}
+
+// -- Issue #589: multisig admin migration ------------------------------------
+
+#[test]
+fn transfer_admin_moves_authority() {
+    let h = setup();
+    let new_admin = Address::generate(&h.env);
+    h.registry.transfer_admin(&h.admin, &new_admin);
+    assert_eq!(h.registry.get_config().admin, new_admin);
+
+    // The old admin can no longer perform admin-gated operations.
+    let res = h
+        .registry
+        .try_set_config(&h.admin, &200i128, &20u32, &200u32);
+    assert_eq!(res, Err(Ok(RegistryError::Unauthorized)));
+
+    // The new admin can.
+    h.registry.set_config(&new_admin, &200i128, &20u32, &200u32);
+    assert_eq!(h.registry.get_config().minimum_stake, 200i128);
+}
+
+#[test]
+fn transfer_admin_unauthorized() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let new_admin = Address::generate(&h.env);
+    let res = h.registry.try_transfer_admin(&stranger, &new_admin);
+    assert_eq!(res, Err(Ok(RegistryError::Unauthorized)));
+    assert_eq!(h.registry.get_config().admin, h.admin);
 }

@@ -20,11 +20,20 @@ import { StellarWalletProviders } from "./context/StellarWalletProviders.tsx";
 import { MainnetSecurityLayer } from "./components/security/MainnetSecurityLayer.tsx";
 import { logExpectedArtifactHashes } from "./lib/artifactHashes.ts";
 import { THREAT_MODEL_ROUTE } from "./lib/privacyThreatModel.ts";
+import { installGlobalErrorCapture } from "./lib/errorReporting.ts";
 
 console.log("[Opaque] App bootstrapping (Stellar)...");
 logExpectedArtifactHashes();
 
 const network = getConfiguredNetwork();
+
+// #560: no-op until the user opts in from Settings, and even then reports are only
+// queued locally — nothing is transmitted without an explicit send.
+installGlobalErrorCapture({
+  network: getNetworkEnvValue(),
+  appVersion: (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || "dev",
+});
+
 if (!isClusterSupported(network)) {
   console.warn("[Opaque] Unsupported network:", { network: getNetworkEnvValue() });
 } else {

@@ -15,6 +15,8 @@ import {
 } from "../crypto/index";
 import { NotWiredError } from "../errors/index";
 import { provePoolWithdraw, type PoolWithdrawProof } from "../prove/pool";
+import type { SimulationReport } from "../rpc/client";
+import { validateDepositAmount } from "./pool-validation";
 import type { OpaqueClientContext } from "./context";
 
 /** A withdrawal proof bundle (everything except the public recipient/fee/relayer). */
@@ -35,11 +37,18 @@ export class PoolService {
     amountXlm: string;
     secrets?: { nullifier: string; secret: string };
     createdAt?: number;
+    /** Skip the pre-flight amount validation (default false). */
+    skipValidation?: boolean;
   }): Promise<{ note: PoolNote; txHash: string }> {
     const signer = this.ctx.requireSigner();
     const source = await signer.publicKey();
     const scope = this.ctx.config.pool.scope;
     const value = parseXlmToStroops(opts.amountXlm);
+
+    if (!opts.skipValidation) {
+      const decimals = await this.ctx.contracts.privacyPool.getNativeAssetDecimals(source);
+      validateDepositAmount({ amountXlm: opts.amountXlm, valueStroops: value, decimals });
+    }
 
     const expectedIndex = await this.ctx.contracts.privacyPool.getDepositCount(source);
     const secrets = opts.secrets ?? newNoteSecrets();
@@ -177,6 +186,8 @@ export class PoolService {
     scope?: number;
     stateLeaves?: bigint[];
     depositIndices?: number[];
+    /** Testing only: inject a stub in place of `snarkjs`. */
+    snarkjs?: Parameters<typeof provePoolWithdraw>[0]["snarkjs"];
   }): Promise<PoolWithdrawProof> {
     if (!this.ctx.artifacts) {
       throw new NotWiredError(
@@ -201,6 +212,70 @@ export class PoolService {
       stateLeaves,
       depositIndices,
       artifacts: this.ctx.artifacts,
+      snarkjs: opts.snarkjs,
     });
   }
+
+  /**
+   * Dry-run a full withdrawal for a note: generates the proof and simulates the
+   * withdrawal transaction, but never signs or submits it. Lets an integrator
+   * validate a withdrawal end-to-end — including the real payout and resource
+   * cost — without spending the note's nullifier.
+   */
+  async dryRunWithdraw(opts: {
+    note: PoolNote;
+    recipient: string;
+    relayer?: string;
+    fee?: bigint;
+    scope?: number;
+    stateLeaves?: bigint[];
+    depositIndices?: number[];
+    /** Account to simulate the transaction from (defaults to the connected signer). */
+    source?: string;
+    /** Testing only: inject a stub in place of `snarkjs`. */
+    snarkjs?: Parameters<typeof provePoolWithdraw>[0]["snarkjs"];
+  }): Promise<DryRunWithdrawResult> {
+    const fee = opts.fee ?? 0n;
+    const relayer = opts.relayer ?? opts.recipient;
+    const source = await this.source(opts.source);
+
+    const proof = await this.proveWithdraw({
+      note: opts.note,
+      recipient: opts.recipient,
+      relayer,
+      fee,
+      scope: opts.scope,
+      stateLeaves: opts.stateLeaves,
+      depositIndices: opts.depositIndices,
+      snarkjs: opts.snarkjs,
+    });
+
+    const simulation = await this.ctx.contracts.privacyPool.simulateWithdraw({
+      ...proof,
+      recipient: opts.recipient,
+      fee,
+      relayer,
+      source,
+    });
+
+    return {
+      proof,
+      recipient: opts.recipient,
+      relayer,
+      fee,
+      expectedPayout: proof.withdrawnValue - fee,
+      simulation,
+    };
+  }
+}
+
+export interface DryRunWithdrawResult {
+  proof: PoolWithdrawProof;
+  recipient: string;
+  relayer: string;
+  fee: bigint;
+  /** `proof.withdrawnValue - fee`: what `recipient` would actually receive. */
+  expectedPayout: bigint;
+  /** Simulated fee + resource usage; nothing here was submitted on-chain. */
+  simulation: SimulationReport;
 }

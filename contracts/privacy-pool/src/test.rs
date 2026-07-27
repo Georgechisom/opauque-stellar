@@ -630,6 +630,37 @@ fn set_root_expiry_unauthorized() {
     assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
 }
 
+// -- Issue #589: multisig admin migration ------------------------------------
+
+#[test]
+fn transfer_admin_moves_authority() {
+    let h = setup();
+    let new_admin = Address::generate(&h.env);
+    h.pool.transfer_admin(&h.admin, &new_admin);
+    assert_eq!(h.pool.get_config().admin, new_admin);
+
+    // The old admin can no longer perform admin-gated operations.
+    let res = h
+        .pool
+        .try_update_state_root(&h.admin, &b32(&h.env, 0x51), &b32(&h.env, 0xD1));
+    assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
+
+    // The new admin can.
+    h.pool
+        .update_state_root(&new_admin, &b32(&h.env, 0x51), &b32(&h.env, 0xD1));
+    assert!(h.pool.is_known_state_root(&b32(&h.env, 0x51)));
+}
+
+#[test]
+fn transfer_admin_unauthorized() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let new_admin = Address::generate(&h.env);
+    let res = h.pool.try_transfer_admin(&stranger, &new_admin);
+    assert_eq!(res, Err(Ok(PoolError::Unauthorized)));
+    assert_eq!(h.pool.get_config().admin, h.admin);
+}
+
 #[test]
 fn deposit_increments_count() {
     let h = setup();
@@ -701,4 +732,59 @@ fn withdraw_equal_fee_and_amount_zero_to_recipient() {
     assert_eq!(bal(&h, &recipient), 0);
     assert_eq!(bal(&h, &relayer), 500);
     assert_eq!(h.pool.get_custody(), (1000, 500));
+}
+
+// -- Issue #589: end-to-end multisig admin migration -------------------------
+//
+// Deploys a real multisig-admin contract, migrates the pool's admin to it via
+// transfer_admin, and publishes a state root through the full
+// propose_call -> approve -> threshold-triggered invoke_contract path — the
+// exact sequence a deployed registry's admin migration would follow.
+
+extern crate multisig_admin;
+
+#[test]
+fn state_root_publishable_through_a_real_multisig_after_admin_migration() {
+    let h = setup();
+
+    let s1 = Address::generate(&h.env);
+    let s2 = Address::generate(&h.env);
+    let s3 = Address::generate(&h.env);
+    let signers = soroban_sdk::Vec::from_array(&h.env, [s1.clone(), s2.clone(), s3.clone()]);
+
+    let multisig_addr = h.env.register(multisig_admin::MultisigAdmin, ());
+    let multisig = multisig_admin::MultisigAdminClient::new(&h.env, &multisig_addr);
+    multisig.initialize(&signers, &2u32);
+
+    // Migrate the pool's admin away from the single EOA key.
+    h.pool.transfer_admin(&h.admin, &multisig_addr);
+
+    // The old single key is now powerless over the pool.
+    let direct_attempt =
+        h.pool
+            .try_update_state_root(&h.admin, &b32(&h.env, 0x51), &b32(&h.env, 0xD1));
+    assert_eq!(direct_attempt, Err(Ok(PoolError::Unauthorized)));
+
+    // Publishing a root now requires two of the three signers, routed through
+    // the multisig contract calling into the pool on its own authority.
+    let root = b32(&h.env, 0x51);
+    let dataset_hash = b32(&h.env, 0xD1);
+    let args: soroban_sdk::Vec<soroban_sdk::Val> =
+        (multisig_addr.clone(), root.clone(), dataset_hash.clone()).into_val(&h.env);
+    let proposal_id = multisig.propose_call(
+        &s1,
+        &h.pool_addr,
+        &Symbol::new(&h.env, "update_state_root"),
+        &args,
+    );
+    assert!(!h.pool.is_known_state_root(&root));
+
+    let executed = multisig.approve(&s2, &proposal_id);
+    assert!(executed);
+    assert!(h.pool.is_known_state_root(&root));
+
+    // The third signer was never needed.
+    let proposal = multisig.get_proposal(&proposal_id);
+    assert_eq!(proposal.approvals.len(), 2);
+    let _ = s3;
 }
