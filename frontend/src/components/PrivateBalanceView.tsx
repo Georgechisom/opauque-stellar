@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import {
+  bytesToHex,
   deriveStealthStellarAddressFromStealthPrivKey,
   formatXlm,
   hexToBytes,
 } from "../lib/stealth";
+import type { ScanWorkerAnnouncement, ScanWorkerMatch } from "../workers/scannerWorker";
 import { getCluster, type StellarNetwork } from "../lib/chain";
 import { getConfigForCluster } from "../contracts/contract-config";
 import { getPoolConfig } from "../contracts/poolConfig";
@@ -17,6 +19,7 @@ function isAddress(a: string): boolean {
 }
 import { useOpaqueWasm } from "../hooks/useOpaqueWasm";
 import { useScanner } from "../hooks/useScanner";
+import { useScannerWorker } from "../hooks/useScannerWorker";
 import type { CachedAnnouncement } from "../lib/opaqueCache";
 import { useKeys } from "../context/KeysContext";
 import { useWallet } from "../hooks/useWallet";
@@ -135,12 +138,26 @@ type LogRow = {
   txHash: string;
 };
 
+/**
+ * Optional off-main-thread trial-decryption backend (#606). When supplied,
+ * the view-tag + full match loop below runs in a Web Worker instead of on
+ * the main thread, keeping the UI responsive during a full scan. Falls back
+ * to the original in-line loop when omitted (e.g. worker unsupported/not wired
+ * in a given call site), so this stays a strictly additive, opt-in change.
+ */
+export type ScanBatchFn = (
+  items: ScanWorkerAnnouncement[],
+  viewPrivKeyHex: string,
+  spendPubKeyHex: string,
+) => Promise<ScanWorkerMatch[]>;
+
 async function processRawLogsToFoundTxs(
   connection: StellarBalanceClient,
   rawLogs: LogWithArgs[],
   wasm: OpaqueWasmModule | null,
   getMasterKeys: (() => MasterKeys) | null,
   _cluster: StellarNetwork,
+  scanBatch?: ScanBatchFn,
 ): Promise<FoundTx[]> {
   const rows: LogRow[] = rawLogs.map((log, i) => {
     const args = log.args;
@@ -170,39 +187,68 @@ async function processRawLogsToFoundTxs(
   }
 
   const { viewPrivKey, spendPubKey } = masterKeys;
-  const matched: LogRow[] = [];
+  let matched: LogRow[];
 
-  for (const row of rows) {
-    try {
-      if (!row.stealthAddress || !row.ephemeralPubKeyHex) continue;
-      const ephemeralPubKey = toHexBytes(row.ephemeralPubKeyHex);
-      if (ephemeralPubKey.length !== 33) continue;
-
-      const viewTagResult = wasm.check_announcement_view_tag_wasm(
-        row.viewTag,
-        viewPrivKey,
-        ephemeralPubKey,
-      );
-      if (viewTagResult === "NoMatch") continue;
-
-      let isOurs: boolean;
+  if (scanBatch) {
+    // Off-main-thread path (#606): delegate trial decryption to the scanner
+    // worker. A memory-pressure abort (#605) still resolves here with
+    // whatever matched before the abort — the worker's resumable cursor is
+    // surfaced to the UI via the `useScannerWorker` hook state, not here.
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const items: ScanWorkerAnnouncement[] = rows.map((row, index) => ({
+      index,
+      id: row.id,
+      stealthAddress: row.stealthAddress,
+      viewTag: row.viewTag,
+      ephemeralPubKeyHex: row.ephemeralPubKeyHex ?? "",
+    }));
+    const workerMatches = await scanBatch(
+      items,
+      bytesToHex(viewPrivKey),
+      bytesToHex(spendPubKey),
+    );
+    matched = [];
+    for (const m of workerMatches) {
+      const row = byId.get(m.id);
+      if (row) {
+        console.log("🎯 [Opaque] Match found for address:", row.stealthAddress);
+        matched.push(row);
+      }
+    }
+  } else {
+    matched = [];
+    for (const row of rows) {
       try {
-        isOurs = wasm.check_announcement_wasm(
-          row.stealthAddress,
+        if (!row.stealthAddress || !row.ephemeralPubKeyHex) continue;
+        const ephemeralPubKey = toHexBytes(row.ephemeralPubKeyHex);
+        if (ephemeralPubKey.length !== 33) continue;
+
+        const viewTagResult = wasm.check_announcement_view_tag_wasm(
           row.viewTag,
           viewPrivKey,
-          spendPubKey,
           ephemeralPubKey,
         );
-      } catch {
-        isOurs = false;
-      }
-      if (!isOurs) continue;
+        if (viewTagResult === "NoMatch") continue;
 
-      console.log("🎯 [Opaque] Match found for address:", row.stealthAddress);
-      matched.push(row);
-    } catch (err) {
-      console.warn("🔑 [Opaque] Skipping malformed log:", row.id, err);
+        let isOurs: boolean;
+        try {
+          isOurs = wasm.check_announcement_wasm(
+            row.stealthAddress,
+            row.viewTag,
+            viewPrivKey,
+            spendPubKey,
+            ephemeralPubKey,
+          );
+        } catch {
+          isOurs = false;
+        }
+        if (!isOurs) continue;
+
+        console.log("🎯 [Opaque] Match found for address:", row.stealthAddress);
+        matched.push(row);
+      } catch (err) {
+        console.warn("🔑 [Opaque] Skipping malformed log:", row.id, err);
+      }
     }
   }
 
@@ -386,6 +432,24 @@ export function PrivateBalanceView() {
   const [syncingPaused, setSyncingPaused] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const { wasm, isReady: wasmReady } = useOpaqueWasm();
+  const scannerWorker = useScannerWorker();
+  const lastScanInputsRef = useRef<{
+    items: ScanWorkerAnnouncement[];
+    viewPrivKeyHex: string;
+    spendPubKeyHex: string;
+  } | null>(null);
+  const scanBatch = useCallback<ScanBatchFn>(
+    (items, viewPrivKeyHex, spendPubKeyHex) => {
+      lastScanInputsRef.current = { items, viewPrivKeyHex, spendPubKeyHex };
+      return scannerWorker.scan(items, viewPrivKeyHex, spendPubKeyHex);
+    },
+    [scannerWorker.scan],
+  );
+  const handleResumeScan = useCallback(() => {
+    const inputs = lastScanInputsRef.current;
+    if (!inputs) return;
+    void scannerWorker.resume(inputs.items, inputs.viewPrivKeyHex, inputs.spendPubKeyHex);
+  }, [scannerWorker.resume]);
   const keysContext = useKeys();
   const { address: mainWalletAddress, connection } = useWallet();
   const cluster = getCluster();
@@ -775,6 +839,7 @@ export function PrivateBalanceView() {
         wasm,
         getMasterKeys,
         cluster,
+        scanBatch,
       )
         .then((txs) => {
           setFound((prev) => {
@@ -821,6 +886,7 @@ export function PrivateBalanceView() {
     keysContext.getMasterKeys,
     logPush,
     scanner,
+    scanBatch,
   ]);
 
   useEffect(() => {
@@ -1043,6 +1109,21 @@ export function PrivateBalanceView() {
                 className="px-2 py-1 text-xs font-medium rounded-lg bg-neutral-500/20 text-neutral-300 hover:bg-neutral-500/30 border border-neutral-500/40"
               >
                 Retry Sync
+              </button>
+            </div>
+          )}
+          {scannerWorker.status === "aborted" && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-neutral-400/90 text-xs font-mono flex-1 min-w-0">
+                Scan paused near a memory limit at {scannerWorker.processed.toLocaleString()} of{" "}
+                {scannerWorker.total.toLocaleString()} announcements.
+              </p>
+              <button
+                type="button"
+                onClick={handleResumeScan}
+                className="px-2 py-1 text-xs font-medium rounded-lg bg-neutral-500/20 text-neutral-300 hover:bg-neutral-500/30 border border-neutral-500/40"
+              >
+                Resume Scan
               </button>
             </div>
           )}
