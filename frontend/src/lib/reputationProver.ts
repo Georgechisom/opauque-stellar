@@ -288,7 +288,8 @@ export async function submitProofOnChain(
   if (bytes32ToBigInt(latestRoot) !== bytes32ToBigInt(rootBytes)) {
     throw new Error(
       "Merkle root mismatch: this proof was generated against a local or stale root. " +
-        "Regenerate after the root publisher/indexer has published a root that includes this attestation.",
+        "Regenerate after the root publisher/indexer has published a root that includes this attestation. " +
+        "See docs/TROUBLESHOOTING_PROOF_GENERATION.md.",
     );
   }
 

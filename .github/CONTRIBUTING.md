@@ -347,3 +347,52 @@ npm run deploy:testnet -- --dry-run # preview (no broadcast)
 Do **not** open public issues for vulnerabilities. Follow the disclosure process in
 [`SECURITY.md`](SECURITY.md). See [`DISCLAIMER.md`](DISCLAIMER.md) for the
 experimental status and privacy limitations of this software.
+
+---
+
+## 12. Dependency update policy
+
+Dependencies (Rust crates, npm packages in `/` and `frontend/`, GitHub Actions)
+are kept current on a stated cadence instead of ad hoc, so security patches
+don't lag and upgrades don't pile up into risky big-bang bumps.
+
+### Response windows by advisory severity
+
+| Severity | Response window | Notes |
+|----------|-----------------|-------|
+| Critical | Patch within 24–48h of advisory publication | Out-of-band PR; does not wait for the next routine batch |
+| High | Patch within 7 days | Out-of-band PR if the next routine batch is more than 7 days away |
+| Medium | Patch within 30 days | Bundled into the next routine batch unless actively exploited |
+| Low / informational | Next routine batch | No dedicated SLA |
+
+There is currently no PR-blocking CI in this repository — `.github/workflows/`
+has no jobs prior to this policy, so nothing enforces these windows at merge
+time yet. [`dependency-audit.yml`](workflows/dependency-audit.yml) is the
+first automated coverage: a weekly scheduled job (non-PR-blocking) that runs
+`cargo audit` / `cargo deny check` and `npm audit` across the root and
+`frontend/` workspaces, so an advisory published against an already-merged
+dependency is still caught within the windows above instead of going
+unnoticed indefinitely. Wiring these checks into PR-blocking CI is a natural
+follow-up once such CI exists, but is out of scope here.
+
+[`dependabot.yml`](dependabot.yml) opens security-update pull requests
+immediately on advisory publication, independent of the batching schedule
+below.
+
+### Batching strategy per workspace
+
+Routine (non-security) version updates are batched monthly per workspace via
+`dependabot.yml`, grouped into a single PR per ecosystem where possible:
+
+- **`cargo` (workspace root)** — monthly, minor/patch updates grouped into
+  one PR. `soroban-sdk` is excluded from grouping and always opens its own
+  PR: it's pinned to an exact version (`soroban-sdk = "=25.3.1"` in
+  `Cargo.toml`) because a bump can change contract ABI/event behavior (see
+  § 7.1), so it needs deliberate review rather than a silent batch bump.
+- **`npm` (root, `frontend/`)** — monthly, minor/patch updates grouped per
+  workspace into one PR each.
+- **`github-actions`** — monthly.
+
+Every dependency-update PR, batched or out-of-band, must still pass the full
+Section 6 check suite before merge — batching reduces PR *count*, not review
+rigor.

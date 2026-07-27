@@ -1,0 +1,41 @@
+version: 2
+
+# Batching strategy per workspace — see .github/CONTRIBUTING.md § 9
+# (Dependency update policy) for the full cadence and response-window policy.
+# Security-update PRs open immediately on advisory publication regardless of
+# the `schedule` below; `schedule` only governs routine version-update PRs.
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "soroban-sdk"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    groups:
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
