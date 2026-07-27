@@ -347,6 +347,25 @@ impl PrivacyPool {
         Ok(())
     }
 
+    /// Moves admin authority to `new_admin` (Issue #589) — the migration path
+    /// from a single-key admin to a deployed `multisig-admin` contract's
+    /// address, with no redeployment. Once this call succeeds, the current
+    /// `admin` can no longer authorize any admin-gated operation: every check
+    /// in this contract compares against `config.admin` fresh from storage,
+    /// so the old key's `require_auth()` immediately stops matching.
+    pub fn transfer_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), PoolError> {
+        admin.require_auth();
+        let mut config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        config.admin = new_admin;
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "config"), &config);
+        Ok(())
+    }
+
     /// Withdraw `withdrawn_value` XLM from the pool to `recipient` (minus `fee` to `relayer`),
     /// proving in zero knowledge that an unspent deposit (clean per the ASP) backs it.
     pub fn withdraw(

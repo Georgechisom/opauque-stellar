@@ -494,3 +494,33 @@ fn pool_withdraw_payload_hash_matches_typescript_fixture() {
         ),
     );
 }
+
+// -- Issue #589: multisig admin migration ------------------------------------
+
+#[test]
+fn transfer_admin_moves_authority() {
+    let h = setup();
+    let new_admin = Address::generate(&h.env);
+    h.registry.transfer_admin(&h.admin, &new_admin);
+    assert_eq!(h.registry.get_config().admin, new_admin);
+
+    // The old admin can no longer perform admin-gated operations.
+    let res = h
+        .registry
+        .try_set_config(&h.admin, &200i128, &20u32, &200u32);
+    assert_eq!(res, Err(Ok(RegistryError::Unauthorized)));
+
+    // The new admin can.
+    h.registry.set_config(&new_admin, &200i128, &20u32, &200u32);
+    assert_eq!(h.registry.get_config().minimum_stake, 200i128);
+}
+
+#[test]
+fn transfer_admin_unauthorized() {
+    let h = setup();
+    let stranger = Address::generate(&h.env);
+    let new_admin = Address::generate(&h.env);
+    let res = h.registry.try_transfer_admin(&stranger, &new_admin);
+    assert_eq!(res, Err(Ok(RegistryError::Unauthorized)));
+    assert_eq!(h.registry.get_config().admin, h.admin);
+}
