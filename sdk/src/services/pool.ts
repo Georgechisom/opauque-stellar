@@ -83,7 +83,23 @@ export class PoolService {
     return { note, txHash };
   }
 
-  /** Withdraw using a precomputed proof bundle. Marks the note spent on success. */
+  /**
+   * Withdraw using a precomputed proof bundle. Marks the note spent **only after**
+   * the on-chain withdrawal is confirmed successful.
+   *
+   * Fault safety: {@link PrivacyPool.withdraw} resolves only once the transaction
+   * has been polled to a `SUCCESS` result, so any fault before that point (a
+   * network error before submission, an RPC error/timeout during submission, or a
+   * lost confirmation after submission) rejects here and the note is left
+   * **unspent** — a note is never burned for a withdrawal that did not land.
+   *
+   * The remaining ambiguous window is a submission that actually landed on-chain
+   * but whose confirmation was lost client-side: the note stays locally unspent,
+   * yet a naive retry cannot double-pay because the pool rejects the reused
+   * nullifier ({@link ContractError} `NullifierUsed`). Use
+   * {@link reconcileWithdrawal} (or {@link isNullifierSpent}) to reconcile local
+   * note state with on-chain truth after such a failure.
+   */
   async withdraw(opts: {
     proof: WithdrawProofBundle;
     recipient: string;
@@ -105,68 +121,38 @@ export class PoolService {
   }
 
   /**
-   * Withdraw several notes to one recipient in a coordinated call: proves and
-   * submits each note's withdrawal in turn — still one proof and one
-   * transaction per note, so per-note nullifier semantics are unchanged —
-   * and continues past individual failures so partial success is possible.
-   * Requires an artifact resolver (`new OpaqueClient({ artifacts })`).
-   *
-   * The pool leaves are reconstructed from chain once and reused across every
-   * note's proof (all notes prove against the same published state root);
-   * withdrawals themselves are still submitted sequentially, one at a time,
-   * since they share the signer's account and Stellar sequence numbers.
+   * Whether a withdrawal's nullifier is already spent on-chain. Cheap read used
+   * to determine, after an ambiguous submission failure, whether the withdrawal
+   * actually landed (`true`) or is safe to retry (`false`).
    */
-  async withdrawBatch(opts: {
-    notes: PoolNote[];
-    recipient: string;
-    relayer?: string;
-    fee?: bigint;
-  }): Promise<{
-    succeeded: Array<{ note: PoolNote; txHash: string }>;
-    /** Notes whose withdrawal failed and therefore remain unspent. */
-    failed: Array<{ note: PoolNote; error: unknown }>;
-  }> {
-    if (opts.notes.length === 0) return { succeeded: [], failed: [] };
-    if (!this.ctx.artifacts) {
-      throw new NotWiredError(
-        "Pool withdrawal proof generation",
-        "Construct OpaqueClient with { artifacts } to enable proving, or withdraw() each note individually with a precomputed bundle.",
-      );
-    }
-
-    const { stateLeaves, depositIndices } = await this.ctx.contracts.privacyPool.reconstructState({
-      startLedger: this.ctx.config.startLedger,
+  async isNullifierSpent(opts: {
+    nullifierHash: Uint8Array;
+    source?: string;
+  }): Promise<boolean> {
+    return this.ctx.contracts.privacyPool.isNullifierSpent({
+      source: await this.source(opts.source),
+      nullifierHash: opts.nullifierHash,
     });
+  }
 
-    const succeeded: Array<{ note: PoolNote; txHash: string }> = [];
-    const failed: Array<{ note: PoolNote; error: unknown }> = [];
-
-    for (const note of opts.notes) {
-      try {
-        const proof = await provePoolWithdraw({
-          note,
-          recipient: opts.recipient,
-          relayer: opts.relayer ?? opts.recipient,
-          fee: opts.fee ?? 0n,
-          scope: this.ctx.config.pool.scope,
-          stateLeaves,
-          depositIndices,
-          artifacts: this.ctx.artifacts,
-        });
-        const txHash = await this.withdraw({
-          proof,
-          recipient: opts.recipient,
-          fee: opts.fee,
-          relayer: opts.relayer,
-          noteCommitment: note.commitment,
-        });
-        succeeded.push({ note, txHash });
-      } catch (error) {
-        failed.push({ note, error });
-      }
-    }
-
-    return { succeeded, failed };
+  /**
+   * Reconcile a note's local spent-state with on-chain nullifier state after an
+   * ambiguous withdrawal failure. Marks the note spent iff its nullifier is spent
+   * on-chain; otherwise leaves it untouched (safe to retry). Retry-safe and
+   * idempotent — it never burns a note whose withdrawal did not land, and never
+   * triggers a payout. Returns whether the note is (now) considered spent.
+   */
+  async reconcileWithdrawal(opts: {
+    proof: WithdrawProofBundle;
+    noteCommitment: string;
+    source?: string;
+  }): Promise<{ spent: boolean }> {
+    const spent = await this.isNullifierSpent({
+      nullifierHash: opts.proof.nullifierHash,
+      source: opts.source,
+    });
+    if (spent) await this.ctx.notes.markSpent(opts.noteCommitment);
+    return { spent };
   }
 
   /** Read the next deposit leaf index. */
