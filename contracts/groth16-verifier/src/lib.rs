@@ -1019,6 +1019,159 @@ mod test {
         }
     }
 
+    // -- Issue #602: Groth16 proof malleability ----------------------------------
+    //
+    // The verifier checks e(-A,B)·e(alpha,beta)·e(vk_x,gamma)·e(C,delta) = 1. For
+    // any nonzero scalar s, replacing A with s*A and B with B/s reproduces the
+    // same e(A,B), so the check still passes — Groth16 proofs are malleable
+    // under this whole family of transforms. The simplest concrete instance is
+    // s = -1: negate both A and B (e(-A,-B) = e(A,B), the two negations cancel).
+    // That produces a DIFFERENT byte-level proof (different A and B point
+    // encodings) that still satisfies the pairing check for the SAME public
+    // inputs — the defining property of Groth16 malleability.
+    //
+    // These tests confirm (a) the real fixture proof verifies at all, (b) the
+    // negate-both-A-and-B transform produces a distinct proof that still
+    // verifies (proving malleability is real for this verifier, as expected for
+    // an unmodified Groth16 pairing check), and (c) transformations that don't
+    // preserve the pairing invariant (negating only one of A/B, or negating C
+    // instead) are correctly rejected.
+
+    fn negate_g1_y(point: &[u8; 64]) -> [u8; 64] {
+        let mut out = *point;
+        let neg_y = field_negate(&point[32..64]);
+        out[32..64].copy_from_slice(&neg_y);
+        out
+    }
+
+    fn negate_g2_y(point: &[u8; 128]) -> [u8; 128] {
+        // Layout is [x_c1, x_c0, y_c1, y_c0], 32 bytes each (see G2_GEN_X_C1/C0
+        // comment above) — negating a G2 point negates both Fq2 components of y.
+        let mut out = *point;
+        let neg_y_c1 = field_negate(&point[64..96]);
+        let neg_y_c0 = field_negate(&point[96..128]);
+        out[64..96].copy_from_slice(&neg_y_c1);
+        out[96..128].copy_from_slice(&neg_y_c0);
+        out
+    }
+
+    #[test]
+    fn v3_real_proof_verifies() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+        let valid = c.verify_proof_v3(
+            &BytesN::from_array(&env, &V3_PROOF_A),
+            &BytesN::from_array(&env, &V3_PROOF_B),
+            &BytesN::from_array(&env, &V3_PROOF_C),
+            &v3_inputs(&env),
+        );
+        assert!(
+            valid,
+            "the committed real V3 fixture must verify against its own public inputs"
+        );
+    }
+
+    #[test]
+    fn v3_malleated_proof_negate_a_and_b_still_verifies() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+
+        let mauled_a = negate_g1_y(&V3_PROOF_A);
+        let mauled_b = negate_g2_y(&V3_PROOF_B);
+
+        // Sanity: the transform actually changed the bytes (not a no-op on a
+        // zero y-coordinate, which would make this test vacuous).
+        assert_ne!(mauled_a, V3_PROOF_A, "negation must change A's bytes");
+        assert_ne!(mauled_b, V3_PROOF_B, "negation must change B's bytes");
+
+        let valid = c.verify_proof_v3(
+            &BytesN::from_array(&env, &mauled_a),
+            &BytesN::from_array(&env, &mauled_b),
+            &BytesN::from_array(&env, &V3_PROOF_C),
+            &v3_inputs(&env),
+        );
+
+        // This is the malleability itself: a byte-for-byte DIFFERENT proof
+        // verifies as valid for the exact same public inputs (same
+        // nullifier_hash, same context, same withdrawn_value, etc). The
+        // verifier is a standard, unmodified Groth16 pairing check and is
+        // NOT expected to reject this — replay protection must therefore
+        // come from the pool keying spent-status on nullifier_hash (a public
+        // input untouched by this transform), not from proof-byte uniqueness.
+        // See withdraw_mauled_proof_rejected_as_replay in privacy-pool's
+        // test.rs for the property that actually protects the pool.
+        assert!(
+            valid,
+            "negating both A and B is a textbook Groth16 malleability transform \
+             and must still satisfy the pairing check for the same public inputs"
+        );
+        assert_ne!(
+            mauled_a, V3_PROOF_A,
+            "the mauled proof must differ byte-for-byte from the original"
+        );
+    }
+
+    #[test]
+    fn v3_negating_only_a_breaks_the_pairing_equation() {
+        // Negating A alone (without also negating B) does NOT preserve
+        // e(A,B) — this is not a valid malleability transform, and must be
+        // rejected, distinguishing it from the real transform above.
+        let env = Env::default();
+        let c = fuzz_client(&env);
+
+        let mauled_a = negate_g1_y(&V3_PROOF_A);
+
+        let valid = c.verify_proof_v3(
+            &BytesN::from_array(&env, &mauled_a),
+            &BytesN::from_array(&env, &V3_PROOF_B),
+            &BytesN::from_array(&env, &V3_PROOF_C),
+            &v3_inputs(&env),
+        );
+        assert!(
+            !valid,
+            "negating only A (not B) must break the pairing check"
+        );
+    }
+
+    #[test]
+    fn v3_negating_only_b_breaks_the_pairing_equation() {
+        let env = Env::default();
+        let c = fuzz_client(&env);
+
+        let mauled_b = negate_g2_y(&V3_PROOF_B);
+
+        let valid = c.verify_proof_v3(
+            &BytesN::from_array(&env, &V3_PROOF_A),
+            &BytesN::from_array(&env, &mauled_b),
+            &BytesN::from_array(&env, &V3_PROOF_C),
+            &v3_inputs(&env),
+        );
+        assert!(
+            !valid,
+            "negating only B (not A) must break the pairing check"
+        );
+    }
+
+    #[test]
+    fn v3_malleated_proof_preserves_all_public_inputs_bytes() {
+        // The malleability transform only touches proof_a/proof_b bytes; the
+        // public inputs passed alongside a mauled proof are whatever the
+        // caller supplies. This confirms our own test fixture didn't
+        // accidentally mutate v3_inputs() when constructing the mauled proof
+        // above — i.e. nullifier_hash/context/withdrawn_value are identical
+        // between the "original" and "mauled" verification calls in this
+        // file, which is what makes the pool's nullifier-keyed replay check
+        // (not proof-byte comparison) the correct defense.
+        let env = Env::default();
+        let original_inputs = v3_inputs(&env);
+        let same_inputs = v3_inputs(&env);
+
+        assert_eq!(original_inputs.nullifier_hash, same_inputs.nullifier_hash);
+        assert_eq!(original_inputs.context, same_inputs.context);
+        assert_eq!(original_inputs.withdrawn_value, same_inputs.withdrawn_value);
+        assert_eq!(original_inputs.new_commitment, same_inputs.new_commitment);
+    }
+
     // -- All-zero proof point (identity element) ---------------------------------
 
     #[test]

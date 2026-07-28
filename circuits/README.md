@@ -43,9 +43,15 @@ Given public inputs `(merkle_root, attestation_id, external_nullifier)`, the pro
 
 ### Prerequisites
 
-- [Circom](https://docs.circom.io/getting-started/installation/) 2.1.6+
-- [snarkjs](https://github.com/iden3/snarkjs) 0.7+
-- Node.js 18+
+- [Circom](https://docs.circom.io/getting-started/installation/) 2.1.6
+- [snarkjs](https://github.com/iden3/snarkjs) 0.7.6
+- Node.js 20.x
+
+Exact pinned versions live in [`TOOLCHAIN.json`](TOOLCHAIN.json). Before
+building, run `npm run check:toolchain` (or `npm run build`, which now runs
+it automatically first) to confirm your local circom, snarkjs, and Node
+match — a mismatched toolchain can silently produce artifacts that diverge
+from the committed build even when compilation succeeds.
 
 ### Commands
 
