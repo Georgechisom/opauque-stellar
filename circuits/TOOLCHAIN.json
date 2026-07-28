@@ -1,0 +1,6 @@
+{
+  "_comment": "Pinned toolchain versions for compiling circuits/. Update this file in the same commit as any intentional toolchain bump, and re-run `npm run fixtures:generate` + `npm run test:circuits` after bumping, since a circom/snarkjs version change can alter compiled artifacts even when circuit source is unchanged.",
+  "circom": "2.1.6",
+  "snarkjs": "0.7.6",
+  "nodeMajor": 20
+}

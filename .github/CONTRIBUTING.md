@@ -251,7 +251,29 @@ verify step still passes before you push, because the build may not be byte-stab
 
 ### 7.3 Changing circuits
 
-Regenerate fixtures and re-verify the artifact manifest:
+**Any PR that adds or modifies a `.circom` file must complete
+[`docs/CIRCUIT_SOUNDNESS_CHECKLIST.md`](../docs/CIRCUIT_SOUNDNESS_CHECKLIST.md)
+and paste the filled-in checklist into the PR description before requesting
+review** (see the Pull Request checklist in Section 9). This is required in
+addition to, not instead of, the checks below — the checklist catches
+under-constrained signals, missing range checks, and public-input-binding
+gaps that compiling and passing the existing tests will not surface.
+
+Before building, confirm your local toolchain matches the pinned circom /
+snarkjs / Node versions:
+
+```bash
+( cd circuits && npm run check:toolchain )
+```
+
+This fails fast with the expected-vs-actual versions and an install
+pointer if your `circom`, `snarkjs`, or Node major version doesn't match
+[`circuits/TOOLCHAIN.json`](../circuits/TOOLCHAIN.json) — a circuit
+compiled with the wrong `circom`/`snarkjs` version can silently produce a
+build that is not byte-compatible with the pinned artifacts even when every
+test still passes locally.
+
+Then regenerate fixtures and re-verify the artifact manifest:
 
 ```bash
 ( cd circuits && npm run fixtures:generate )
@@ -326,6 +348,9 @@ npm run deploy:testnet -- --dry-run # preview (no broadcast)
       version bump.
 - [ ] Conventional-commit messages, and a PR description that explains the "why".
 - [ ] Docs or README updated if behavior or commands changed.
+- [ ] **If this PR touches a `.circom` file:** the filled-in
+      [`docs/CIRCUIT_SOUNDNESS_CHECKLIST.md`](../docs/CIRCUIT_SOUNDNESS_CHECKLIST.md)
+      is pasted into this PR's description.
 
 ---
 

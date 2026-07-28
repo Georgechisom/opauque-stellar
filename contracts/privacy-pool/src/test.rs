@@ -251,6 +251,92 @@ fn withdraw_nullifier_replay_rejected() {
     assert_eq!(res, Err(Ok(PoolError::NullifierUsed)));
 }
 
+// -- Issue #602: a mauled-but-verifier-valid proof cannot bypass replay -----
+//
+// Groth16 proofs are malleable: negating both the A and B points of a valid
+// proof yields a byte-for-byte DIFFERENT proof that still satisfies the
+// verifier's pairing check for the same public inputs (proven directly
+// against the real BN254 verifier in groth16-verifier's
+// v3_malleated_proof_negate_a_and_b_still_verifies test). That means the
+// pool cannot rely on "have we seen these exact proof bytes before" for
+// replay protection — it must key spent-status on nullifier_hash, a public
+// input that a malleability transform does not and cannot change (mauling
+// the proof bytes leaves every public signal, including nullifier_hash and
+// context, untouched).
+//
+// This test models that at the pool level: two structurally different
+// proof byte-strings (standing in for "original" vs. "mauled" encodings of
+// a proof for the same public inputs) are both submitted with the same
+// nullifier_hash. The mock verifier accepts both (as the real verifier
+// would accept both a proof and its malleated form) — so the only thing
+// that can stop the second submission is the pool's own nullifier check,
+// which this test confirms fires regardless of the proof bytes differing.
+#[test]
+fn withdraw_mauled_proof_rejected_as_replay() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1000);
+    h.pool
+        .deposit(&depositor, &1000i128, &b32(&h.env, 0xC1), &0u64);
+    let (sr, ar) = publish_roots(&h);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let nullifier = b32(&h.env, 0x9A);
+
+    // "Original" proof.
+    let (pa, pb, pc) = proof(&h.env);
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &100i128,
+        &sr,
+        &ar,
+        &nullifier,
+        &b32(&h.env, 0xCE),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+    assert!(h.pool.is_spent(&nullifier));
+
+    // "Mauled" proof: different proof bytes (0xFF fill instead of 0x00),
+    // standing in for the negate-A-and-B transform that produces a distinct
+    // but still-verifying encoding of a proof over the same public inputs.
+    // Same nullifier_hash, same context-bound recipient/fee/relayer/value —
+    // only the proof bytes differ, exactly as a real malleability transform
+    // would produce.
+    let mauled_pa = BytesN::from_array(&h.env, &[0xFFu8; 64]);
+    let mauled_pb = BytesN::from_array(&h.env, &[0xFFu8; 128]);
+    let mauled_pc = BytesN::from_array(&h.env, &[0xFFu8; 64]);
+    assert_ne!(
+        mauled_pa, pa,
+        "mauled proof bytes must differ from the original"
+    );
+
+    let res = h.pool.try_withdraw(
+        &mauled_pa,
+        &mauled_pb,
+        &mauled_pc,
+        &100i128,
+        &sr,
+        &ar,
+        &nullifier,
+        &b32(&h.env, 0xCF),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+
+    // The mock verifier (standing in for a real verifier that would also
+    // accept a malleated proof of a valid statement) says the proof is
+    // fine — the pool must reject it anyway, on nullifier replay, before
+    // any payout logic runs.
+    assert_eq!(res, Err(Ok(PoolError::NullifierUsed)));
+    // Balance must be unaffected by the rejected mauled attempt.
+    assert_eq!(bal(&h, &recipient), 100);
+}
+
 // -- Issue #578: nullifier replay protection under conflicting submissions --
 //
 // Soroban's test harness executes contract calls sequentially — there is no
