@@ -4,6 +4,7 @@ import type { Tab } from "./Layout";
 import { useWallet } from "../hooks/useWallet";
 import { useToast } from "../context/ToastContext";
 import { usePoolNoteStore } from "../store/poolNoteStore";
+import { usePendingDepositStore } from "../store/pendingDepositStore";
 import { getPoolConfig } from "../contracts/poolConfig";
 import { getRelayerConfig } from "../contracts/relayerConfig";
 import {
@@ -179,6 +180,11 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const notes = usePoolNoteStore((s) => s.notes);
   const addNote = usePoolNoteStore((s) => s.addNote);
   const markSpent = usePoolNoteStore((s) => s.markSpent);
+  const pendingDeposits = usePendingDepositStore((s) => s.deposits);
+  const addOptimistic = usePendingDepositStore((s) => s.addOptimistic);
+  const confirmDeposit = usePendingDepositStore((s) => s.confirmDeposit);
+  const failDeposit = usePendingDepositStore((s) => s.failDeposit);
+  const removePendingDeposit = usePendingDepositStore((s) => s.remove);
 
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -355,17 +361,37 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       showToast("Enter a valid XLM amount.");
       return;
     }
-    setBusy("Depositing…");
+
+    // Generate secrets and derive commitment upfront (before optimistic state)
+    let leafIndex: number;
+    let nullifier: string;
+    let secret: string;
+    let derived: Awaited<ReturnType<typeof deriveDeposit>>;
     try {
-      const leafIndex = await fetchNextLeafIndex(publicKey);
-      const { nullifier, secret } = newNoteSecrets();
-      const derived = await deriveDeposit({
+      leafIndex = await fetchNextLeafIndex(publicKey);
+      ({ nullifier, secret } = newNoteSecrets());
+      derived = await deriveDeposit({
         value,
         scope: cfg.scope,
         leafIndex,
         nullifier: BigInt(nullifier),
         secret: BigInt(secret),
       });
+    } catch (e) {
+      showToast(`Failed to prepare deposit: ${(e as Error).message}`);
+      return;
+    }
+
+    // Add optimistic deposit state immediately
+    const optimisticId = addOptimistic({
+      value: value.toString(),
+      poolId: cfg.poolId,
+      cluster,
+      expectedLeafIndex: leafIndex,
+    });
+
+    setBusy("Depositing…");
+    try {
       const hash = await invokePoolDeposit({
         depositor: publicKey,
         value,
@@ -373,6 +399,11 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         expectedIndex: leafIndex,
         signTransaction,
       });
+
+      // Confirm the optimistic deposit
+      confirmDeposit(optimisticId, hash);
+
+      // Now persist the note (only after on-chain confirmation)
       const note: PoolNote = {
         cluster,
         poolId: cfg.poolId,
@@ -386,15 +417,21 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         createdAt: Date.now(),
       };
       addNote(note);
+
+      // Remove from pending deposits after successful persistence
+      removePendingDeposit(optimisticId);
+
       setAmount("");
       showToast(`Deposited ${formatXlm(value)} XLM into the pool.`, { explorerTx: { txSig: hash } });
       void refreshChain();
     } catch (e) {
+      // Roll back optimistic state on failure
+      failDeposit(optimisticId, (e as Error).message);
       showToast(`Deposit failed: ${(e as Error).message}`);
     } finally {
       setBusy(null);
     }
-  }, [cfg, publicKey, signTransaction, amount, cluster, addNote, showToast, refreshChain]);
+  }, [cfg, publicKey, signTransaction, amount, cluster, addOptimistic, confirmDeposit, failDeposit, removePendingDeposit, addNote, showToast, refreshChain]);
 
   const selectedNote = useCallback(() => {
     return unspent.find((n) => n.leafIndex === selected) ?? null;
@@ -905,6 +942,62 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
           </p>
         )}
       </div>
+
+      {/* Pending Deposits */}
+      {Object.values(pendingDeposits).filter((d) => d.cluster === cluster && d.status !== "confirmed").length > 0 && (
+        <div className={card}>
+          <h2 className="text-sm font-semibold text-white">Pending Deposits</h2>
+          <div className="mt-3 space-y-2">
+            {Object.values(pendingDeposits)
+              .filter((d) => d.cluster === cluster && d.status !== "confirmed")
+              .map((deposit) => (
+                <div
+                  key={deposit.id}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm ${
+                    deposit.status === "pending"
+                      ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                      : "border-red-400/30 bg-red-400/10 text-red-100"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {deposit.status === "pending" && (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+                    )}
+                    {deposit.status === "failed" && (
+                      <div className="h-4 w-4 rounded-full bg-red-400/20" />
+                    )}
+                    <div>
+                      <span className="font-medium">{formatXlm(BigInt(deposit.value))} XLM</span>
+                      {deposit.status === "pending" && (
+                        <span className="ml-2 text-xs opacity-70">Confirming on-chain…</span>
+                      )}
+                      {deposit.status === "failed" && (
+                        <span className="ml-2 text-xs opacity-70">Failed</span>
+                      )}
+                    </div>
+                  </div>
+                  {deposit.status === "failed" && deposit.error && (
+                    <button
+                      type="button"
+                      onClick={() => removePendingDeposit(deposit.id)}
+                      className="text-xs underline hover:no-underline"
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              ))}
+          </div>
+          {Object.values(pendingDeposits).some((d) => d.cluster === cluster && d.status === "failed") && (
+            <div className="mt-3 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">
+              <p className="font-medium">One or more deposits failed.</p>
+              <p className="mt-1 text-xs opacity-70">
+                Failed deposits are automatically rolled back. Your funds remain in your wallet.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Withdraw */}
       <div className={card} data-tour="pool-withdraw">
