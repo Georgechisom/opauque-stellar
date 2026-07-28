@@ -12,6 +12,12 @@ import { useSecurityStore } from "../store/securityStore";
 import { getFeatureFlags } from "../lib/featureFlags";
 import { FeatureDisabledNotice } from "./FeatureDisabledNotice";
 
+/** Detect the user's OS color-scheme preference for QR rendering. */
+function prefersLightTheme(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false;
+}
+
 type Mode = "choose" | "payment_link" | "manual_ghost";
 
 function bytesToHex(b: Uint8Array): string {
@@ -35,15 +41,39 @@ export function ReceiveView({ onBack }: { onBack: () => void }) {
   const cluster = getCluster();
   const manualGhostEnabled = getFeatureFlags().manualGhostAddresses;
   const qrRef = useRef<HTMLCanvasElement>(null);
+  const metaQrRef = useRef<HTMLCanvasElement>(null);
+  const [qrTheme, setQrTheme] = useState<"dark" | "light">(prefersLightTheme() ? "light" : "dark");
+
+  /** Export a clean PNG from a separate canvas (strips any browser-added metadata). */
+  const downloadCleanPng = useCallback((source: HTMLCanvasElement, filename: string) => {
+    const out = document.createElement("canvas");
+    out.width = source.width;
+    out.height = source.height;
+    const ctx = out.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(source, 0, 0);
+    out.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  }, []);
+
   const handleDownloadQR = useCallback(() => {
     const canvas = qrRef.current;
     if (!canvas) return;
-    const url = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "stealth-address-qr.png";
-    a.click();
-  }, []);
+    downloadCleanPng(canvas, "stealth-address-qr.png");
+  }, [downloadCleanPng]);
+
+  const handleDownloadMetaQR = useCallback(() => {
+    const canvas = metaQrRef.current;
+    if (!canvas) return;
+    downloadCleanPng(canvas, "meta-address-qr.png");
+  }, [downloadCleanPng]);
 
   const handleCopy = useCallback(async (value: string, type: "meta" | "link" | "ghost") => {
     try {
@@ -151,6 +181,9 @@ export function ReceiveView({ onBack }: { onBack: () => void }) {
   }
 
   if (mode === "payment_link") {
+    const isDark = qrTheme === "dark";
+    const qrBg = isDark ? "#000000" : "#ffffff";
+    const qrFg = isDark ? "#ffffff" : "#000000";
     return (
       <div className="w-full">
         <h2 className="font-display text-xl font-bold text-white mb-1">Payment link</h2>
@@ -158,6 +191,39 @@ export function ReceiveView({ onBack }: { onBack: () => void }) {
           Share either your meta-address or link. Senders derive a unique stealth address per payment.{" "}
           <RecoveryDocLink section="payment-link">Recovery guide</RecoveryDocLink>
         </p>
+
+        {/* Meta-address QR */}
+        <div className="mb-4">
+          <p className="text-[11px] uppercase tracking-wider text-mist/70 mb-2">Meta-address QR</p>
+          <div className={`inline-block rounded-2xl p-4 ${isDark ? "bg-white" : "bg-ink-900 border border-ink-700"}`}>
+            <QRCodeCanvas
+              ref={metaQrRef}
+              value={stealthMetaAddressHex}
+              size={220}
+              level="L"
+              bgColor={qrBg}
+              fgColor={qrFg}
+              marginSize={2}
+            />
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              type="button"
+              onClick={() => setQrTheme(isDark ? "light" : "dark")}
+              className="rounded-xl border border-ink-600 bg-ink-950/30 px-3 py-1.5 text-xs font-medium text-mist transition-colors hover:border-white/30 hover:text-white"
+            >
+              {isDark ? "☀ Light theme" : "🌙 Dark theme"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadMetaQR}
+              className="rounded-xl border border-ink-600 bg-ink-950/30 px-3 py-1.5 text-xs font-medium text-mist transition-colors hover:border-white/30 hover:text-white"
+            >
+              Download PNG
+            </button>
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-ink-700 bg-ink-900/25 p-4 mb-3">
           <p className="text-[11px] uppercase tracking-wider text-mist/70 mb-1">Meta-address</p>
           <div className="font-mono text-xs text-white/90 break-all">{stealthMetaAddressHex}</div>
