@@ -40,12 +40,16 @@ import {
   type VerifiedBid,
 } from "../lib/relayerMarket";
 import { fetchRelayerDirectory, type RelayerListing } from "../lib/relayerDirectory";
+import {
+  preferNonStalledBids,
+  recordStalledRelayer,
+  STALL_THRESHOLD_MS,
+} from "../lib/censorshipDetection";
 import { RelayerComparison } from "./RelayerComparison";
 import { WithdrawFlowModal, type WithdrawStep, type WithdrawStepStatus } from "./WithdrawFlowModal";
 
 const STROOPS_PER_XLM = 10_000_000n;
 const RELAYER_SUBMISSION_POLL_MS = 2_000;
-const RELAYER_SUBMISSION_TIMEOUT_MS = 120_000;
 
 function parseXlm(input: string): bigint | null {
   const s = input.trim();
@@ -224,6 +228,9 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [flowSuccessHash, setFlowSuccessHash] = useState<string | null>(null);
   const [flowSuccessText, setFlowSuccessText] = useState<string | null>(null);
   const [awaitingPick, setAwaitingPick] = useState(false);
+  // #616: set once the currently-assigned relayer blows past the stall threshold —
+  // drives the "possible censorship" banner and the one-click fallback resubmission.
+  const [stalledJob, setStalledJob] = useState<{ operator: string; jobId: string } | null>(null);
 
   const clusterNotes = notes.filter((n) => n.cluster === cluster && (!n.poolId || n.poolId === cfg?.poolId));
   const unspent = clusterNotes.filter((n) => !n.spent);
@@ -280,6 +287,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     setRelayerBids([]);
     setSelectedRelayer(null);
     setAwaitingPick(false);
+    setStalledJob(null);
   }, [recipient, selected]);
 
   const updateStep = useCallback(
@@ -532,7 +540,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         ? allBids.filter((bid) => bid.operator === preferredRelayer)
         : allBids;
       setRelayerBids(bids);
-      const picked = pickStakeWeightedBid(bids);
+      const picked = pickStakeWeightedBid(preferNonStalledBids(bids));
       setSelectedRelayer((prev) => prev ?? preferredRelayer ?? picked?.operator ?? null);
       updateStep("bids", "done", bids.length > 0 ? `${bids.length} verified bid(s)` : "no bids yet");
       updateStep("pick", "active");
@@ -614,7 +622,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         : allBids;
       setRelayerBids(bids);
       setSelectedRelayer(
-        preferredRelayer ?? pickStakeWeightedBid(bids)?.operator ?? null,
+        preferredRelayer ?? pickStakeWeightedBid(preferNonStalledBids(bids))?.operator ?? null,
       );
       updateStep(
         "bids",
@@ -671,6 +679,45 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     [cluster, markSpent, recipient, refreshChain, showToast, updateStep],
   );
 
+  // #616: shared by the initial assignment and by fallback resubmission after a stall.
+  // Delivers the sealed payload, then polls on-chain status until it's submitted or the
+  // stall threshold passes — at which point the relayer is flagged as possibly censoring.
+  const deliverAndWaitForSubmission = useCallback(
+    async (draft: RelayerJobDraft, bid: VerifiedBid, note: PoolNote) => {
+      const result = await deliverPayloadToRelayer({ draft, bid, gateway });
+      if (result?.submittedTx) {
+        finishRelayer(note, result.submittedTx);
+        return;
+      }
+      updateStep("deliver", "active", "payload delivered — waiting for the relayer to submit");
+      const started = Date.now();
+      while (Date.now() - started < STALL_THRESHOLD_MS) {
+        await sleep(RELAYER_SUBMISSION_POLL_MS);
+        const status = await fetchRelayerJobStatus(draft.jobIdHex, publicKey ?? bid.operator);
+        if (status === "submitted") {
+          finishRelayer(note, null);
+          return;
+        }
+        if (status === "accepted") {
+          updateStep("deliver", "active", "relayer accepted — waiting for on-chain submission");
+        } else if (status === "open") {
+          updateStep("deliver", "active", "waiting for the relayer to accept");
+        } else if (status === "slashed" || status === "canceled") {
+          throw new Error(`Relayer job was ${status}.`);
+        }
+      }
+      // Timed out: record the stall locally so future auto-picks avoid this operator,
+      // surface a visible alert, and let the user resubmit through another relayer.
+      recordStalledRelayer({ operator: bid.operator, jobId: draft.jobIdHex, at: Date.now() });
+      setStalledJob({ operator: bid.operator, jobId: draft.jobIdHex });
+      failActiveStep(
+        `${bid.operator.slice(0, 8)}… has not submitted after ${Math.round(STALL_THRESHOLD_MS / 1000)}s — this relayer may be censoring your withdrawal.`,
+      );
+      setAwaitingPick(true);
+    },
+    [gateway, publicKey, updateStep, finishRelayer, failActiveStep],
+  );
+
   const assignRelayer = useCallback(async () => {
     if (!relayerDraft || !selectedRelayerBid) {
       showToast("Select a relayer bid first.");
@@ -684,42 +731,11 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
     setBusy("assign");
     setAwaitingPick(false);
     setFlowError(null);
+    setStalledJob(null);
     updateStep("pick", "done", `relayer ${selectedRelayerBid.operator.slice(0, 8)}…`);
     updateStep("deliver", "active");
     try {
-      const result = await deliverPayloadToRelayer({
-        draft: relayerDraft,
-        bid: selectedRelayerBid,
-        gateway,
-      });
-      if (result?.submittedTx) {
-        finishRelayer(note, result.submittedTx);
-        return;
-      }
-      updateStep("deliver", "active", "payload delivered — waiting for the relayer to submit");
-      const started = Date.now();
-      while (Date.now() - started < RELAYER_SUBMISSION_TIMEOUT_MS) {
-        await sleep(RELAYER_SUBMISSION_POLL_MS);
-        const status = await fetchRelayerJobStatus(
-          relayerDraft.jobIdHex,
-          publicKey ?? selectedRelayerBid.operator,
-        );
-        if (status === "submitted") {
-          finishRelayer(note, null);
-          return;
-        }
-        if (status === "accepted") {
-          updateStep("deliver", "active", "relayer accepted — waiting for on-chain submission");
-        } else if (status === "open") {
-          updateStep("deliver", "active", "waiting for the relayer to accept");
-        } else if (status === "slashed" || status === "canceled") {
-          throw new Error(`Relayer job was ${status}.`);
-        }
-      }
-      // Timed out: the escrow is still recoverable. Re-expose the pick stage so
-      // the user can wait, re-assign, or recover via the modal's controls.
-      failActiveStep("Submission is still pending. Wait and refresh, or recover the escrow below.");
-      setAwaitingPick(true);
+      await deliverAndWaitForSubmission(relayerDraft, selectedRelayerBid, note);
     } catch (e) {
       const message = (e as Error).message;
       failActiveStep(message);
@@ -729,15 +745,96 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       setBusy(null);
     }
   }, [
-    gateway,
-    publicKey,
+    deliverAndWaitForSubmission,
     relayerDraft,
     selectedNote,
     selectedRelayerBid,
     showToast,
     updateStep,
     failActiveStep,
-    finishRelayer,
+  ]);
+
+  const resubmitViaAlternateRelayer = useCallback(async () => {
+    if (!cfg || !relayerCfg || !publicKey || !signTransaction || !relayerDraft || !stalledJob) return;
+    const note = selectedNote();
+    if (!note) {
+      showToast("Select a note to withdraw.");
+      return;
+    }
+    const alt = relayerBids.find((bid) => bid.operator !== stalledJob.operator) ?? null;
+    if (!alt) {
+      showToast("No alternate relayer available yet. Refresh bids and try again.");
+      return;
+    }
+    setBusy("resubmit");
+    setFlowError(null);
+    setStalledJob(null);
+    try {
+      // A payload is bound to the specific relayer address named in the proof context
+      // (#559), so switching relayers means re-proving that binding, not just re-sending.
+      updateStep("prove", "active");
+      const proof = await generateWithdrawProof({
+        note,
+        recipient,
+        fee: 0n,
+        relayer: alt.operator,
+        caller: publicKey,
+        onProgress: onProveProgress,
+      });
+      updateStep("prove", "done", "re-proved fee binding for the new relayer");
+      updateStep("create-job", "active");
+      const deadlineLedger = await defaultDeadlineLedger(Math.min(relayerCfg.maxDeadlineLedgers, 720));
+      const payload = buildRelayedWithdrawPayload({
+        poolId: cfg.poolId,
+        registryId: relayerCfg.registryId,
+        proof,
+        recipient,
+        boundRelayer: alt.operator,
+      });
+      const draft = buildRelayerJobDraft({ payload, fee: relayerDraft.fee, deadlineLedger });
+      const tx = await invokeRelayerCreateJob({
+        creator: publicKey,
+        jobId: draft.jobId,
+        payloadHash: draft.payloadHash,
+        deadlineLedger: draft.deadlineLedger,
+        fee: relayerDraft.fee,
+        signTransaction,
+      });
+      setRelayerDraft(draft);
+      updateStep("create-job", "done", `escrow tx ${tx.slice(0, 10)}…`);
+      updateStep("advert", "active");
+      await publishAdvert(draft.advert, gateway);
+      updateStep("advert", "done");
+      updateStep("bids", "done", "reusing the previously verified relayer");
+      updateStep("pick", "done", `relayer ${alt.operator.slice(0, 8)}…`);
+      setSelectedRelayer(alt.operator);
+      setRelayerBids([alt]);
+      updateStep("deliver", "active");
+      await deliverAndWaitForSubmission(draft, alt, note);
+    } catch (e) {
+      const message = (e as Error).message;
+      failActiveStep(message);
+      setAwaitingPick(true);
+      showToast(`Resubmission failed: ${message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    cfg,
+    relayerCfg,
+    publicKey,
+    signTransaction,
+    relayerDraft,
+    stalledJob,
+    relayerBids,
+    recipient,
+    selectedNote,
+    gateway,
+    onProveProgress,
+    updateStep,
+    failActiveStep,
+    showToast,
+    deliverAndWaitForSubmission,
   ]);
 
   const recoverRelayerJob = useCallback(
@@ -1161,7 +1258,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         selectedRelayer={selectedRelayer}
         onSelectRelayer={setSelectedRelayer}
         onPickForMe={() => {
-          const picked = pickStakeWeightedBid(relayerBids);
+          const picked = pickStakeWeightedBid(preferNonStalledBids(relayerBids));
           if (picked) setSelectedRelayer(picked.operator);
         }}
         onRefreshBids={() => void refreshRelayerBids()}
@@ -1169,6 +1266,9 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
         draftActive={!!relayerDraft}
         onCancelJob={() => void recoverRelayerJob("cancel")}
         onSlashJob={() => void recoverRelayerJob("slash")}
+        stalledRelayer={stalledJob}
+        canResubmitElsewhere={relayerBids.some((bid) => bid.operator !== stalledJob?.operator)}
+        onResubmitElsewhere={() => void resubmitViaAlternateRelayer()}
         onClose={closeFlow}
       />
 

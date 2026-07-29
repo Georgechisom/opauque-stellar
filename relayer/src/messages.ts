@@ -37,13 +37,36 @@ export type EncryptedPayload = {
   idempotencyKey?: string;
 };
 
-export type RelayerMessage = JobAdvert | RelayerBid | EncryptedPayload;
+/** Reported by a relayer node once a job it accepted has resolved, good or bad. */
+export type RelayerOutcome = {
+  t: "outcome";
+  v: 1;
+  jobId: string;
+  operator: string;
+  result: "completed" | "failed";
+};
+
+/** Periodic liveness ping a relayer node gossips so the hub can detect an outage. */
+export type RelayerHeartbeat = {
+  t: "heartbeat";
+  v: 1;
+  operator: string;
+};
+
+export type RelayerMessage =
+  | JobAdvert
+  | RelayerBid
+  | EncryptedPayload
+  | RelayerOutcome
+  | RelayerHeartbeat;
 
 export function validateRelayerMessage(value: unknown): RelayerMessage {
   const v = value as { t?: unknown };
   if (v?.t === "advert") return validateAdvert(value);
   if (v?.t === "bid") return validateBid(value);
   if (v?.t === "payload") return validatePayload(value);
+  if (v?.t === "outcome") return validateOutcome(value);
+  if (v?.t === "heartbeat") return validateHeartbeat(value);
   throw new Error("Invalid relayer message.");
 }
 
@@ -141,6 +164,29 @@ export function validateBid(value: unknown): RelayerBid {
   assertLength(hexToBytes(v.jobId), 32, "jobId");
   assertLength(hexToBytes(v.x25519Pk), 32, "x25519Pk");
   return { ...v, chain: v.chain ?? RELAY_CHAIN_STELLAR } as RelayerBid;
+}
+
+export function validateOutcome(value: unknown): RelayerOutcome {
+  const v = value as Partial<RelayerOutcome>;
+  if (
+    v?.t !== "outcome" ||
+    v.v !== 1 ||
+    typeof v.jobId !== "string" ||
+    typeof v.operator !== "string" ||
+    (v.result !== "completed" && v.result !== "failed")
+  ) {
+    throw new Error("Invalid relayer outcome.");
+  }
+  assertLength(hexToBytes(v.jobId), 32, "jobId");
+  return v as RelayerOutcome;
+}
+
+export function validateHeartbeat(value: unknown): RelayerHeartbeat {
+  const v = value as Partial<RelayerHeartbeat>;
+  if (v?.t !== "heartbeat" || v.v !== 1 || typeof v.operator !== "string") {
+    throw new Error("Invalid relayer heartbeat.");
+  }
+  return v as RelayerHeartbeat;
 }
 
 export function validatePayload(value: unknown): EncryptedPayload {

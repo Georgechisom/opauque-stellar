@@ -40,6 +40,12 @@ type WithdrawFlowModalProps = {
   onCancelJob: () => void;
   onSlashJob: () => void;
 
+  /** Set once the assigned relayer has blown past the stall threshold (#616). */
+  stalledRelayer: { operator: string; jobId: string } | null;
+  /** Whether a different verified bid exists to fall back to right now. */
+  canResubmitElsewhere: boolean;
+  onResubmitElsewhere: () => void;
+
   onClose: () => void;
 };
 
@@ -112,6 +118,9 @@ export function WithdrawFlowModal(props: WithdrawFlowModalProps) {
     draftActive,
     onCancelJob,
     onSlashJob,
+    stalledRelayer,
+    canResubmitElsewhere,
+    onResubmitElsewhere,
     onClose,
   } = props;
 
@@ -240,6 +249,25 @@ export function WithdrawFlowModal(props: WithdrawFlowModalProps) {
               <ExplorerLink cluster={cluster} value={successHash} type="tx" className="text-success" />
             </div>
           )}
+        </div>
+      )}
+
+      {stalledRelayer && (
+        <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-3">
+          <p className="text-xs font-medium text-warning">Possible censorship detected</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-mist/70">
+            {stalledRelayer.operator.slice(0, 8)}…{stalledRelayer.operator.slice(-6)} accepted your job but hasn't
+            submitted it. It's been noted on this device so future picks avoid it. Resubmitting re-proves the fee
+            binding for a different relayer and escrows a fresh job.
+          </p>
+          <button
+            type="button"
+            onClick={onResubmitElsewhere}
+            disabled={busy || !canResubmitElsewhere}
+            className="mt-2 min-h-9 w-full rounded-lg bg-glow px-3 py-1.5 text-xs font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {canResubmitElsewhere ? "Re-prove & resubmit via another relayer" : "No alternate relayer available yet"}
+          </button>
         </div>
       )}
 
