@@ -9,10 +9,20 @@ import { create } from "zustand";
 import type { DiscoveredTrait, ProofState, ProofData } from "../lib/reputation";
 import { encryptData, decryptData, isEncryptedPayload } from "../lib/encryptedStorage";
 import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
+import { getProofThrottleState, clearProofThrottle } from "../lib/proofRateLimiter";
+
+export interface ProofThrottleState {
+  concurrent: number;
+  maxConcurrent: number;
+  retriesInWindow: number;
+  maxRetries: number;
+  isThrottled: boolean;
+}
 
 interface ReputationState {
   discoveredTraits: DiscoveredTrait[];
   proofState: ProofState;
+  proofThrottle: ProofThrottleState;
   lastScanTimestamp: number | null;
 
   setDiscoveredTraits: (traits: DiscoveredTrait[]) => void;
@@ -24,6 +34,8 @@ interface ReputationState {
   setProofReady: (proof: ProofData) => void;
   resetProof: () => void;
   startProof: (traitId: string) => void;
+  updateProofThrottle: () => void;
+  clearProofThrottleAction: () => void;
 
   setLastScanTimestamp: (ts: number) => void;
 }
@@ -78,6 +90,14 @@ const initialProofState: ProofState = {
   proof: null,
 };
 
+const initialProofThrottle: ProofThrottleState = {
+  concurrent: 0,
+  maxConcurrent: 2,
+  retriesInWindow: 0,
+  maxRetries: 5,
+  isThrottled: false,
+};
+
 // Load traits on mount (async due to encryption support)
 let _loadedTraits: DiscoveredTrait[] | null = null;
 void loadPersistedTraits().then((traits) => {
@@ -92,6 +112,7 @@ void loadPersistedTraits().then((traits) => {
 export const useReputationStore = create<ReputationState>((set) => ({
   discoveredTraits: _loadedTraits ?? [],
   proofState: { ...initialProofState },
+  proofThrottle: { ...initialProofThrottle },
   lastScanTimestamp: null,
 
   setDiscoveredTraits: (traits) => {
@@ -152,6 +173,15 @@ export const useReputationStore = create<ReputationState>((set) => ({
         proof: null,
       },
     }),
+
+  updateProofThrottle: () => {
+    set({ proofThrottle: getProofThrottleState() });
+  },
+
+  clearProofThrottleAction: () => {
+    clearProofThrottle();
+    set({ proofThrottle: getProofThrottleState() });
+  },
 
   setLastScanTimestamp: (ts) => set({ lastScanTimestamp: ts }),
 }));
