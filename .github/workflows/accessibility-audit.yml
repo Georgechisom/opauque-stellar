@@ -1,0 +1,74 @@
+name: Accessibility Audit
+
+# Automated axe-core a11y audit of the frontend's public views (#472).
+# Fails on a new critical/serious violation; the full axe report (all
+# severities) is uploaded as a build artifact regardless of outcome.
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/accessibility-audit.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+  workflow_dispatch:
+
+jobs:
+  a11y-audit:
+    name: axe-core audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Build frontend (public views only — no scanner/circuit artifacts needed)
+        # `vite build` directly, not `npm run build` (= `tsc -b && vite
+        # build`): this repo's `tsc -b` currently fails on pre-existing type
+        # errors unrelated to the audited public routes (see e.g.
+        # src/lib/poolNoteBackup.ts) — that's a separate typecheck issue for
+        # a maintainer to track, not something an accessibility audit should
+        # block on. `vite build` alone still produces a fully working dist/.
+        run: npx vite build
+        working-directory: frontend
+        env:
+          # The audited routes (/, /privacy, /terms, ...) never load the
+          # scanner WASM or circuit artifacts — those are fetched dynamically
+          # at runtime from /pkg and /circuits, not bundled at build time — so
+          # skipping the prebuild (which builds the scanner from Rust source
+          # and fetches circuit release assets) is safe here and keeps this
+          # job from needing a Rust toolchain.
+          SKIP_FRONTEND_PREBUILD: "1"
+
+      - name: Run accessibility audit
+        run: npm run test:a11y
+        working-directory: frontend
+        env:
+          CI: "true"
+
+      - name: Upload axe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-report
+          path: |
+            frontend/a11y-report/
+            frontend/playwright-report/
+          retention-days: 30
+          if-no-files-found: warn

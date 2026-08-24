@@ -233,6 +233,15 @@ cargo deny check
   `caller.require_auth()` + `caller == config.admin` pattern the existing
   ones use, so it works unchanged whether `admin` is a single account or a
   deployed multisig.
+- Contract WASM is built inside a pinned, checksum-verified Docker image so
+  the bytes are reproducible across machines and CI
+  (`docker/reproducible-build.Dockerfile`). CI
+  (`.github/workflows/contracts-reproducible-build.yml`) rebuilds the
+  workspace in that image on every PR touching `contracts/**` and fails if
+  the hash doesn't match `deployments/v1/<network>.json`. See
+  [docs/REPRODUCIBLE_BUILDS.md](../docs/REPRODUCIBLE_BUILDS.md) — release
+  managers must reproduce a build from that image before signing off on a
+  mainnet deploy.
 
 ### 7.2 Changing the scanner
 
@@ -390,15 +399,13 @@ don't lag and upgrades don't pile up into risky big-bang bumps.
 | Medium | Patch within 30 days | Bundled into the next routine batch unless actively exploited |
 | Low / informational | Next routine batch | No dedicated SLA |
 
-There is currently no PR-blocking CI in this repository — `.github/workflows/`
-has no jobs prior to this policy, so nothing enforces these windows at merge
-time yet. [`dependency-audit.yml`](workflows/dependency-audit.yml) is the
-first automated coverage: a weekly scheduled job (non-PR-blocking) that runs
-`cargo audit` / `cargo deny check` and `npm audit` across the root and
-`frontend/` workspaces, so an advisory published against an already-merged
-dependency is still caught within the windows above instead of going
-unnoticed indefinitely. Wiring these checks into PR-blocking CI is a natural
-follow-up once such CI exists, but is out of scope here.
+[`dependency-audit.yml`](workflows/dependency-audit.yml) remains a weekly
+scheduled job (non-PR-blocking) that runs `cargo audit` / `cargo deny check`
+and `npm audit` across the root and `frontend/` workspaces, so an advisory
+published against an already-merged dependency is still caught within the
+windows above instead of going unnoticed indefinitely. Wiring routine
+dependency scanning itself into PR-blocking CI remains a natural follow-up.
+See Section 13 for the checks that *are* PR-blocking today.
 
 [`dependabot.yml`](dependabot.yml) opens security-update pull requests
 immediately on advisory publication, independent of the batching schedule
@@ -421,3 +428,71 @@ Routine (non-security) version updates are batched monthly per workspace via
 Every dependency-update PR, batched or out-of-band, must still pass the full
 Section 6 check suite before merge — batching reduces PR *count*, not review
 rigor.
+
+---
+
+## 13. Continuous integration
+
+`.github/workflows/` today has:
+
+| Workflow | Trigger | Blocking? | What it checks |
+|:---------|:--------|:----------|:----------------|
+| [`dependency-audit.yml`](workflows/dependency-audit.yml) | Weekly schedule, manual | No | `cargo audit` / `cargo deny check` / `npm audit` across root + `frontend/` (§ 12). |
+| [`contracts-reproducible-build.yml`](workflows/contracts-reproducible-build.yml) | PR touching `contracts/**`, `Cargo.{toml,lock}`, `soroban.toml`, `deployments/v1/**` | Yes | Rebuilds the contracts workspace in the pinned image from `docker/reproducible-build.Dockerfile` and fails on a WASM hash mismatch against `deployments/v1/*.json`. See [docs/REPRODUCIBLE_BUILDS.md](../docs/REPRODUCIBLE_BUILDS.md). |
+| [`license-compliance.yml`](workflows/license-compliance.yml) | PR touching dependency manifests (`Cargo.lock`, `deny.toml`, workspace `package.json`/`package-lock.json`, `THIRD_PARTY_NOTICES.md`) | Yes | `cargo deny check licenses` plus `npm run notices:verify` — fails if `THIRD_PARTY_NOTICES.md` is stale or a new dependency's license isn't permissive-allowed or explicitly reviewed. See § 7.7 below. |
+| [`accessibility-audit.yml`](workflows/accessibility-audit.yml) | PR touching `frontend/**` | Yes | axe-core audit of the frontend's public views; fails on new critical/serious violations. See § 7.4. |
+| [`stale.yml`](workflows/stale.yml) | Daily schedule, manual | N/A (bot triage, not a check) | Labels and closes inactive issues/PRs. See § 14. |
+
+Everything above except `dependency-audit.yml` is PR-blocking. All of them are
+scoped to the paths they actually validate, so an unrelated change (docs-only,
+for example) won't run or block on them.
+
+### 7.7 Third-party notices (license compliance)
+
+If you add, remove, or upgrade a dependency that ends up in a *distributed
+binary* — a Rust crate pulled into `contracts/` or `scanner/`, anything in
+`circuits/`'s devDependencies (its output ships as circuit artifacts even
+though the npm package itself doesn't), or a `frontend/` production
+dependency — regenerate the notices file in the same PR:
+
+```bash
+npm run notices:generate
+git add THIRD_PARTY_NOTICES.md
+```
+
+If the new dependency's license isn't in the permissive allow list (see
+`PERMISSIVE_LICENSES` in `scripts/third-party-notices-lib.ts`), `npm run
+notices:verify` (and CI) will fail until a maintainer adds a reviewed entry
+to `REVIEWED_NON_PERMISSIVE` in that same file explaining why it's safe to
+bundle. Don't add that entry yourself for a dependency you're introducing —
+flag it in the PR description and let a maintainer make the call. See
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and issue #148 for the
+broader compliance tracking scope this fits into.
+
+---
+
+## 14. Stale issue and PR policy
+
+With 150+ open issues, unattended backlog grows unbounded without automated
+triage. [`stale.yml`](workflows/stale.yml) (`actions/stale`) runs daily:
+
+- **Issues:** marked `stale` after 60 days with no activity, closed 14 days
+  after that if still untouched.
+- **Pull requests:** marked `stale` after 30 days with no activity, closed 14
+  days after that. Draft PRs are exempt from the start — they're usually
+  still being shaped.
+- Any comment or new commit clears the `stale` label automatically.
+
+**`P0` and `P1` are always exempt** — priority issues and PRs in progress
+never auto-stale or auto-close, regardless of how long they sit, because
+silence on a P0/P1 usually means it's blocked on something external, not
+abandoned.
+
+**Maintainers can exempt anything else** by applying the `no-stale` label
+(or `pinned`, for issues meant to stay open indefinitely, e.g. tracking
+issues). Apply it proactively to anything you know is still relevant but
+will plausibly go quiet for a while.
+
+If the bot closes something that's still relevant, reopen it (or open a
+fresh issue/PR referencing the old one) — closing via staleness is not a
+judgment that the report was wrong, only that it went quiet.

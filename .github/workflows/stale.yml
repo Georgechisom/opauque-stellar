@@ -1,0 +1,67 @@
+name: Stale Issue and PR Triage
+
+# Automated stale triage for the backlog (#469). Policy is documented in
+# .github/CONTRIBUTING.md § 14 — read that before changing the thresholds or
+# exempt labels below, they need to stay in sync.
+
+on:
+  schedule:
+    # Daily at 08:00 UTC.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Mark and close stale issues/PRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Issues
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          stale-issue-label: "stale"
+          stale-issue-message: >
+            This issue has had no activity for 60 days and is being marked stale.
+            It will be closed in 14 days if nothing changes. If it's still relevant,
+            a comment or the `no-stale` label keeps it open — see
+            `.github/CONTRIBUTING.md` § 14 for the full policy.
+          close-issue-message: >
+            Closing due to 14 days of inactivity after being marked stale. Reopen
+            (or open a fresh issue referencing this one) if it's still relevant.
+          close-issue-reason: "not_planned"
+
+          # Pull requests
+          days-before-pr-stale: 30
+          days-before-pr-close: 14
+          stale-pr-label: "stale"
+          stale-pr-message: >
+            This PR has had no activity for 30 days and is being marked stale.
+            It will be closed in 14 days if nothing changes. Push a commit, comment,
+            or apply the `no-stale` label to keep it open — see
+            `.github/CONTRIBUTING.md` § 14 for the full policy.
+          close-pr-message: >
+            Closing due to 14 days of inactivity after being marked stale. Reopen
+            (or open a fresh PR) if this is still being worked on.
+
+          # P0/P1 are actively-triaged priority labels — never auto-stale or
+          # auto-close them. `pinned` and `no-stale` are the escape hatches any
+          # maintainer can apply to exempt something the bot would otherwise catch.
+          exempt-issue-labels: "P0,P1,pinned,no-stale,security"
+          exempt-pr-labels: "P0,P1,pinned,no-stale"
+
+          # Draft PRs are usually still being shaped; don't churn them.
+          exempt-draft-pr: true
+
+          # Don't spend the run's API budget re-processing everything the first
+          # time this job exists on a 150+ issue backlog; widen once it's caught up.
+          operations-per-run: 200
+
+          ascending: true
+          remove-stale-when-updated: true
