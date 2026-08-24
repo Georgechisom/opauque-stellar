@@ -14,13 +14,15 @@ export type DocId =
   | "user-recovery"
   | "ghost-threat-model"
   | "payment-link-format"
-  | "privacy-pool";
+  | "privacy-pool"
+  | "trusted-setup-verification";
 
 const DOC_PATHS: Record<DocId, string> = {
   "user-recovery": "README.md#recovery",
   "ghost-threat-model": "README.md#privacy",
   "payment-link-format": "README.md#payment-links",
   "privacy-pool": "README.md#where-zk-does-the-work",
+  "trusted-setup-verification": "docs/TRUSTED_SETUP_VERIFICATION.md",
 };
 
 export function getDocUrl(doc: DocId): string {

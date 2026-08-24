@@ -4,6 +4,7 @@ import { BackupImport } from "../../components/recovery/BackupImport";
 import { KeyRotationWizard } from "../../components/security/KeyRotationWizard";
 import { ErrorReportingSettings } from "../../components/ErrorReportingSettings";
 import { SigningAuditLogSettings } from "../../components/SigningAuditLogSettings";
+import { SessionTimeoutSettings } from "../../components/security/SessionTimeoutSettings";
 
 export const SecuritySettings: React.FC = () => {
   return (
@@ -43,6 +44,11 @@ export const SecuritySettings: React.FC = () => {
         <section>
           <h2 className="text-2xl font-semibold mb-4">Signing activity</h2>
           <SigningAuditLogSettings />
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4">Session</h2>
+          <SessionTimeoutSettings />
         </section>
       </div>
     </div>
