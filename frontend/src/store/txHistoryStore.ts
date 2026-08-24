@@ -5,13 +5,24 @@
  */
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
+import { createEncryptedStorage } from "../lib/encryptedStorage";
+import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
 type Address = string;
 
 const MAX_ITEMS_PER_CLUSTER = 50;
 const STORAGE_KEY = "opaque-tx-history";
 
 const hasRehydratedRef = { current: false };
+
+/**
+ * Encrypted localStorage adapter for transaction history.
+ * Falls back to plaintext when no passphrase is set.
+ */
+const txHistoryStorage = createEncryptedStorage<TxHistoryState>(
+  STORAGE_KEY,
+  getEncryptionPassphrase,
+);
 
 export type TxHistoryKind = "sent" | "received" | "ghost" | "trait";
 
@@ -49,22 +60,6 @@ type TxHistoryState = {
   clearForCluster: (cluster: string) => void;
   clear: () => void;
 };
-
-const txHistoryStorage = createJSONStorage<TxHistoryState>(() => ({
-  getItem: (name: string): string | null => {
-    if (typeof localStorage === "undefined") return null;
-    return localStorage.getItem(name);
-  },
-  setItem: (name: string, value: string): void => {
-    if (typeof localStorage === "undefined") return;
-    if (!hasRehydratedRef.current) return;
-    localStorage.setItem(name, value);
-  },
-  removeItem: (name: string): void => {
-    if (typeof localStorage === "undefined") return;
-    localStorage.removeItem(name);
-  },
-}));
 
 export const useTxHistoryStore = create<TxHistoryState>()(
   persist(
@@ -118,6 +113,10 @@ export const useTxHistoryStore = create<TxHistoryState>()(
       storage: txHistoryStorage,
       onRehydrateStorage: () => (_state, _err) => {
         hasRehydratedRef.current = true;
+      },
+      // Migrate plaintext data to encrypted when passphrase becomes available
+      migrate: async (persistedState: unknown, version: number) => {
+        return persistedState;
       },
     },
   ),

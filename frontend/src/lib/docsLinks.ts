@@ -15,14 +15,14 @@ export type DocId =
   | "ghost-threat-model"
   | "payment-link-format"
   | "privacy-pool"
-  | "trusted-setup-verification";
+  | "proof-submission-privacy";
 
 const DOC_PATHS: Record<DocId, string> = {
   "user-recovery": "README.md#recovery",
   "ghost-threat-model": "README.md#privacy",
   "payment-link-format": "README.md#payment-links",
   "privacy-pool": "README.md#where-zk-does-the-work",
-  "trusted-setup-verification": "docs/TRUSTED_SETUP_VERIFICATION.md",
+  "proof-submission-privacy": "docs/PROOF_SUBMISSION_PRIVACY.md",
 };
 
 export function getDocUrl(doc: DocId): string {

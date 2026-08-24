@@ -1,0 +1,205 @@
+name: CI Matrix
+
+# PR-blocking smoke builds across the supported Node and Rust version
+# matrix. Failures name the exact version combo so contributors can
+# reproduce locally. See .github/CONTRIBUTING.md § 3 for the supported
+# version list.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Frontend: Node 20 / 22 ──────────────────────────────────────────
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Lint
+        run: npm run lint --prefix frontend
+
+      - name: Typecheck
+        run: npx tsc -b --noEmit --prefix frontend
+
+      - name: Unit tests
+        run: npm test --prefix frontend
+
+      - name: Production build
+        run: npm run build --prefix frontend
+
+  # ── Contracts: Rust stable ───────────────────────────────────────────
+  contracts:
+    name: Contracts (Rust ${{ matrix.rust-toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-toolchain: [stable]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust-toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-toolchain }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.rust-toolchain }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+  # ── Scanner WASM: Rust stable + Node 20 ─────────────────────────────
+  scanner:
+    name: Scanner WASM (Rust stable + Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-scanner-${{ hashFiles('scanner/Cargo.lock') }}
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build scanner WASM
+        run: npm run build:scanner
+
+      - name: Verify artifact manifest
+        run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
+
+  # ── SDK: Node 20 ────────────────────────────────────────────────────
+  sdk:
+    name: SDK (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+
+      - name: Install SDK dependencies
+        run: npm ci --prefix sdk
+
+      - name: Lint
+        run: npm run lint --prefix sdk
+
+      - name: Typecheck
+        run: npm run typecheck --prefix sdk
+
+      - name: Build
+        run: npm run build --prefix sdk
+
+      - name: Export checks
+        run: npm run check:exports --prefix sdk
+
+      - name: Tests
+        run: npm test --prefix sdk
+
+  # ── Supply chain: cargo audit + deny + npm audit ──────────────────────
+  supply-chain:
+    name: Supply chain audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install cargo-audit and cargo-deny
+        run: cargo install cargo-audit cargo-deny --locked
+
+      - name: cargo audit
+        run: cargo audit
+
+      - name: cargo deny check
+        run: cargo deny check
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: npm audit (root)
+        run: npm audit --omit=dev
+        continue-on-error: true
+
+      - name: npm audit (frontend)
+        run: npm audit --omit=dev --prefix frontend
+        continue-on-error: true
