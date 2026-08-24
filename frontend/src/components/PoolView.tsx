@@ -47,6 +47,14 @@ import {
 } from "../lib/censorshipDetection";
 import { RelayerComparison } from "./RelayerComparison";
 import { WithdrawFlowModal, type WithdrawStep, type WithdrawStepStatus } from "./WithdrawFlowModal";
+import { ModalShell } from "./ModalShell";
+import { DepositBackupGateModal } from "./DepositBackupGateModal";
+import {
+  createDepositBackupSession,
+  loadDepositBackupSession,
+  clearDepositBackupSession,
+  type DepositBackupSession,
+} from "../lib/depositBackupGate";
 
 const STROOPS_PER_XLM = 10_000_000n;
 const RELAYER_SUBMISSION_POLL_MS = 2_000;
@@ -194,6 +202,8 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
   const [recipient, setRecipient] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [depositGateSession, setDepositGateSession] = useState<DepositBackupSession | null>(() => loadDepositBackupSession());
+  const [isDepositSigning, setIsDepositSigning] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [backupPin, setBackupPin] = useState("");
   const [backupConfirm, setBackupConfirm] = useState("");
@@ -370,7 +380,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       return;
     }
 
-    // Generate secrets and derive commitment upfront (before optimistic state)
+    // Generate secrets and derive commitment upfront
     let leafIndex: number;
     let nullifier: string;
     let secret: string;
@@ -390,7 +400,44 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       return;
     }
 
-    // Add optimistic deposit state immediately
+    // Require note backup confirmation before on-chain signing (#552)
+    const session = createDepositBackupSession({
+      cluster,
+      depositor: publicKey,
+      amountXlm: formatXlm(value),
+      valueStroops: value.toString(),
+      commitmentHex: toHex32(derived.commitment),
+      nullifierHex: nullifier,
+      secretHex: secret,
+    });
+    setDepositGateSession(session);
+  }, [cfg, publicKey, signTransaction, amount, cluster, showToast]);
+
+  const executeDepositAfterBackup = useCallback(async () => {
+    if (!depositGateSession || !depositGateSession.verified) {
+      showToast("Please verify your note backup before signing.");
+      return;
+    }
+    if (!cfg || !publicKey || !signTransaction) return;
+
+    const value = BigInt(depositGateSession.valueStroops);
+    let leafIndex: number;
+    let derived: Awaited<ReturnType<typeof deriveDeposit>>;
+    try {
+      leafIndex = await fetchNextLeafIndex(publicKey);
+      derived = await deriveDeposit({
+        value,
+        scope: cfg.scope,
+        leafIndex,
+        nullifier: BigInt(depositGateSession.nullifierHex),
+        secret: BigInt(depositGateSession.secretHex),
+      });
+    } catch (e) {
+      showToast(`Failed to initialize deposit proof: ${(e as Error).message}`);
+      return;
+    }
+
+    // Add optimistic deposit state
     const optimisticId = addOptimistic({
       value: value.toString(),
       poolId: cfg.poolId,
@@ -398,6 +445,7 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       expectedLeafIndex: leafIndex,
     });
 
+    setIsDepositSigning(true);
     setBusy("Depositing…");
     try {
       const hash = await invokePoolDeposit({
@@ -411,15 +459,15 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       // Confirm the optimistic deposit
       confirmDeposit(optimisticId, hash);
 
-      // Now persist the note (only after on-chain confirmation)
+      // Persist the verified note
       const note: PoolNote = {
         cluster,
         poolId: cfg.poolId,
         value: value.toString(),
         scope: cfg.scope,
         leafIndex,
-        nullifier,
-        secret,
+        nullifier: depositGateSession.nullifierHex,
+        secret: depositGateSession.secretHex,
         commitment: toHex32(derived.commitment),
         spent: false,
         createdAt: Date.now(),
@@ -428,6 +476,8 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
 
       // Remove from pending deposits after successful persistence
       removePendingDeposit(optimisticId);
+      clearDepositBackupSession();
+      setDepositGateSession(null);
 
       setAmount("");
       showToast(`Deposited ${formatXlm(value)} XLM into the pool.`, { explorerTx: { txSig: hash } });
@@ -437,9 +487,10 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       failDeposit(optimisticId, (e as Error).message);
       showToast(`Deposit failed: ${(e as Error).message}`);
     } finally {
+      setIsDepositSigning(false);
       setBusy(null);
     }
-  }, [cfg, publicKey, signTransaction, amount, cluster, addOptimistic, confirmDeposit, failDeposit, removePendingDeposit, addNote, showToast, refreshChain]);
+  }, [depositGateSession, cfg, publicKey, signTransaction, cluster, addOptimistic, confirmDeposit, addNote, removePendingDeposit, refreshChain, failDeposit, showToast]);
 
   const selectedNote = useCallback(() => {
     return unspent.find((n) => n.leafIndex === selected) ?? null;
@@ -1273,42 +1324,21 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
       />
 
       {backupOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pool-note-backup-title"
+        <ModalShell
+          open={backupOpen}
+          title="Back up pool notes"
+          description={`This backup contains encrypted spending material for ${clusterNotes.length} note(s).`}
+          onClose={closeBackupDialog}
+          maxWidthClassName="max-w-lg"
+          closeOnBackdrop={!backupBusy}
         >
-          <form
-            onSubmit={handleBackupSubmit}
-            className="w-full max-w-lg rounded-2xl border border-ink-700 bg-ink-950 p-5 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="pool-note-backup-title" className="text-lg font-semibold text-white">
-                  Back up pool notes
-                </h2>
-                <p className="mt-1 text-sm text-mist/70">
-                  This backup contains encrypted spending material for {clusterNotes.length} note(s).
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeBackupDialog}
-                disabled={backupBusy}
-                aria-label="Close backup dialog"
-                className="min-h-10 min-w-10 rounded-xl border border-ink-700 text-mist transition-colors hover:border-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
+          <form onSubmit={handleBackupSubmit} className="space-y-4">
+            <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
               Anyone with the decrypted notes can withdraw the matching pool funds. Store the ZIP and
               PIN separately. If you lose the PIN, this backup cannot be recovered.
             </div>
 
-            <div className="mt-4 space-y-4">
+            <div className="space-y-4">
               <label className="flex items-start gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3 text-sm text-mist">
                 <input
                   type="checkbox"
@@ -1384,7 +1414,20 @@ export function PoolView({ readOnly = false }: { onNavigate?: (tab: Tab) => void
               </button>
             </div>
           </form>
-        </div>
+        </ModalShell>
+      )}
+
+      {depositGateSession && (
+        <DepositBackupGateModal
+          session={depositGateSession}
+          isOpen={!!depositGateSession}
+          isSigning={isDepositSigning}
+          onConfirmAndSign={executeDepositAfterBackup}
+          onCancel={() => {
+            clearDepositBackupSession();
+            setDepositGateSession(null);
+          }}
+        />
       )}
     </div>
   );

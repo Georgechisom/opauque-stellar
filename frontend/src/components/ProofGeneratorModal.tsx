@@ -25,6 +25,7 @@ import { getDemoVerifierUrl } from "../lib/featureFlags";
 import { isWasmHtmlFallbackError, publicAssetPath } from "../lib/publicAssets";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { CopyStatusHint } from "./CopyStatusHint";
+import { ModalShell } from "./ModalShell";
 
 // @ts-expect-error snarkjs has no bundled types
 import * as snarkjs from "snarkjs";
@@ -366,29 +367,14 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
   const issuerShort = `${issuerBase58.slice(0, 6)}…${issuerBase58.slice(-4)}`;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <ModalShell
+      open
+      title="Generate ZK Proof"
+      onClose={onClose}
+      maxWidthClassName="max-w-lg"
     >
-      <div className="w-full max-w-lg rounded-2xl border border-ink-700 bg-ink-900 shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-ink-800">
-          <h2 className="text-base font-semibold text-white">Generate ZK Proof</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-ink-500 hover:text-white transition-colors text-xl leading-none"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-5 space-y-5">
-          {/* Trait info */}
+      <div className="space-y-5">
+        {/* Trait info */}
           <div className="rounded-xl border border-ink-700 bg-ink-950 px-4 py-3 space-y-1">
             <p className="text-xs text-mist">Proving schema</p>
             <p className="text-sm font-semibold text-white">{trait.schemaName ?? "Unknown Schema"}</p>
@@ -567,7 +553,6 @@ export function ProofGeneratorModal({ trait, onClose }: ProofGeneratorModalProps
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
