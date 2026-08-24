@@ -59,6 +59,17 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 
 ## 3. Prerequisites
 
+### Supported versions
+
+The CI matrix (`.github/workflows/ci.yml`) tests against these exact versions.
+Contributors should reproduce failures locally with the same combo before pushing.
+
+| Component | Tool | Supported versions |
+|-----------|------|--------------------|
+| Frontend / SDK / Services | Node.js | **20**, **22** |
+| Contracts / Scanner | Rust | **stable** |
+| Scanner WASM targets | wasm32 | `wasm32-unknown-unknown`, `wasm32v1-none` |
+
 - [Rust](https://rustup.rs/) (stable) with both WASM targets:
   ```bash
   rustup target add wasm32-unknown-unknown wasm32v1-none
@@ -67,7 +78,8 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 - [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup).
   You can install a pinned version via `scripts/install-stellar-cli.sh` for a
   matching toolchain.
-- [Node.js](https://nodejs.org/) 20 or newer.
+- [Node.js](https://nodejs.org/) **20** or **22** (LTS lines). Other major
+  versions are not tested in CI and may break.
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) for the scanner.
 - `cargo-audit` and `cargo-deny` for supply-chain checks:
   ```bash
@@ -133,7 +145,11 @@ npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 
 ## 6. The required checks (must pass before pushing)
 
-Run the checks relevant to your change locally before you push.
+All checks below run automatically on every PR via
+[`.github/workflows/ci.yml`](workflows/ci.yml). The matrix tests each component
+against the supported version combos (see § 3); a failure names the exact version
+so you can reproduce locally. Run the checks relevant to your change locally
+before you push.
 
 ### 6a. Contracts (Rust workspace)
 
@@ -390,15 +406,11 @@ don't lag and upgrades don't pile up into risky big-bang bumps.
 | Medium | Patch within 30 days | Bundled into the next routine batch unless actively exploited |
 | Low / informational | Next routine batch | No dedicated SLA |
 
-There is currently no PR-blocking CI in this repository — `.github/workflows/`
-has no jobs prior to this policy, so nothing enforces these windows at merge
-time yet. [`dependency-audit.yml`](workflows/dependency-audit.yml) is the
-first automated coverage: a weekly scheduled job (non-PR-blocking) that runs
-`cargo audit` / `cargo deny check` and `npm audit` across the root and
-`frontend/` workspaces, so an advisory published against an already-merged
-dependency is still caught within the windows above instead of going
-unnoticed indefinitely. Wiring these checks into PR-blocking CI is a natural
-follow-up once such CI exists, but is out of scope here.
+PR-blocking CI (`ci.yml`) enforces build, lint, typecheck, and test checks on
+every pull request. [`dependency-audit.yml`](workflows/dependency-audit.yml)
+adds a weekly scheduled scan (`cargo audit` / `cargo deny check` / `npm audit`)
+that catches advisories published against already-merged dependency versions
+within the windows above.
 
 [`dependabot.yml`](dependabot.yml) opens security-update pull requests
 immediately on advisory publication, independent of the batching schedule

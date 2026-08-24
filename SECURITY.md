@@ -31,6 +31,33 @@ Security fixes are applied to the latest code on the `main` branch. When we tag 
 Advisory response windows and the routine update-batching schedule are
 defined in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md#12-dependency-update-policy).
 
+### Critical dependencies
+
+The following packages handle cryptographic operations or proof generation and
+receive extra review on every version bump. They are pinned to exact versions
+in `frontend/package.json` — dependabot opens individual PRs for each.
+
+| Package | Purpose | Review cadence |
+|---------|---------|----------------|
+| `@stellar/stellar-sdk` | Stellar RPC + transaction building | Every bump reviewed before merge |
+| `@noble/curves` | Elliptic curve crypto (secp256k1, ed25519) | Every bump reviewed before merge |
+| `@noble/hashes` | Cryptographic hashing (SHA-256, keccak) | Every bump reviewed before merge |
+| `snarkjs` | ZK-SNARK proof generation/verification | Every bump reviewed before merge |
+| `circomlibjs` | Circom circuit crypto primitives | Every bump reviewed before merge |
+| `tweetnacl` | NaCl box/sign (ed25519) | Every bump reviewed before merge |
+| `idb` | IndexedDB wrapper (stores encrypted keys) | Every bump reviewed before merge |
+
+### npm provenance
+
+When publishing `@opaquecash/stellar` to npm, builds use `--provenance` to
+attach a signed build attestation. This ties the published package to the
+specific CI run and commit that produced it, preventing supply-chain attacks
+via compromised build environments.
+
+CI runs `npm audit` on every PR against both the root and `frontend/` workspaces
+(`ci.yml`, supply-chain job) to catch known vulnerabilities in production
+dependencies.
+
 ## Upgrade governance
 
 Contract upgrade authority, process, and user-visible guarantees are documented in [docs/UPGRADE_GOVERNANCE.md](docs/UPGRADE_GOVERNANCE.md).

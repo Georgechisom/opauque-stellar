@@ -21,6 +21,7 @@ import { MainnetSecurityLayer } from "./components/security/MainnetSecurityLayer
 import { logExpectedArtifactHashes } from "./lib/artifactHashes.ts";
 import { THREAT_MODEL_ROUTE } from "./lib/privacyThreatModel.ts";
 import { installGlobalErrorCapture } from "./lib/errorReporting.ts";
+import { initCspReportCollector } from "./lib/cspReport.ts";
 
 console.log("[Opaque] App bootstrapping (Stellar)...");
 logExpectedArtifactHashes();
@@ -33,6 +34,9 @@ installGlobalErrorCapture({
   network: getNetworkEnvValue(),
   appVersion: (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || "dev",
 });
+
+// CSP report-only collector: logs violations in dev, forwards to VITE_CSP_REPORT_URL if set.
+initCspReportCollector();
 
 if (!isClusterSupported(network)) {
   console.warn("[Opaque] Unsupported network:", { network: getNetworkEnvValue() });
