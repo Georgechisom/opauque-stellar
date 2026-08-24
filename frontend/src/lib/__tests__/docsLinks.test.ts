@@ -13,4 +13,10 @@ describe("docsLinks", () => {
       "https://github.com/collinsadi/opauque-stellar/blob/main/README.md#recovery",
     );
   });
+
+  it("links to proof submission privacy guidance", () => {
+    expect(getDocUrl("proof-submission-privacy")).toBe(
+      "https://github.com/collinsadi/opauque-stellar/blob/main/docs/PROOF_SUBMISSION_PRIVACY.md",
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import { ModalShell } from "./ModalShell";
 import { ExplorerLink } from "./ExplorerLink";
 import { formatXlm } from "../lib/stealth";
+import { getDocUrl } from "../lib/docsLinks";
 import type { VerifiedBid } from "../lib/relayerMarket";
 
 export type WithdrawStepStatus = "pending" | "active" | "done" | "error";
@@ -237,6 +238,19 @@ export function WithdrawFlowModal(props: WithdrawFlowModalProps) {
         })}
       </ol>
 
+      <p className="mt-3 text-xs leading-relaxed text-mist/60">
+        Proof transactions still reveal public inputs and timing.{" "}
+        <a
+          href={getDocUrl("proof-submission-privacy")}
+          target="_blank"
+          rel="noreferrer"
+          className="text-glow underline-offset-4 hover:underline"
+        >
+          Review submission privacy
+        </a>
+        .
+      </p>
+
       {error && (
         <div className="mt-2 rounded-xl border border-error/30 bg-error/10 p-3 text-sm text-error">{error}</div>
       )}
@@ -316,3 +330,4 @@ export function WithdrawFlowModal(props: WithdrawFlowModalProps) {
     </ModalShell>
   );
 }
+
