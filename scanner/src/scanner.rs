@@ -2,12 +2,24 @@
 //!
 //! Dual-Key Stealth Address Protocol: derives stealth addresses from announcements
 //! and filters them efficiently using view tags before expensive EC operations.
+//!
+//! ## Memory Security
+//!
+//! Sensitive buffers (shared secrets, hashed secrets, derived keys) are zeroed on drop
+//! using the `zeroize` crate. However, browser WASM environments have inherent limitations:
+//! - Stack and heap memory may not be zeroed by the OS after this process terminates
+//! - Browser garbage collection delays actual memory reclamation
+//! - Malicious scripts with access to process memory or debug tools can still observe cleared memory
+//!
+//! **Operational guidance:** Use separate browser profiles for high-value operations,
+//! avoid WASM scanner on shared/untrusted machines, and rotate keys if compromise is suspected.
 
 use alloy_primitives::Address;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::PrimeField;
 use k256::{ecdsa::SigningKey, PublicKey, ProjectivePoint, Scalar};
 use sha3::{Digest, Keccak256};
+use zeroize::Zeroize;
 
 // =============================================================================
 // Data structures (EIP-5564 stealth meta-address)
@@ -42,6 +54,7 @@ impl StealthMetaAddress {
 /// We do raw scalar-point multiplication (not the standard ECDH, which applies
 /// an extra hash). EIP-5564 hashes `s` separately with Keccak-256.
 /// The shared secret is the compressed encoding of the resulting curve point.
+/// This buffer is zeroized on drop.
 fn shared_secret_bytes(view_privkey: &SigningKey, ephemeral_pubkey: &PublicKey) -> [u8; 33] {
     let view_scalar: &Scalar = view_privkey.as_nonzero_scalar().as_ref();
     let ephemeral_point = ephemeral_pubkey.to_projective();
@@ -52,8 +65,36 @@ fn shared_secret_bytes(view_privkey: &SigningKey, ephemeral_pubkey: &PublicKey) 
     out
 }
 
+/// Secure wrapper for sensitive byte arrays that zeros on drop.
+struct SecureBuffer<const N: usize> {
+    data: [u8; N],
+}
+
+impl<const N: usize> SecureBuffer<N> {
+    fn new() -> Self {
+        Self { data: [0u8; N] }
+    }
+
+    fn from_slice(slice: &[u8]) -> Self {
+        let mut buf = Self::new();
+        buf.data.copy_from_slice(slice);
+        buf
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl<const N: usize> Drop for SecureBuffer<N> {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
+}
+
 /// Hashes the shared secret with Keccak-256 per EIP-5564: `s_h = h(s)`.
 /// Returns the 32-byte hash; the first byte is the view tag.
+/// The returned hash should be used immediately and not stored longer than necessary.
 fn hash_shared_secret(shared_secret: &[u8; 33]) -> [u8; 32] {
     Keccak256::digest(shared_secret).into()
 }
@@ -118,7 +159,9 @@ fn pubkey_to_address(pubkey: &PublicKey) -> Address {
 ///
 /// **DKSAP:** `p_stealth = p_spend + s_h` (scalar addition mod n), where
 /// `s_h = Keccak256(shared_secret)` and shared secret is from view key and ephemeral pubkey.
-/// Caller must use this key only with the matching stealth address.
+///
+/// **SECURITY:** The returned key is sensitive and must be zeroed after use.
+/// Caller must use this key only with the matching stealth address and handle it with extreme care.
 pub fn derive_stealth_signing_key(
     view_privkey: &SigningKey,
     spend_privkey: &SigningKey,
