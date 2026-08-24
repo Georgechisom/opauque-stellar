@@ -27,3 +27,11 @@ dist-ssr
 
 # Large ZK artifacts — fetch via npm run fetch:circuits (see artifacts/README.md)
 public/circuits/
+
+# Playwright run output (reports, traces, failure screenshots) — regenerated
+# per run, not committed. Baseline screenshots live in
+# e2e/tests/*.spec.ts-snapshots/ instead and ARE committed.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

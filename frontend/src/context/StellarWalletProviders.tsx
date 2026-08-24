@@ -28,6 +28,28 @@ export type StellarWalletContextValue = {
 
 export const StellarWalletContext = createContext<StellarWalletContextValue | null>(null);
 
+/**
+ * E2E test harness (Playwright): the real Freighter extension isn't installed
+ * in a headless browser, and its API talks to a background extension context
+ * that doesn't exist in CI. Tests inject this global via `page.addInitScript`
+ * *before* the app loads (see `frontend/e2e/fixtures/wallet.ts`) to stand in
+ * for the extension without touching production code paths —
+ * `window.__OPAQUE_E2E_WALLET__` is never set outside of test runs.
+ */
+declare global {
+  interface Window {
+    __OPAQUE_E2E_WALLET__?: {
+      publicKey: string;
+      signTransaction?: (xdr: string) => Promise<string> | string;
+      signMessage?: (message: Uint8Array) => Promise<Uint8Array> | Uint8Array;
+    };
+  }
+}
+
+function getE2EWallet() {
+  return typeof window !== "undefined" ? window.__OPAQUE_E2E_WALLET__ : undefined;
+}
+
 export function StellarWalletProviders({ children }: { children: ReactNode }) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -37,6 +59,12 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async (): Promise<string> => {
     setConnectionError(null);
+    const e2e = getE2EWallet();
+    if (e2e) {
+      setPublicKey(e2e.publicKey);
+      setConnected(true);
+      return e2e.publicKey;
+    }
     if (connectInFlightRef.current) {
       const { address } = await getAddress();
       return address;
@@ -99,6 +127,8 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
 
   const signTx: SignTxFn = useCallback(
     async (xdr: string) => {
+      const e2e = getE2EWallet();
+      if (e2e?.signTransaction) return e2e.signTransaction(xdr);
       const res = await signTransaction(xdr, {
         networkPassphrase: getNetworkPassphrase(),
         address: publicKey ?? undefined,
@@ -112,6 +142,8 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
 
   const signMessage = useCallback(
     async (message: Uint8Array): Promise<Uint8Array> => {
+      const e2e = getE2EWallet();
+      if (e2e?.signMessage) return e2e.signMessage(message);
       // The setup message is UTF-8 text; Freighter's signMessage takes a string.
       const text = new TextDecoder().decode(message);
       const res = await freighterSignMessage(text, { address: publicKey ?? undefined });
@@ -145,6 +177,8 @@ export function StellarWalletProviders({ children }: { children: ReactNode }) {
 }
 
 export async function tryRestoreFreighterSession(): Promise<string | null> {
+  const e2e = getE2EWallet();
+  if (e2e) return e2e.publicKey;
   const installed = await freighterIsConnected();
   if (!installed.isConnected) return null;
   const allowed = await isAllowed();

@@ -10,10 +10,19 @@ export default defineConfig({
   workers: CI ? 1 : undefined,
   reporter: CI ? [["html", { open: "never" }], ["list"]] : "list",
   timeout: 60_000,
+  expect: {
+    // Visual regression (issue #460): small anti-aliasing / sub-pixel diffs
+    // shouldn't fail CI. See e2e/README.md for the baseline-update workflow.
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.02,
+      animations: "disabled",
+    },
+  },
   use: {
     baseURL: "http://localhost:4173",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    colorScheme: "dark",
   },
   projects: [
     {
