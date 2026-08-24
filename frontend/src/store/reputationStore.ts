@@ -7,6 +7,8 @@
 
 import { create } from "zustand";
 import type { DiscoveredTrait, ProofState, ProofData } from "../lib/reputation";
+import { encryptData, decryptData, isEncryptedPayload } from "../lib/encryptedStorage";
+import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
 
 interface ReputationState {
   discoveredTraits: DiscoveredTrait[];
@@ -28,19 +30,41 @@ interface ReputationState {
 
 const STORAGE_KEY = "opaque-reputation-traits";
 
-function loadPersistedTraits(): DiscoveredTrait[] {
+async function loadPersistedTraits(): Promise<DiscoveredTrait[]> {
   try {
+    if (typeof localStorage === "undefined") return [];
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as DiscoveredTrait[];
+    const parsed = JSON.parse(raw) as unknown;
+
+    // Encrypted format
+    if (isEncryptedPayload(parsed)) {
+      const passphrase = getEncryptionPassphrase();
+      if (!passphrase) return []; // can't decrypt yet
+      try {
+        return await decryptData<DiscoveredTrait[]>(parsed, passphrase);
+      } catch {
+        return []; // wrong password or corrupt
+      }
+    }
+
+    // Legacy plaintext
+    return parsed as DiscoveredTrait[];
   } catch {
     return [];
   }
 }
 
-function persistTraits(traits: DiscoveredTrait[]) {
+async function persistTraits(traits: DiscoveredTrait[]): Promise<void> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(traits));
+    if (typeof localStorage === "undefined") return;
+    const passphrase = getEncryptionPassphrase();
+    if (passphrase) {
+      const encrypted = await encryptData(traits, passphrase);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(encrypted));
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(traits));
+    }
   } catch {
     // Silently fail if storage is full
   }
@@ -54,8 +78,19 @@ const initialProofState: ProofState = {
   proof: null,
 };
 
+// Load traits on mount (async due to encryption support)
+let _loadedTraits: DiscoveredTrait[] | null = null;
+void loadPersistedTraits().then((traits) => {
+  _loadedTraits = traits;
+  // If the store was created with empty traits, hydrate it
+  const state = useReputationStore.getState();
+  if (state.discoveredTraits.length === 0 && traits.length > 0) {
+    state.setDiscoveredTraits(traits);
+  }
+});
+
 export const useReputationStore = create<ReputationState>((set) => ({
-  discoveredTraits: loadPersistedTraits(),
+  discoveredTraits: _loadedTraits ?? [],
   proofState: { ...initialProofState },
   lastScanTimestamp: null,
 
