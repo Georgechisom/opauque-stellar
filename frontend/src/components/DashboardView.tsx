@@ -198,22 +198,12 @@ export function DashboardView({ onNavigate, address, cluster }: DashboardViewPro
 
       {/* ── Modals ── */}
       {showSwitchModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/60 backdrop-blur-md"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dashboard-switch-network-title"
-          onClick={() => setShowSwitchModal(false)}
-        >
-          <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <SwitchNetworkModal
-              title="Change network"
-              description="Switch Stellar network. Your balance, history, and registration are per network and will refresh."
-              showClose
-              onClose={() => setShowSwitchModal(false)}
-            />
-          </div>
-        </div>
+        <SwitchNetworkModal
+          title="Change network"
+          description="Switch Stellar network. Your balance, history, and registration are per network and will refresh."
+          showClose
+          onClose={() => setShowSwitchModal(false)}
+        />
       )}
     </div>
   );
