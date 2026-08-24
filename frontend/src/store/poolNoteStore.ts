@@ -4,8 +4,10 @@
  * the wallet's encrypted backup/recovery flow via `exportNotes`/`importNotes`.
  */
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import type { PoolNote } from "../lib/poolNotes";
+import { createEncryptedStorage } from "../lib/encryptedStorage";
+import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
 
 type PoolNoteState = {
   notes: PoolNote[];
@@ -58,7 +60,10 @@ export const usePoolNoteStore = create<PoolNoteState>()(
     }),
     {
       name: "opaque.pool.notes.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createEncryptedStorage<PoolNoteState>(
+        "opaque.pool.notes.v1",
+        getEncryptionPassphrase,
+      ),
     },
   ),
 );

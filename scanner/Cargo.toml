@@ -29,6 +29,7 @@ poseidon-bn128 = "0.1.1"
 scalarff = { version = "0.4", features = ["alt_bn128"] }
 log = "0.4"
 env_logger = "0.10"
+zeroize = { version = "1.7", features = ["derive"] }
 [dev-dependencies]
 criterion = "0.5"
 rand = "0.8"

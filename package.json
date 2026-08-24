@@ -19,7 +19,8 @@
     "notices:generate": "tsx scripts/generate-third-party-notices.ts",
     "notices:verify": "tsx scripts/verify-third-party-notices.ts",
     "soak": "tsx scripts/soak-test.ts",
-    "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts"
+    "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",
+    "csp:report": "tsx scripts/csp-report-server.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

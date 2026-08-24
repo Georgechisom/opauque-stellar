@@ -5,8 +5,22 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
+import { visualizer } from 'rollup-plugin-visualizer'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// Per-chunk bundle size budgets in bytes (mobile-first, ~100KB total).
+const BUNDLE_BUDGETS: Record<string, number> = {
+  'vendor': 180 * 1024,      // React, React DOM, routing
+  'stellar': 120 * 1024,     // Stellar SDK and Freighter
+  'crypto': 150 * 1024,      // Elliptic curve crypto
+  'state': 50 * 1024,        // State management (Zustand, IDB)
+  'animation': 40 * 1024,    // Framer Motion
+  'prover': 200 * 1024,      // Snarkjs and Circomlib
+  'index': 80 * 1024,        // App entry point and main logic
+  'polyfills': 30 * 1024,    // Buffer and other polyfills
+  'styles': 20 * 1024,       // CSS (including Tailwind)
+}
 
 const chunkGroups: Array<[string, string[]]> = [
   [
@@ -42,9 +56,70 @@ function manualChunks(id: string) {
   return match?.[0]
 }
 
+function checkBundleSizes() {
+  return {
+    name: 'check-bundle-sizes',
+    writeBundle: async (options: any, bundle: Record<string, any>) => {
+      const violations: Array<{ file: string; size: number; budget: number; exceeded: number }> = []
+
+      for (const [fileName, file] of Object.entries(bundle)) {
+        if (typeof file === 'object' && file.type === 'asset') {
+          const code = file.source as string | Uint8Array
+          const size = typeof code === 'string' ? Buffer.byteLength(code) : code.length
+
+          for (const [chunkName, budget] of Object.entries(BUNDLE_BUDGETS)) {
+            if (fileName.includes(chunkName) && size > budget) {
+              violations.push({
+                file: fileName,
+                size,
+                budget,
+                exceeded: size - budget,
+              })
+            }
+          }
+        } else if (typeof file === 'object' && file.code) {
+          const size = Buffer.byteLength(file.code)
+
+          for (const [chunkName, budget] of Object.entries(BUNDLE_BUDGETS)) {
+            if (fileName.includes(chunkName) && size > budget) {
+              violations.push({
+                file: fileName,
+                size,
+                budget,
+                exceeded: size - budget,
+              })
+            }
+          }
+        }
+      }
+
+      if (violations.length > 0) {
+        console.error('\n❌ Bundle size violations detected:')
+        for (const violation of violations) {
+          const sizeKb = (violation.size / 1024).toFixed(2)
+          const budgetKb = (violation.budget / 1024).toFixed(2)
+          console.error(
+            `  ${violation.file}: ${sizeKb}KB (budget: ${budgetKb}KB, exceeded by ${(violation.exceeded / 1024).toFixed(2)}KB)`
+          )
+        }
+        console.error(
+          '\n💡 To waive a budget increase, add a comment in the PR explaining the reason and update BUNDLE_BUDGETS in vite.config.ts.'
+        )
+        throw new Error(`Bundle size budgets exceeded for ${violations.length} chunk(s)`)
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), wasm(), topLevelAwait()],
+  plugins: [react(), tailwindcss(), wasm(), topLevelAwait(), checkBundleSizes(),
+    visualizer({
+      open: false,
+      filename: 'dist/stats.html',
+      brotliSize: true,
+    })
+  ],
   build: {
     target: 'esnext',
     rollupOptions: {

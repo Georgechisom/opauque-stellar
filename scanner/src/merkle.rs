@@ -389,4 +389,92 @@ mod tests {
         let result = tree.proof(0);
         assert!(matches!(result, Err(MerkleError::IndexOutOfBounds { index: 0, count: 0 })));
     }
+
+    #[test]
+    fn max_depth_tree_fills_to_capacity() {
+        let max_depth = 20;
+        let mut tree = MerkleTree::new(max_depth);
+        let capacity = tree.capacity();
+        assert_eq!(capacity, 1 << max_depth);
+
+        for i in 0..capacity {
+            let result = tree.insert([i as u8; 32]);
+            assert!(result.is_ok());
+        }
+
+        assert_eq!(tree.leaf_count(), capacity);
+        assert!(tree.insert([0xFF; 32]).is_err());
+    }
+
+    #[test]
+    fn max_depth_proof_generates_correct_path() {
+        let max_depth = 20;
+        let mut tree = MerkleTree::new(max_depth);
+
+        for i in 0..100 {
+            tree.insert([(i % 256) as u8; 32]).unwrap();
+        }
+
+        let proof = tree.proof(0).unwrap();
+        assert_eq!(proof.path_elements.len(), max_depth);
+        assert_eq!(proof.path_indices.len(), max_depth);
+        assert!(MerkleTree::verify_proof(&proof));
+    }
+
+    #[test]
+    fn over_depth_insert_fails_with_clear_error() {
+        let depth = 2;
+        let mut tree = MerkleTree::new(depth);
+        let capacity = tree.capacity();
+
+        for i in 0..capacity {
+            tree.insert([i as u8; 32]).unwrap();
+        }
+
+        let result = tree.insert([255u8; 32]);
+        assert!(matches!(
+            result,
+            Err(MerkleError::TreeFull {
+                capacity: 4,
+                count: 4
+            })
+        ));
+    }
+
+    #[test]
+    fn max_depth_boundary_proof_verification() {
+        let max_depth = 20;
+        let mut tree = MerkleTree::new(max_depth);
+
+        let leaf_at_max = [(max_depth as u8) << 4; 32];
+        tree.insert(leaf_at_max).unwrap();
+
+        let proof = tree.proof(0).unwrap();
+        assert_eq!(proof.path_elements.len(), max_depth);
+
+        assert!(MerkleTree::verify_proof(&proof));
+    }
+
+    #[test]
+    fn fixture_at_max_depth_verifies() {
+        let max_depth = 20;
+        let mut tree = MerkleTree::new(max_depth);
+
+        let fixtures = vec![
+            decimal_bytes("1"),
+            decimal_bytes("2"),
+            decimal_bytes("3"),
+            decimal_bytes("1000000"),
+        ];
+
+        for fixture in &fixtures {
+            tree.insert(*fixture).unwrap();
+        }
+
+        for (idx, _) in fixtures.iter().enumerate() {
+            let proof = tree.proof(idx).unwrap();
+            assert_eq!(proof.path_elements.len(), max_depth);
+            assert!(MerkleTree::verify_proof(&proof));
+        }
+    }
 }

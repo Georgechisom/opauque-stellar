@@ -59,6 +59,17 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 
 ## 3. Prerequisites
 
+### Supported versions
+
+The CI matrix (`.github/workflows/ci.yml`) tests against these exact versions.
+Contributors should reproduce failures locally with the same combo before pushing.
+
+| Component | Tool | Supported versions |
+|-----------|------|--------------------|
+| Frontend / SDK / Services | Node.js | **20**, **22** |
+| Contracts / Scanner | Rust | **stable** |
+| Scanner WASM targets | wasm32 | `wasm32-unknown-unknown`, `wasm32v1-none` |
+
 - [Rust](https://rustup.rs/) (stable) with both WASM targets:
   ```bash
   rustup target add wasm32-unknown-unknown wasm32v1-none
@@ -67,7 +78,8 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 - [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup).
   You can install a pinned version via `scripts/install-stellar-cli.sh` for a
   matching toolchain.
-- [Node.js](https://nodejs.org/) 20 or newer.
+- [Node.js](https://nodejs.org/) **20** or **22** (LTS lines). Other major
+  versions are not tested in CI and may break.
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) for the scanner.
 - `cargo-audit` and `cargo-deny` for supply-chain checks:
   ```bash
@@ -133,7 +145,11 @@ npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 
 ## 6. The required checks (must pass before pushing)
 
-Run the checks relevant to your change locally before you push.
+All checks below run automatically on every PR via
+[`.github/workflows/ci.yml`](workflows/ci.yml). The matrix tests each component
+against the supported version combos (see § 3); a failure names the exact version
+so you can reproduce locally. Run the checks relevant to your change locally
+before you push.
 
 ### 6a. Contracts (Rust workspace)
 
