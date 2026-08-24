@@ -72,7 +72,14 @@ export function useWallet() {
     sendTransaction: signTransaction,
     publicKeyRef,
     signMessageRef,
-    wallets: [] as never[],
+    // This app only supports one wallet (Freighter); this array exists so
+    // callers (SetupView) can gate on "is a wallet available" before calling
+    // connect(). It was previously hardcoded to `[]`, which made SetupView's
+    // `wallets.length === 0` check always throw "Connect Freighter to
+    // continue." before ever attempting to connect, regardless of whether
+    // Freighter was actually installed. `connect()` itself still surfaces a
+    // real error if Freighter truly isn't present.
+    wallets: ["freighter"] as const,
     wallet: null,
     select: () => {},
     connectionError,
