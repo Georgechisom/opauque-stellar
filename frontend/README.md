@@ -57,6 +57,30 @@ npm run build
 npm run preview
 ```
 
+### Bundle size budgets
+
+The frontend maintains per-chunk bundle size budgets to keep mobile load times fast:
+
+| Chunk | Budget | Purpose |
+|:------|:-------|:--------|
+| `vendor` | 180 KB | React, React DOM, routing |
+| `stellar` | 120 KB | Stellar SDK and Freighter |
+| `crypto` | 150 KB | Elliptic curve cryptography |
+| `prover` | 200 KB | snarkjs and Circomlib |
+| `state` | 50 KB | Zustand state management, IndexedDB |
+| `animation` | 40 KB | Framer Motion |
+| `index` | 80 KB | App entry point and main logic |
+| `polyfills` | 30 KB | Buffer and Node.js polyfills |
+| `styles` | 20 KB | CSS (Tailwind) |
+
+**Total target: ~870 KB** (gzipped much smaller on fast networks; total size matters on slow 3G).
+
+The build will fail with a detailed error if any chunk exceeds its budget. To waive a budget increase:
+
+1. Add a comment in your PR explaining why the increase is necessary.
+2. Update `BUNDLE_BUDGETS` in `vite.config.ts` with the new values.
+3. Document the change in this table.
+
 ## Project structure
 
 ```
