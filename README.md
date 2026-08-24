@@ -214,7 +214,9 @@ The canonical address book is [deployments/v1/testnet.json](deployments/v1/testn
 
 ## License
 
-Opaque is licensed under the [MIT License](LICENSE).
+Opaque is licensed under the [MIT License](LICENSE). It bundles some
+GPL-3.0-licensed circuit tooling (circom/snarkjs/circomlib) — see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for what's bundled and why.
 
 <div align="center">
 

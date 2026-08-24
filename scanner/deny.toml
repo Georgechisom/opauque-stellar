@@ -1,3 +1,8 @@
+# Mirrors the root deny.toml policy for the contracts workspace. scanner/ is
+# a standalone Cargo workspace (compiled to the hash-pinned scanner WASM),
+# so it needs its own config for `cargo deny check licenses` to find
+# (.github/workflows/license-compliance.yml runs it with scanner/ as the
+# working directory).
 [advisories]
 unmaintained = "none"
 yanked = "warn"

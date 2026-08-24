@@ -1,0 +1,94 @@
+name: License Compliance
+
+# Verifies bundled WASM/circuit dependencies stay covered by
+# THIRD_PARTY_NOTICES.md, and that Rust crate licenses stay inside the
+# deny.toml allow list (#470). See .github/CONTRIBUTING.md § 7.7.
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scanner/Cargo.toml"
+      - "scanner/Cargo.lock"
+      - "deny.toml"
+      - "circuits/package.json"
+      - "circuits/package-lock.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "THIRD_PARTY_NOTICES.md"
+      - "scripts/third-party-notices-lib.ts"
+      - "scripts/generate-third-party-notices.ts"
+      - "scripts/verify-third-party-notices.ts"
+      - ".github/workflows/license-compliance.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cargo-license-check:
+    name: cargo deny check licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            scanner/target
+          key: ${{ runner.os }}-license-cargo-${{ hashFiles('Cargo.lock', 'scanner/Cargo.lock') }}
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: cargo deny check licenses (contracts workspace)
+        run: cargo deny check licenses
+
+      - name: cargo deny check licenses (scanner)
+        working-directory: scanner
+        run: cargo deny check licenses
+
+  notices-check:
+    name: THIRD_PARTY_NOTICES verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # scripts/third-party-notices-lib.ts shells out to `cargo metadata`
+      # (root workspace + scanner/) to enumerate Rust crate licenses.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-notices-cargo-${{ hashFiles('Cargo.lock', 'scanner/Cargo.lock') }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install root tooling
+        run: npm ci
+
+      - name: Install circuits dependencies
+        run: npm ci
+        working-directory: circuits
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Verify THIRD_PARTY_NOTICES.md is current and every bundled dependency is covered
+        run: npm run notices:verify

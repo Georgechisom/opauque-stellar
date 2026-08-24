@@ -12,7 +12,7 @@ export function LegalPageLayout({ title, children }: LegalPageLayoutProps) {
       <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-12">
         <Link
           to="/app"
-          className="inline-block text-slate-500 text-sm hover:text-slate-400 transition-colors mb-8"
+          className="inline-block text-slate-400 text-sm hover:text-slate-300 transition-colors mb-8"
         >
           ← Back
         </Link>

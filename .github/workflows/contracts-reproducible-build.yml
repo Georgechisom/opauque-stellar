@@ -1,0 +1,75 @@
+name: Contracts Reproducible Build
+
+# Builds the Soroban contracts workspace inside the pinned, checksum-verified
+# image in docker/reproducible-build.Dockerfile and compares the resulting
+# WASM hashes against deployments/v1/*.json (#471). A mismatch means either
+# the manifest wasn't updated for a real contract change, or the build isn't
+# reproducible on the pinned toolchain — both are release-blocking.
+# See docs/REPRODUCIBLE_BUILDS.md.
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "soroban.toml"
+      - "deployments/v1/**"
+      - "deployments/manifest.schema.json"
+      - "scripts/verify-deployment-manifest.ts"
+      - "docker/reproducible-build.Dockerfile"
+      - ".github/workflows/contracts-reproducible-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "soroban.toml"
+      - "deployments/v1/**"
+      - "docker/reproducible-build.Dockerfile"
+  workflow_dispatch:
+
+jobs:
+  reproducible-build:
+    name: Build contracts in pinned image and verify WASM hashes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build pinned reproducible-build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/reproducible-build.Dockerfile
+          tags: opaque-contracts-build:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/cargo-registry
+          key: ${{ runner.os }}-reproducible-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-reproducible-cargo-
+
+      - name: Build contracts and verify WASM hashes against deployment manifests
+        run: |
+          mkdir -p "${{ runner.temp }}/cargo-registry"
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -v "${{ runner.temp }}/cargo-registry:/usr/local/cargo/registry" \
+            -w /workspace \
+            opaque-contracts-build:ci \
+            bash -lc "set -euo pipefail
+              npm ci
+              stellar contract build
+              npm run verify:deployment:strict -- --check-wasm --network testnet
+              npm run verify:deployment:strict -- --check-wasm --network mainnet
+            "

@@ -19,6 +19,7 @@
     "test:e2e:chromium": "npx playwright test --project=chromium",
     "test:e2e:firefox": "npx playwright test --project=firefox",
     "test:e2e:webkit": "npx playwright test --project=webkit",
+    "test:a11y": "npx playwright test --project=chromium e2e/a11y.spec.ts",
     "test:cross-browser": "bash ../scripts/cross-browser-test.sh",
     "smoke:payments": "tsx scripts/smoke-private-payment.ts",
     "smoke:reputation": "tsx scripts/smoke-reputation-v2.ts",
@@ -58,6 +59,7 @@
     "ws": "8.20.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.49.0",
     "@tailwindcss/vite": "^4.2.0",

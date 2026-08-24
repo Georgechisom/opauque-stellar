@@ -27,3 +27,8 @@ dist-ssr
 
 # Large ZK artifacts — fetch via npm run fetch:circuits (see artifacts/README.md)
 public/circuits/
+
+# Playwright / accessibility audit output (regenerated per run; uploaded as a CI artifact, not committed)
+playwright-report/
+test-results/
+a11y-report/
