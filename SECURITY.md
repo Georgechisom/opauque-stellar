@@ -30,6 +30,9 @@ Security fixes are applied to the latest code on the `main` branch. When we tag 
 
 Advisory response windows and the routine update-batching schedule are
 defined in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md#12-dependency-update-policy).
+The full supply-chain policy — hash-pinning, reproducible builds, and the
+separate PR-blocking monitoring of the Rust WASM build chain (`scanner/` /
+wasm-bindgen) — is in [docs/supply-chain-policy.md](docs/supply-chain-policy.md).
 
 ## Upgrade governance
 
