@@ -67,6 +67,31 @@ export type ReportEnvironment = {
   userAgent?: string;
 };
 
+export type DiagnosticsExport = {
+  schemaVersion: number;
+  exportedAt: number;
+  appVersion: string;
+  network: string;
+  contractIds: Record<string, string>;
+  featureFlags: Record<string, boolean>;
+  syncStatus: {
+    scanner: "ready" | "syncing" | "paused" | "unknown";
+    lastLedger?: number;
+    lastUpdatedAt?: string;
+  };
+  errors: ErrorReport[];
+};
+
+export type DiagnosticsExportInput = {
+  appVersion: string;
+  network: string;
+  contractIds?: Record<string, string | undefined | null>;
+  featureFlags?: Record<string, boolean>;
+  syncStatus?: Partial<DiagnosticsExport["syncStatus"]>;
+  errors?: Array<ErrorReport | unknown>;
+  now?: number;
+};
+
 // ─── Consent ────────────────────────────────────────────────────────────────
 
 function safeStorage(): Storage | null {
@@ -154,6 +179,72 @@ export function buildErrorReport(
  */
 export function previewErrorReport(report: ErrorReport): string {
   return JSON.stringify(report, null, 2);
+}
+
+export function buildDiagnosticsExport(
+  input: DiagnosticsExportInput,
+): DiagnosticsExport {
+  const now = input.now ?? Date.now();
+  const contractIds = Object.fromEntries(
+    Object.entries(input.contractIds ?? {}).flatMap(([key, value]) => {
+      if (value == null || value === "") return [];
+      return [[key, String(value)]];
+    }),
+  );
+
+  const baseErrors = (input.errors ?? []).map((entry) => {
+    if (entry && typeof entry === "object" && "schemaVersion" in entry && "code" in entry) {
+      return entry as ErrorReport;
+    }
+    const environment = {
+      network: input.network,
+      appVersion: input.appVersion,
+    };
+    return buildErrorReport(entry, environment, now);
+  });
+
+  const syncStatus: DiagnosticsExport["syncStatus"] = {
+    scanner:
+      input.syncStatus?.scanner === "ready" ||
+      input.syncStatus?.scanner === "syncing" ||
+      input.syncStatus?.scanner === "paused"
+        ? input.syncStatus.scanner
+        : "unknown",
+    ...(input.syncStatus?.lastLedger != null ? { lastLedger: Number(input.syncStatus.lastLedger) } : {}),
+    ...(input.syncStatus?.lastUpdatedAt ? { lastUpdatedAt: String(input.syncStatus.lastUpdatedAt) } : {}),
+  };
+
+  return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    exportedAt: coarsenTimestamp(now),
+    appVersion: scrubText(input.appVersion),
+    network: scrubText(input.network),
+    contractIds,
+    featureFlags: input.featureFlags ?? {},
+    syncStatus,
+    errors: baseErrors,
+  };
+}
+
+export function previewDiagnosticsExport(exported: DiagnosticsExport): string {
+  return JSON.stringify(exported, null, 2);
+}
+
+export function downloadDiagnosticsExport(
+  exported: DiagnosticsExport,
+  filename = "opaque-diagnostics.json",
+): void {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([previewDiagnosticsExport(exported)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Pending queue ──────────────────────────────────────────────────────────

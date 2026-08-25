@@ -7,13 +7,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { deployedAddresses } from "../contracts/deployedAddresses";
 import { getNetwork } from "../lib/chain";
+import { getFeatureFlags } from "../lib/featureFlags";
 import { ProofGenerationError } from "../lib/errors";
 import {
+  buildDiagnosticsExport,
   buildErrorReport,
   discardReport,
+  downloadDiagnosticsExport,
   isReportingAvailable,
   isReportingEnabled,
+  previewDiagnosticsExport,
   previewErrorReport,
   sendErrorReport,
   setReportingEnabled,
@@ -51,16 +56,46 @@ function ReportBody({ json }: { json: string }) {
   );
 }
 
+function diagnosticsSample(): string {
+  const contractIds = Object.fromEntries(
+    Object.entries(deployedAddresses)
+      .filter(([key, value]) => key !== "network" && typeof value === "string")
+      .map(([key, value]) => [key, value as string]),
+  );
+
+  return previewDiagnosticsExport(
+    buildDiagnosticsExport({
+      appVersion: appVersion(),
+      network: getNetwork(),
+      contractIds,
+      featureFlags: getFeatureFlags(),
+      syncStatus: { scanner: "ready", lastLedger: 12345, lastUpdatedAt: "2026-08-25T10:00:00Z" },
+      errors: [
+        buildErrorReport(
+          new ProofGenerationError({
+            message: "Withdrawal proof generation failed: witness calculation error",
+            circuit: "privacy_pool_withdraw",
+            context: { poolId: contractIds.stealthRegistry ?? "CEXAMPLE", leafIndex: 12 },
+          }),
+          { network: getNetwork(), appVersion: appVersion() },
+        ),
+      ],
+    }),
+  );
+}
+
 export function ErrorReportingSettings() {
   const [enabled, setEnabled] = useState(() => isReportingEnabled());
   const [pending, setPending] = useState<readonly ErrorReport[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showSample, setShowSample] = useState(false);
+  const [showDiagnosticsExport, setShowDiagnosticsExport] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
 
   const available = useMemo(() => isReportingAvailable(), []);
   const sample = useMemo(() => previewErrorReport(sampleReport()), []);
+  const diagnosticsPreview = useMemo(() => diagnosticsSample(), []);
 
   useEffect(() => subscribeToPendingReports(setPending), []);
 
@@ -139,15 +174,47 @@ export function ErrorReportingSettings() {
         </p>
       )}
 
-      <div className="mt-4">
-        <button
-          type="button"
-          onClick={() => setShowSample((v) => !v)}
-          className="min-h-9 rounded-lg border border-ink-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow"
-          aria-expanded={showSample}
-        >
-          {showSample ? "Hide example report" : "Show an example report"}
-        </button>
+      <div className="mt-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSample((v) => !v)}
+            className="min-h-9 rounded-lg border border-ink-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow"
+            aria-expanded={showSample}
+          >
+            {showSample ? "Hide example report" : "Show an example report"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDiagnosticsExport((v) => !v)}
+            className="min-h-9 rounded-lg border border-ink-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:border-glow hover:text-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glow"
+            aria-expanded={showDiagnosticsExport}
+          >
+            {showDiagnosticsExport ? "Hide diagnostics export" : "Review diagnostics export"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const exportPayload = buildDiagnosticsExport({
+                appVersion: appVersion(),
+                network: getNetwork(),
+                contractIds: Object.fromEntries(
+                  Object.entries(deployedAddresses).filter(
+                    ([key, value]) => key !== "network" && typeof value === "string",
+                  ),
+                ),
+                featureFlags: getFeatureFlags(),
+                syncStatus: { scanner: "ready", lastLedger: 12345, lastUpdatedAt: new Date().toISOString() },
+                errors: pending.length > 0 ? pending : [sampleReport()],
+              });
+              downloadDiagnosticsExport(exportPayload, "opaque-diagnostics.json");
+            }}
+            className="min-h-9 rounded-lg bg-glow px-3 py-1.5 text-xs font-semibold text-ink-950 transition-colors hover:bg-[#ffe24f]"
+          >
+            Download JSON
+          </button>
+        </div>
+
         {showSample && (
           <>
             <p className="mt-2 text-xs text-mist/60">
@@ -155,6 +222,17 @@ export function ErrorReportingSettings() {
               code path as a live one.
             </p>
             <ReportBody json={sample} />
+          </>
+        )}
+
+        {showDiagnosticsExport && (
+          <>
+            <p className="mt-2 text-xs text-mist/60">
+              Sanitized diagnostics export: app version, network, contract IDs, feature
+              flags, and non-sensitive sync status only. Keys, proofs, signatures, and
+              raw metadata stay outside the bundle.
+            </p>
+            <ReportBody json={diagnosticsPreview} />
           </>
         )}
       </div>
