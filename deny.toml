@@ -12,6 +12,10 @@ allow = [
   "ISC",
   "Unicode-DFS-2016",
   "Unicode-3.0",
+  # Weak (file-level) copyleft: only triggers on modifying and redistributing
+  # the MPL-covered file itself, safe for unmodified use as a dependency.
+  "MPL-2.0",
+  "Zlib",
 ]
 confidence-threshold = 0.7
 

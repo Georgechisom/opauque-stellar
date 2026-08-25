@@ -43,7 +43,12 @@ export function PrivacyPage() {
           details, wallet addresses, transaction hashes, screenshots, and other context
           you choose to provide. Reports are used for support, abuse triage, security
           review, and legal compliance. Do not put private keys, seed phrases, passwords,
-          or sensitive victim data in public issues. See the{" "}
+          or sensitive victim data in public issues. The app also supports a sanitized
+          diagnostics export with app version, network, deployed contract IDs, feature
+          flags, and scrubbed sync/error details; it intentionally excludes private keys,
+          proofs, signatures, full addresses, and raw metadata. Support can inspect the
+          sanitized bundle to triage a crash or failed sync, but Opaque cannot reverse a
+          lost local backup, recovered secret, or on-chain transaction. See the{" "}
           <Link
             to={ABUSE_POLICY_ROUTE}
             className="text-white underline hover:text-white font-medium"

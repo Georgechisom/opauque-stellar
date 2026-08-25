@@ -12,3 +12,5 @@ When you run `npm run deploy:testnet`, the deploy script writes every Soroban co
 | `security/mainnet-audit-findings.json` | Mainnet deploy gate (blocking findings) |
 
 After deploying, commit the updated manifest so CI and other developers stay in sync.
+
+`wasmHash` in each manifest is verified against a from-source rebuild inside a pinned, checksum-verified Docker image on every PR touching `contracts/**` — see [docs/REPRODUCIBLE_BUILDS.md](../docs/REPRODUCIBLE_BUILDS.md).

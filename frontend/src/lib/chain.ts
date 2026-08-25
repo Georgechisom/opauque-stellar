@@ -5,7 +5,12 @@
  * - VITE_STELLAR_RPC_URL / VITE_STELLAR_RPC_FALLBACK_URLS
  * - VITE_STELLAR_HORIZON_URL / VITE_STELLAR_HORIZON_FALLBACK_URLS
  * - non-mainnet public defaults
+ *
+ * All RPC URLs are validated against a hostname allowlist in production to prevent
+ * misconfiguration from pointing the wallet at attacker-controlled endpoints.
  */
+
+import { isHostnameAllowed, validateRpcHostname } from "./rpcAllowlist";
 
 export type StellarNetwork = "testnet" | "futurenet" | "mainnet" | "local";
 export const STELLAR_NETWORKS: readonly StellarNetwork[] = [
@@ -41,6 +46,10 @@ const PUBLIC_MAINNET_HORIZON = new Set(["https://horizon.stellar.org"]);
 
 let rpcWarnLogged = false;
 let horizonWarnLogged = false;
+
+function isProductionBuild(): boolean {
+  return import.meta.env.MODE === "production" || import.meta.env.PROD === true;
+}
 
 function splitUrls(raw: string | undefined): string[] {
   return (raw ?? "")
@@ -83,10 +92,16 @@ export function getRpcUrls(): string[] {
   const override = (import.meta.env.VITE_STELLAR_RPC_URL as string | undefined)?.trim();
   const fallbacks = splitUrls(import.meta.env.VITE_STELLAR_RPC_FALLBACK_URLS as string | undefined);
   const network = getNetwork();
+  const isProduction = isProductionBuild();
+
   if (override) {
     const urls = [override, ...fallbacks];
     if (network === "mainnet") {
       urls.forEach((url) => validateProductionUrl("RPC", url, PUBLIC_MAINNET_RPC));
+    }
+    // Validate hostnames against allowlist in production
+    if (isProduction) {
+      urls.forEach((url) => validateRpcHostname(url, network, true));
     }
     return urls;
   }
@@ -113,10 +128,16 @@ export function getHorizonUrls(): string[] {
   const override = (import.meta.env.VITE_STELLAR_HORIZON_URL as string | undefined)?.trim();
   const fallbacks = splitUrls(import.meta.env.VITE_STELLAR_HORIZON_FALLBACK_URLS as string | undefined);
   const network = getNetwork();
+  const isProduction = isProductionBuild();
+
   if (override) {
     const urls = [override, ...fallbacks];
     if (network === "mainnet") {
       urls.forEach((url) => validateProductionUrl("Horizon", url, PUBLIC_MAINNET_HORIZON));
+    }
+    // Validate hostnames against allowlist in production
+    if (isProduction) {
+      urls.forEach((url) => validateRpcHostname(url, network, true));
     }
     return urls;
   }

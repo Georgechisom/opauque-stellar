@@ -21,6 +21,7 @@ import { fetchLatestValidMerkleRoot, generateReputationProof, submitProofOnChain
 import { isWasmHtmlFallbackError } from "../lib/publicAssets";
 import type { DiscoveredTrait, ProofData, ProofStage } from "../lib/reputation";
 import { ProofStageTimer } from "../lib/proofDiagnostics";
+import { getProofRateLimiter } from "../lib/proofRateLimiter";
 import { ModalShell } from "./ModalShell";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { CopyStatusHint } from "./CopyStatusHint";
@@ -49,6 +50,17 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
     }
     if (!isSetup) {
       setProofError("Keys not set up. Sign in first.");
+      setStep("error");
+      return;
+    }
+
+    // Acquire rate limiter slot
+    const limiter = getProofRateLimiter();
+    let releaseSlot: (() => void) | null = null;
+    try {
+      releaseSlot = limiter.acquireSlot();
+    } catch (err) {
+      setProofError(err instanceof Error ? err.message : "Proof generation rate limit exceeded");
       setStep("error");
       return;
     }
@@ -119,6 +131,8 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
           : msg,
       );
       setStep("error");
+    } finally {
+      if (releaseSlot) releaseSlot();
     }
   }, [wasm, isSetup, trait, getMasterKeys, startProof, setProofStage, setProofError, setProofReady]);
 

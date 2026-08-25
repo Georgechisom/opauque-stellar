@@ -121,6 +121,7 @@
     "@vitest/coverage-istanbul": "^4.1.9",
     "circomlibjs": "^0.1.7",
     "eslint": "^9.39.4",
+    "fast-check": "^3.17.1",
     "publint": "^0.3.21",
     "snarkjs": "^0.7.6",
     "tsup": "^8.3.5",

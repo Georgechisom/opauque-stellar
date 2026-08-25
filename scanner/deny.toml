@@ -1,0 +1,32 @@
+# Mirrors the root deny.toml policy for the contracts workspace. scanner/ is
+# a standalone Cargo workspace (compiled to the hash-pinned scanner WASM),
+# so it needs its own config for `cargo deny check licenses` to find
+# (.github/workflows/license-compliance.yml runs it with scanner/ as the
+# working directory).
+[advisories]
+unmaintained = "none"
+yanked = "warn"
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  # Weak (file-level) copyleft: only triggers on modifying and redistributing
+  # the MPL-covered file itself, safe for unmodified use as a dependency.
+  "MPL-2.0",
+  "Zlib",
+]
+confidence-threshold = 0.7
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
