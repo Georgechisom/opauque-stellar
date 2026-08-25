@@ -14,6 +14,7 @@ import {
 } from "../errors";
 import {
   REPORTING_CONSENT_KEY,
+  buildDiagnosticsExport,
   buildErrorReport,
   captureError,
   clearPendingReports,
@@ -121,6 +122,38 @@ describe("consent gate (#560)", () => {
       reason: "disabled",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("sanitized diagnostics export (#142)", () => {
+  it("includes app metadata without leaking keys or addresses", () => {
+    const exportPayload = buildDiagnosticsExport({
+      appVersion: ENV.appVersion,
+      network: ENV.network,
+      featureFlags: { manualGhostAddresses: true, privacyPool: false, debugLogs: true },
+      contractIds: { privacyPool: CONTRACT, schemaRegistry: "CA58..." },
+      syncStatus: { scanner: "ready", lastLedger: 12345, lastUpdatedAt: "2026-08-25T10:00:00Z" },
+      errors: [
+        buildErrorReport(
+          new ProofGenerationError({
+            message: `Proving failed for ${ACCOUNT} withdrawing 12.5 XLM`,
+            circuit: "privacy_pool_withdraw",
+            context: { poolId: CONTRACT, amountStroops: 125_000_000n },
+          }),
+          ENV,
+        ),
+      ],
+    });
+
+    const serialized = JSON.stringify(exportPayload);
+    expect(exportPayload.appVersion).toBe("1.4.2");
+    expect(exportPayload.network).toBe("testnet");
+    expect(exportPayload.featureFlags.privacyPool).toBe(false);
+    expect(exportPayload.contractIds.privacyPool).toBe(CONTRACT);
+    expect(serialized).not.toContain(ACCOUNT);
+    expect(serialized).not.toContain(CONTRACT);
+    expect(serialized).not.toContain("12.5");
+    expect(serialized).toContain("privacy_pool_withdraw");
   });
 });
 
