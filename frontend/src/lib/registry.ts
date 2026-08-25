@@ -54,7 +54,25 @@ function scValToBytes(val: unknown): Uint8Array | null {
   return null;
 }
 
+/**
+ * E2E test harness (Playwright): reaching a "registered" wallet state for
+ * real requires simulating a full Soroban `getLedgerEntries` + contract
+ * `resolve` round trip, which is impractical to fake at the network layer
+ * without re-implementing large parts of the RPC response format. Tests set
+ * `window.__OPAQUE_E2E_REGISTERED_META__` (via `page.addInitScript`, see
+ * `frontend/e2e/fixtures/wallet.ts`) to short-circuit this one read — never
+ * set outside of test runs. Real users always go through `resolveMetaAddress`.
+ */
+declare global {
+  interface Window {
+    __OPAQUE_E2E_REGISTERED_META__?: Hex;
+  }
+}
+
 export async function isRegistered(address: string): Promise<boolean> {
+  if (typeof window !== "undefined" && window.__OPAQUE_E2E_REGISTERED_META__) {
+    return true;
+  }
   const meta = await resolveMetaAddress(address);
   return meta != null && meta.length === 2 + 66 * 2;
 }

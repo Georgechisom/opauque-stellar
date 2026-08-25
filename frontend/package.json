@@ -19,7 +19,7 @@
     "test:e2e:chromium": "npx playwright test --project=chromium",
     "test:e2e:firefox": "npx playwright test --project=firefox",
     "test:e2e:webkit": "npx playwright test --project=webkit",
-    "test:a11y": "npx playwright test --project=chromium e2e/a11y.spec.ts",
+    "test:e2e:update": "npx playwright test --project=chromium --update-snapshots",
     "test:cross-browser": "bash ../scripts/cross-browser-test.sh",
     "smoke:payments": "tsx scripts/smoke-private-payment.ts",
     "smoke:reputation": "tsx scripts/smoke-reputation-v2.ts",
