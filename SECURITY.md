@@ -30,6 +30,9 @@ Security fixes are applied to the latest code on the `main` branch. When we tag 
 
 Advisory response windows and the routine update-batching schedule are
 defined in [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md#12-dependency-update-policy).
+The full supply-chain policy — hash-pinning, reproducible builds, and the
+separate PR-blocking monitoring of the Rust WASM build chain (`scanner/` /
+wasm-bindgen) — is in [docs/supply-chain-policy.md](docs/supply-chain-policy.md).
 
 ### Critical dependencies
 
@@ -61,6 +64,15 @@ dependencies.
 ## Upgrade governance
 
 Contract upgrade authority, process, and user-visible guarantees are documented in [docs/UPGRADE_GOVERNANCE.md](docs/UPGRADE_GOVERNANCE.md).
+
+## Admin key compromise response
+
+If an admin, governance, multisig signer, or deployer key is suspected or
+confirmed compromised, follow the per-contract-role playbooks (pause / freeze,
+admin transfer, contract upgrade) and the quarterly drill checklist in
+[docs/ADMIN_KEY_COMPROMISE_PLAYBOOKS.md](docs/ADMIN_KEY_COMPROMISE_PLAYBOOKS.md).
+Those playbooks assume the admin-authority model documented in
+[docs/MULTISIG_ADMIN.md](docs/MULTISIG_ADMIN.md).
 
 ## Scope
 

@@ -50,6 +50,11 @@ export const SecuritySettings: React.FC = () => {
           <h2 className="text-2xl font-semibold mb-4">Signing activity</h2>
           <SigningAuditLogSettings />
         </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4">Session</h2>
+          <SessionTimeoutSettings />
+        </section>
       </div>
     </div>
   );

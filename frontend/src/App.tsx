@@ -27,6 +27,7 @@ import { SecuritySettings } from "./pages/settings/SecuritySettings";
 import { FeatureDisabledNotice } from "./components/FeatureDisabledNotice";
 import { getTabAccess } from "./lib/tabAccess";
 import { getFeatureFlags } from "./lib/featureFlags";
+import { SessionTimeoutProvider } from "./components/security/SessionTimeoutProvider";
 
 const SchemaStudio = lazy(() => import("./components/SchemaStudio").then((m) => ({ default: m.SchemaStudio })));
 const AttestationManager = lazy(() => import("./components/AttestationManager").then((m) => ({ default: m.AttestationManager })));
@@ -300,7 +301,9 @@ function MotionAwareApp() {
     <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
       <MotionPreferenceEffect />
       <NetworkMismatchModal />
-      <AppContent />
+      <SessionTimeoutProvider>
+        <AppContent />
+      </SessionTimeoutProvider>
       <ToastLayer />
     </MotionConfig>
   );

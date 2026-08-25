@@ -427,6 +427,31 @@ See Section 13 for the checks that *are* PR-blocking today.
 immediately on advisory publication, independent of the batching schedule
 below.
 
+### Rust WASM build chain (`scanner/`, compiled with wasm-pack)
+
+The `scanner/` crate is **not** part of the contracts workspace, so its
+dependency tree is monitored separately (#486). The
+[`dependency-audit.yml`](workflows/dependency-audit.yml) `scanner-audit` job
+runs `cargo audit` **on every pull request** (PR-blocking) as well as on the
+weekly schedule, so a vulnerable build dependency cannot reach `main`
+unnoticed.
+
+- **wasm-bindgen advisories are explicitly tracked.** A dedicated step in the
+  `scanner-audit` job checks `wasm-bindgen` and its direct macro/backend crates
+  and fails the PR if any advisory is present, so they are never buried in a
+  broader audit pass.
+- **Triaged within SLA.** Advisories surfaced by `scanner-audit` follow the
+  same response windows in the table above (Critical 24–48h, High 7 days, etc.).
+  Because the job is PR-blocking, a Critical/High finding must be resolved or
+  have an accepted `cargo audit --ignore` exception (recorded in
+  `scanner/deny.toml` or an ignore file with a justification) before merge.
+- **Local equivalent.** Maintainers can reproduce the check before pushing:
+  `cd scanner && cargo install cargo-audit --locked && cargo audit`.
+
+The full supply-chain policy — hash-pinning of scanner WASM and circuit
+artifacts, reproducible builds, and the manifest verification gate — is
+documented in [`docs/supply-chain-policy.md`](docs/supply-chain-policy.md).
+
 ### Batching strategy per workspace
 
 Routine (non-security) version updates are batched monthly per workspace via

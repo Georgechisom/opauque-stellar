@@ -27,6 +27,7 @@ import { useScanner } from "../hooks/useScanner";
 import { useWallet } from "../hooks/useWallet";
 import { useFreezeStatus } from "../hooks/useFreezeStatus";
 import { FREEZE_STATUS_COPY } from "../lib/freezePolicy";
+import { getDocUrl } from "../lib/docsLinks";
 
 const ICONS: Record<string, string> = {
   code: "</> ",
@@ -163,6 +164,14 @@ export function ReputationDashboardView({ onBack }: ReputationDashboardViewProps
             <p className="mt-1 text-sm text-mist">
               Prove verified traits with zero-knowledge, share eligibility, keep identity private.
             </p>
+            <a
+              href={getDocUrl("trusted-setup-verification")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-xs text-mist/70 underline hover:text-white"
+            >
+              Verify the production trusted setup yourself →
+            </a>
           </div>
         </div>
         <button
